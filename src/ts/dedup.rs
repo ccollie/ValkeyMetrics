@@ -24,7 +24,7 @@ pub fn deduplicate_samples(
         }
 
         src_timestamps[j] = ts;
-        src_values[j] = src_values[i];
+        src_values.swap(j, i);
         j += 1;
         count += 1;
 
@@ -35,8 +35,10 @@ pub fn deduplicate_samples(
         }
     }
 
-    src_timestamps[count - 1] = src_timestamps[src_timestamps.len() - 1];
-    src_values[count - 1] = src_values[src_values.len() - 1];
+    let last = src_timestamps.len() - 1;
+    src_timestamps.swap(count - 1, last);
+    src_values.swap(count - 1, last);
+
     src_timestamps.truncate(count);
     src_values.truncate(count);
 }

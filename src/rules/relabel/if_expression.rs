@@ -3,7 +3,8 @@ use metricsql_parser::ast::Expr;
 use metricsql_parser::prelude::MetricExpr;
 use serde::{Deserialize, Serialize};
 use crate::common::regex_util::PromRegex;
-use crate::rules::alerts::{AlertsError, AlertsResult, Label};
+use crate::common::types::Label;
+use crate::rules::alerts::{AlertsError, AlertsResult};
 use crate::rules::relabel::{LabelFilter, LabelFilterOp, LabelMatchers};
 use crate::rules::relabel::label_filter::to_canonical_label_name;
 
@@ -25,11 +26,9 @@ impl IfExpression {
     pub fn default() -> Self {
         IfExpression(vec![])
     }
-
     pub fn new(ies: Vec<IfExpressionMatcher>) -> Self {
         IfExpression(ies)
     }
-
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -108,7 +107,6 @@ impl Display for IfExpressionMatcher {
         write!(f, "{}", self.s)
     }
 }
-
 
 fn match_label_filters(lfs: &[LabelFilter], labels: &[Label]) -> bool {
     for lf in lfs {

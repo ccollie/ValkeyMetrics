@@ -5,3 +5,4 @@ mod fast_regex_matcher;
 
 pub(crate) use fast_string_matcher::*;
 pub(crate) use fast_regex_matcher::*;
+pub(crate) use fast_string_transformer::*;

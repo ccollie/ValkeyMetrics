@@ -1,105 +1,82 @@
-use std::collections::HashMap;
 use std::fmt::Display;
-use std::str::FromStr;
 use std::time::Duration;
 use ahash::AHashMap;
 use metricsql_engine::Timestamp;
-use redis_module::{Context, RedisError, RedisString};
-use serde::{Deserialize, Serialize};
-use crate::ts::DuplicatePolicy;
+use redis_module::{Context, NotifyEvent, RedisError, RedisResult, RedisString};
+use redis_module::key::RedisKeyWritable;
+use crate::globals::get_timeseries_index;
+use crate::module::REDIS_PROMQL_SERIES_TYPE;
+use crate::ts::{DuplicatePolicy, TimeSeriesOptions};
 use crate::ts::time_series::TimeSeries;
 
 pub const DEFAULT_CHUNK_SIZE_BYTES: usize = 4 * 1024;
 pub type Labels = AHashMap<String, String>;  // todo use ahash
 
-#[non_exhaustive]
-#[derive(Clone, Debug, Default, Hash, PartialEq, Serialize, Deserialize)]
-pub enum Encoding {
-    #[default]
-    Compressed,
-    Uncompressed,
+pub(crate) fn create_timeseries(
+    key: &RedisString,
+    options: TimeSeriesOptions,
+) -> TimeSeries {
+    let mut ts = TimeSeries::new();
+    ts.metric_name = options.metric_name.unwrap_or_else(|| key.to_string());
+    ts.chunk_size_bytes = options.chunk_size.unwrap_or(DEFAULT_CHUNK_SIZE_BYTES);
+    ts.retention = options.retention.unwrap_or(Duration::from_millis(0u64));
+    ts.dedupe_interval = options.dedupe_interval;
+    ts.duplicate_policy = options.duplicate_policy;
+    if let Some(labels) = options.labels {
+        ts.labels = labels;
+    }
+
+    let ts_index = get_timeseries_index();
+    ts_index.index_time_series(&mut ts, key.to_string());
+    ts
 }
 
-impl Encoding {
-    pub fn is_compressed(&self) -> bool {
-        match self {
-            Encoding::Compressed => true,
-            Encoding::Uncompressed => false,
-        }
+pub(crate) fn create_and_store_series(ctx: &Context, key: &RedisString, options: TimeSeriesOptions) -> RedisResult<()> {
+    let series_key = RedisKeyWritable::open(ctx.ctx, &key);
+    // check if this refers to an existing series
+    if !series_key.is_empty() {
+        return Err(RedisError::Str("TSDB: the key already exists"));
     }
 
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Encoding::Compressed => "COMPRESSED",
-            Encoding::Uncompressed => "UNCOMPRESSED",
-        }
-    }
+    let ts = create_timeseries(&key, options);
+    series_key.set_value(&REDIS_PROMQL_SERIES_TYPE, ts)?;
+
+    ctx.replicate_verbatim();
+    ctx.notify_keyspace_event(NotifyEvent::MODULE, "PROM.CREATE-SERIES", &key);
+    ctx.log_verbose("series created");
+
+    Ok(())
 }
 
-impl Display for Encoding {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
+pub(crate) fn series_exists(ctx: &Context, key: &RedisString) -> bool {
+    let series_key = ctx.open_key(key.into());
+    !series_key.is_empty()
 }
 
-impl FromStr for Encoding {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_ascii_lowercase().as_str() {
-            "compressed" => Ok(Encoding::Compressed),
-            "uncompressed" => Ok(Encoding::Uncompressed),
-            _ => Err(format!("invalid encoding: {}", s)),
-        }
+pub(crate) fn get_series_mut<'a>(ctx: &'a Context, key: &RedisString, must_exist: bool) -> RedisResult<Option<&'a mut TimeSeries>> {
+    let redis_key = ctx.open_key_writable(key.into());
+    let result = redis_key.get_value::<TimeSeries>(&REDIS_PROMQL_SERIES_TYPE)?;
+    if must_exist && result.is_none() {
+        return Err(RedisError::Str("ERR TSDB: the key is not a timeseries"));
     }
+    Ok(result)
 }
 
-
-
-type RedisContext = redis_module::Context;
-
-#[derive(Debug, Clone)]
-pub struct TimeSeriesOptions {
-    pub metric_name: String,
-    pub encoding: Option<Encoding>,
-    pub chunk_size: Option<usize>,
-    pub retention: Option<Duration>,
-    pub duplicate_policy: Option<DuplicatePolicy>,
-    pub labels: HashMap<String, String>,
+pub(crate) fn get_timeseries<'a>(ctx: &'a Context, key: &RedisString, must_exist: bool) -> RedisResult<Option<&'a TimeSeries>> {
+    let redis_key = ctx.open_key(key.into());
+    let result = redis_key.get_value::<TimeSeries>(&REDIS_PROMQL_SERIES_TYPE)?;
+    if must_exist && result.is_none() {
+        return Err(RedisError::Str("ERR TSDB: the key is not a timeseries"));
+    }
+    Ok(result)
 }
 
-impl TimeSeriesOptions {
-    pub fn new(key: &RedisString) -> Self {
-        Self {
-            metric_name: key.to_string(),
-            encoding: None,
-            chunk_size: Some(DEFAULT_CHUNK_SIZE_BYTES),
-            retention: None,
-            duplicate_policy: None,
-            labels: Default::default(),
-        }
-    }
-
-    pub fn encoding(&mut self, encoding: Encoding) {
-        self.encoding = Some(encoding);
-    }
-
-    pub fn chunk_size(&mut self, chunk_size: usize) {
-        self.chunk_size = Some(chunk_size);
-    }
-
-    pub fn retention(&mut self, retention: Duration) {
-        self.retention = Some(retention);
-    }
-
-    pub fn duplicate_policy(&mut self, duplicate_policy: DuplicatePolicy) {
-        self.duplicate_policy = Some(duplicate_policy);
-    }
-
-    pub fn labels(&mut self, labels: HashMap<String, String>) {
-        self.labels = labels;
-    }
+pub(crate) fn get_timeseries_multi<'a>(ctx: &'a Context, keys: &[&RedisString]) -> RedisResult<Vec<Option<&'a TimeSeries>>> {
+    keys
+        .iter()
+        .map(|key| get_timeseries(ctx, key, false)).collect::<Result<Vec<_>, _>>()
 }
+
 
 
 pub(super) fn internal_add(

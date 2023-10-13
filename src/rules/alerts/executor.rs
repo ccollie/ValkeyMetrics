@@ -1,126 +1,147 @@
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use ahash::{AHashMap, AHashSet};
+use metricsql_engine::TimestampTrait;
+use crate::common::constants::STALE_NAN;
+use crate::common::types::{Label, Timestamp};
+use crate::config::get_global_settings;
+use crate::rules::alerts::{AlertingRule, AlertsError, AlertsResult, Notifier, WriteQueue};
+use crate::rules::{new_time_series, RawTimeSeries, Rule, RuleType};
+use crate::rules::relabel::labels_to_string;
 
-pub(crate) struct Executor {
-    notifiers       func() []notifier.Notifier
-    notifier_headers: HashMap<String, String>,
+pub type PreviouslySentSeries = HashMap<u64, HashMap<String, Vec<Label>>>;
 
-    rw *remotewrite.Client
-    previouslySentSeriesToRWMu sync.Mutex
-    // previouslySentSeriesToRW stores series sent to RW on previous iteration
-    // map[ruleID]map[ruleLabels][]prompb.Label
-    // where `ruleID` is ID of the Rule within a Group
-    // and `ruleLabels` is []prompb.Label marshalled to a string
-    previouslySentSeriesToRW map[uint64]map[string][]Label
+pub struct Executor {
+    eval_ts: Timestamp,
+    pub(crate) notifiers: fn() -> Vec<Box<dyn Notifier>>,
+    pub(crate) notifier_headers: AHashMap<String, String>,
+
+    pub(crate) rw: Arc<WriteQueue>,
+
+    /// previously_sent_series_to_rw stores series sent to RW on previous iteration
+    /// HashMap<RuleID, HashMap<ruleLabels, Vec<Label>>
+    /// where `ruleID` is id of the Rule within a Group and `ruleLabels` is Vec<Label> marshalled
+    /// to a string
+    previously_sent_series: Mutex<PreviouslySentSeries>,
 }
 
+/// SKIP_RAND_SLEEP_ON_GROUP_START will skip random sleep delay in group first evaluation
+static mut SKIP_RAND_SLEEP_ON_GROUP_START: bool = false;
+
 impl Executor {
-    pub(super) fn exec_concurrently(rules: &[Rule], ts: Timestamp, concurrency: usize,
-                                    resolve_duration: Duration, limit: usize) -> AlertsResult<()> {
-        if concurrency == 1 {
-            // fast path
-            for rule in rules {
-                e.exec(ctx, rule, ts, resolveDuration, limit)
-            }
-            Ok(())
+    pub fn new(
+        notifiers: fn() -> Vec<Box<dyn Notifier>>,
+        notifier_headers: AHashMap<String, String>,
+        rw: Arc<WriteQueue>,
+    ) -> Self {
+        Executor {
+            eval_ts: Timestamp::now(),
+            notifiers,
+            notifier_headers,
+            rw,
+            previously_sent_series: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// get_stale_series checks whether there are stale series from previously sent ones.
+    fn get_stale_series(&self, rule: impl Rule, tss: &[RawTimeSeries], timestamp: Timestamp) -> Vec<RawTimeSeries> {
+        let mut rule_labels: HashMap<String, &Vec<Label>> = HashMap::with_capacity(tss.len());
+        for ts in tss.inter() {
+            // convert labels to strings so we can compare with previously sent series
+            let key = labels_to_string(&ts.labels);
+            rule_labels.insert(key, &ts.labels);
         }
 
+        let rid = rule.id();
+        let mut stale_s: Vec<RawTimeSeries> = Vec::with_capacity(tss.len());
+        // check whether there are series which disappeared and need to be marked as stale
+        let mut map = self.previously_sent_series.lock().unwrap();
+
+        if let Some(entry) = map.get_mut(&rid) {
+            for (key, labels) in entry.iter_mut() {
+                if rule_labels.contains_key(&key) {
+                    continue;
+                }
+                let stamps = [timestamp];
+                let values = [STALE_NAN.clone()];
+                // previously sent series are missing in current series, so we mark them as stale
+                let ss = new_time_series(&values, &stamps, &labels);
+                stale_s.push(ss)
+            }
+        }
+
+        // set previous series to current
+        map.insert(rid, rule_labels);
+
+        return stale_s;
+    }
+
+    /// deletes references in tracked previously_sent_series_to_rw list to rules
+    /// which aren't present in the given active_rules list. The method is used when the list
+    /// of loaded rules has changed and executor has to remove references to non-existing rules.
+    pub(super) fn purge_stale_series(&mut self, active_rules: &[impl Rule]) {
+        let id_hash_set: AHashSet<u64> = active_rules.iter().map(|r| r.id()).collect();
+
+        let mut map = self.previously_sent_series.lock().unwrap();
+
+        map.retain(|id, _| id_hash_set.contains(id));
+    }
+
+    pub(super) fn exec_concurrently(&mut self, rules: &[impl Rule], ts: Timestamp, resolve_duration: Duration, limit: usize) -> AlertsResult<()> {
         for rule in rules {
-            res < -e.exec(ctx, r, ts, resolveDuration, limit)
+            res < -self.exec(rule, ts, resolve_duration, limit)
+        }
+        return res;
+    }
+
+    pub fn exec(&mut self, rule: &mut impl Rule, ts: Timestamp, resolve_duration: Duration, limit: usize) -> AlertsResult<()> {
+        let tss = rule.exec(ts, limit)
+            .map_err(|err| AlertsError::QueryExecutionError(format!("rule {:?}: failed to execute: {:?}", rule, err)))?;
+
+        self.push_to_rw(&rule, &tss)?;
+
+        let stale_series = self.get_stale_series(rule, &tss, ts);
+        self.push_to_rw(&rule, &stale_series)?;
+
+        if rule.rule_type() == RuleType::Alerting {
+            let settings = get_global_settings();
+            let alerting_rule = rule.as_any().downcast_ref::<AlertingRule>().unwrap();
+            return self.send_notifications(alerting_rule, ts, resolve_duration, settings.resend_delay);
+        }
+        return err_gr.Err();
+    }
+
+    fn push_to_rw(&mut self, rule: &impl Rule, tss: &[RawTimeSeries]) -> AlertsResult<()> {
+        let mut last_err = "".to_string();
+        for ts in tss {
+            if let Err(err) = self.rw.push(ts) {
+                last_err = format!("rule {:?}: remote write failure: {:?}", rule, err);
+            }
+        }
+        if !last_err.is_empty() {
+            // todo: specific error type
+            return Err(AlertsError::Generic(last_err));
         }
         Ok(())
     }
 
-    fn exec(&self, rule: &impl Rule, ts: Timeestamp, resolve_duration: Duration, limit: usize) -> AlertsResult<()> {
-        let tss = rule.exec(ctx, ts, limit)
-            .map_err(|e|
-                AlertError(format!("rule {:?}: failed to execute: :?", rule, e)))?;
-
-        let push_to_rw = |e: &Executor, tss: &[TimeSeries]| -> AlertsResult<()> {
-            for ts in tss.iter() {
-                e.rw.Push(ts)
-                    .map_err(|err| {
-                        AlertsError(format!("rule {}: remote write failure: {:?}", rule, err))
-                    });
+    fn send_notifications(&self, rule: &AlertingRule, ts: Timestamp, resolve_duration: Duration, resend_delay: Duration) -> AlertsResult<()> {
+        let mut alerts = rule.alerts_to_send(ts, resolve_duration, resend_delay);
+        if alerts.is_empty() {
+            return Ok(());
+        }
+        let mut err_gr: Vec<String> = Vec::with_capacity(4);
+        for nt in self.notifiers() {
+            if let Err(err) = nt.send(&alerts, &self.notifier_headers) {
+                let msg = format!("failed to send alerts to addr {}: {:?}", nt.addr(), err);
+                err_gr.push(msg);
             }
-            return lastErr
-        };
-
-        push_to_rw(self, tss)?;
+        }
+        return err_gr.Err();
     }
 
-    let staleSeries = self.getStaleSeries(rule, tss, ts)?;
-    pushToRW(staleSeries)?;
+    pub(super) fn on_tick(&mut self) {
 
-    ar, ok := rule.(*AlertingRule)
-    if !ok {
-        return nil
     }
-
-    let alerts = ar.alertsToSend(ts, resolveDuration, *resendDelay);
-    if alerts.is_empty() {
-        return Ok(())
-    }
-
-errGr := new(utils.ErrGroup)
-for nt in e.notifiers() {
-nt.send(ctx, alerts, e.notifierHeaders)
-.map_err(|err| AlertsError(format!("rule {}: failed to send alerts to addr {}: {}", rule, nt.Addr(), err)))?;
 }
-return errGr.Err()
-}
-}
-
-
-// getStaledSeries checks whether there are stale series from previously sent ones.
-func (e *executor) getStaleSeries(rule Rule, tss []TimeSeries, timestamp time.Time) []TimeSeries {
-    let ruleLabels: AHashMap<String, Vec<Label>> = AHashMap::with_capacity(tss.len());
-    for ts in tss.iter() {
-        // convert labels to strings so we can compare with previously sent series
-        let key = labelsToString(ts.Labels)
-        ruleLabels[key] = ts.Labels
-    }
-
-    let rID := rule.ID()
-    let mut staleS: Vec<Timeseries> = vec![];
-    // check whether there are series which disappeared and need to be marked as stale
-e.previouslySentSeriesToRWMu.Lock()
-for key, labels := range e.previouslySentSeriesToRW[rID] {
-if _, ok := ruleLabels[key]; ok {
-continue
-}
-// previously sent series are missing in current series, so we mark them as stale
-ss := newTimeSeriesPB([]float64{decimal.StaleNaN}, []int64{timestamp.Unix()}, labels)
-staleS = append(staleS, ss)
-}
-// set previous series to current
-e.previouslySentSeriesToRW[rID] = ruleLabels
-e.previouslySentSeriesToRWMu.Unlock()
-
-return staleS
-}
-
-/// purgeStaleSeries deletes references in tracked
-/// previouslySentSeriesToRW list to Rules which aren't present
-/// in the given activeRules list. The method is used when the list
-/// of loaded rules has changed and executor has to remove
-/// references to non-existing rules.
-func (e *executor) purgeStaleSeries(activeRules: Vec<Rule>) {
-    let newPreviouslySentSeriesToRW := make(map[uint64]map[string][]prompbmarshal.Label)
-
-    let items = e.previouslySentSeriesToRWMu.Lock()
-
-    for rule in activeRules.iter() {
-        let id = rule.ID()
-            prev, ok := e.previouslySentSeriesToRW[id]
-            if ok {
-// keep previous series for staleness detection
-newPreviouslySentSeriesToRW[id] = prev
-}
-}
-e.previouslySentSeriesToRW = nil
-e.previouslySentSeriesToRW = newPreviouslySentSeriesToRW
-
-e.previouslySentSeriesToRWMu.Unlock()
-}
-

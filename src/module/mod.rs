@@ -3,7 +3,6 @@ mod function_metadata;
 mod result;
 mod utils;
 mod function_query;
-mod label_filters;
 mod ts_db;
 mod function_create;
 mod function_del;

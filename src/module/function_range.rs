@@ -1,7 +1,6 @@
 use redis_module::{Context, NextArg, RedisError, RedisResult, RedisString, RedisValue};
-use crate::module::parse_timestamp_arg;
+use crate::module::{get_timeseries, parse_timestamp_arg};
 use crate::module::result::sample_to_result;
-use crate::ts::get_timeseries;
 
 pub fn range(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
     let mut args = args.into_iter().skip(1);
@@ -25,7 +24,6 @@ pub fn range(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
 
     let samples = series.get_range(start, end)
         .map_err(|e| {
-            // todo: log error
             ctx.log_warning(&*format!("ERR fetching range {:?}", e));
             RedisError::Str("ERR fetching range")
         })?;

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
@@ -7,11 +6,11 @@ use ahash::AHashMap;
 use gtmpl::{Context, Template};
 use gtmpl_derive::Gtmpl;
 use serde::{Deserialize, Serialize};
+use crate::common::types::Label;
 
 use crate::rules::alerts::{AlertsError, AlertsResult, ErrorGroup};
 use crate::rules::alerts::template::{clone_template, funcs_with_query, get_template, get_with_funcs, QueryFn};
 use crate::rules::relabel::ParsedRelabelConfig;
-use crate::rules::types::Label;
 use crate::ts::Timestamp;
 
 /// AlertState is the state of an alert.
@@ -58,14 +57,14 @@ pub struct Alert {
     /// name represents Alert name
     pub name: String,
     /// labels is the list of label-value pairs attached to the Alert
-    pub labels: HashMap<String, String>,
+    pub labels: AHashMap<String, String>,
     /// Annotations is the list of annotations generated on Alert evaluation
     pub annotations: AHashMap<String, String>,
     /// state represents the current state of the Alert
     pub state: AlertState,
-    /// expr contains expression that was executed to generate the Alert
+    /// expr contains the expression that was executed to generate the Alert
     pub expr: String,
-    /// active_at defines the moment of time when Alert has become active
+    /// active_at defines the moment of time when the Alert has become active
     pub active_at: Timestamp,
     /// start defines the moment of time when the alert starts firing
     pub start: Timestamp,
@@ -93,7 +92,7 @@ pub struct Alert {
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[derive(Gtmpl)]
 pub struct AlertTplData {
-    pub labels: HashMap<String, String>,
+    pub labels: AHashMap<String, String>,
     pub value: f64,
     pub expr: String,
     pub alert_id: u64,
@@ -119,7 +118,7 @@ impl Alert {
     /// exec_template executes the Alert template for given map of annotations.
     /// Every alert could have a different provider, so function requires a queryFunction
     /// as an argument.
-    pub fn exec_template(&mut self, q: QueryFn, labels: &HashMap<String, String>, annotations: &AHashMap<String, String>) -> AlertsResult<AHashMap<String, String>> {
+    pub fn exec_template(&mut self, q: QueryFn, labels: &AHashMap<String, String>, annotations: &AHashMap<String, String>) -> AlertsResult<AHashMap<String, String>> {
         let tpl_data = AlertTplData {
             value: self.value,
             labels: labels.clone(), // ??? why not use ref ?
@@ -159,7 +158,7 @@ pub fn exec_template(q: QueryFn, annotations: &AHashMap<String, String>, tpl_dat
 /// validate annotations for possible template error, uses empty data for template population
 pub(crate) fn validate_templates(annotations: &AHashMap<String, String>) -> AlertsResult<()> {
     let tmpl = get_template();
-    let labels = HashMap::new();
+    let labels = AHashMap::new();
     let _ = template_annotations(annotations, &AlertTplData {
         labels,
         value: 1f64,

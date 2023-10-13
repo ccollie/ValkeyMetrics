@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+
 use redis_module::Context;
+
 use crate::error::TsdbResult;
 use crate::rules::alerts::Alert;
 use crate::ts::Labels;
@@ -11,12 +13,10 @@ pub trait Notifier {
     fn send(&self, ctx: &Context, alerts: &[Alert], notifier_headers: Labels) -> TsdbResult<()>;
     /// Addr returns address where alerts are sent.
     fn addr(&self) -> String;
-    /// Close is a destructor for the Notifier
-    fn close(ctx: &Context) -> TsdbResult<()>;
 }
 
 pub struct NullNotifier {
-    addr: String
+    addr: String,
 }
 
 impl NullNotifier {
@@ -34,9 +34,5 @@ impl Notifier for NullNotifier {
 
     fn addr(&self) -> String {
         self.addr.clone()
-    }
-
-    fn close(ctx: &Context) -> TsdbResult<()> {
-        Ok(())
     }
 }

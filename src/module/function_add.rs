@@ -1,6 +1,5 @@
-use crate::module::function_create::{create_timeseries, TimeSeriesOptions};
-use crate::module::{REDIS_PROMQL_SERIES_TYPE};
-use crate::ts::{DuplicatePolicy, get_timeseries_mut};
+use crate::module::{create_timeseries, get_series_mut, REDIS_PROMQL_SERIES_TYPE};
+use crate::ts::{DuplicatePolicy, TimeSeriesOptions};
 use redis_module::key::RedisKeyWritable;
 use redis_module::{Context, NextArg, RedisError, RedisResult, RedisString, RedisValue};
 use ahash::AHashMap;
@@ -23,7 +22,7 @@ pub fn add(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
 
     let mut options = TimeSeriesOptions::default();
 
-    let series = get_timeseries_mut(ctx, &key, false)?;
+    let series = get_series_mut(ctx, &key, false)?;
     if let Some(series) = series {
         args.done()?;
         internal_add(

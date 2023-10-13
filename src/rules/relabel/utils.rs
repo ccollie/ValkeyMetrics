@@ -1,5 +1,5 @@
 use metricsql_engine::parse_metric_selector;
-use crate::rules::Label;
+use crate::common::types::Label;
 
 /// new_labels_from_string creates labels from s, which can have the form `metric{labels}`.
 ///

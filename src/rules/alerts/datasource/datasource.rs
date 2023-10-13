@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::time::Duration;
+use ahash::AHashMap;
 use serde::{Deserialize, Serialize};
 use crate::common::types::Label;
 use crate::rules::alerts::{AlertsResult, DataSourceType};
@@ -35,29 +36,34 @@ pub trait QuerierBuilder {
 }
 
 /// QuerierParams params for Querier.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct QuerierParams {
     pub data_source_type: DataSourceType,
     pub evaluation_interval: Duration,
     pub eval_offset: Duration,
-    pub query_params: HashMap<String, String>,
-    pub headers: HashMap<String, String>,
+    pub query_params: AHashMap<String, String>,
+    pub headers: AHashMap<String, String>,
     pub debug: bool
 }
 
 /// Metric is the basic entity which should be returned by provider
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Metric {
+    pub key: String,
     pub(crate) labels: Vec<Label>,
     pub(crate) timestamps: Vec<i64>,
     pub(crate) values: Vec<f64>
 }
+
+// teemporary. Please remove
+pub type DatasourceMetric = Metric;
 
 static EMPTY_STRING: &str = "";
 
 impl Metric {
     pub fn new(labels: Vec<Label>, timestamps: Vec<i64>, values: Vec<f64>) -> Metric {
         Metric {
+            key: "".to_string(),
             labels,
             timestamps,
             values

@@ -1,12 +1,12 @@
 use redis_module::{Context, NotifyEvent, REDIS_OK, RedisResult, RedisString};
 use crate::globals::get_timeseries_index;
 use crate::module::commands::parse_create_options;
-use crate::ts::get_timeseries_mut;
+use crate::module::get_series_mut;
 
 pub fn alter(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
     let (parsed_key, options) = parse_create_options(ctx, args)?;
 
-    let mut series = get_timeseries_mut(ctx, &parsed_key, true)?.unwrap();
+    let mut series = get_series_mut(ctx, &parsed_key, true)?.unwrap();
 
     if let Some(retention) = options.retention {
         series.retention = retention;

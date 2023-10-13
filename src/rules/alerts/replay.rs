@@ -3,7 +3,7 @@ use crate::rules::{EvalContext, Rule};
 use metricsql_engine::{Timestamp, TimestampTrait};
 use std::thread;
 use std::time::Duration;
-use crate::common::humanize_duration;
+use crate::common::humanize::humanize_duration;
 use crate::config::get_global_settings;
 
 /**

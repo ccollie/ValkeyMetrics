@@ -11,6 +11,7 @@ mod globals;
 mod config;
 mod ts;
 mod rules;
+mod executor;
 
 use module::*;
 use crate::globals::get_timeseries_index;

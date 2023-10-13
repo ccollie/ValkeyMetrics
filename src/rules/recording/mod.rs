@@ -2,13 +2,12 @@ use crate::rules::alerts::{AlertsError, AlertsResult, Querier};
 use crate::rules::types::{new_time_series, RawTimeSeries};
 use crate::rules::{Rule, RuleStateEntry, RuleType};
 use crate::ts::{Labels, Timestamp};
-use crate::utils::error::TsdbResult;
-use crate::utils::time::current_time_millis;
 use metricsql_engine::METRIC_NAME_LABEL;
 use metricsql_parser::prelude::tokens::Token::Duration;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicU64;
+use crate::common::current_time_millis;
 
 const ERR_DUPLICATE: &str =
     "result contains metrics with the same labelset after applying rule labels.";
@@ -83,11 +82,10 @@ impl Rule for RecordingRule {
         }
 
         // Safety: unwrap is safe because we just checked for an error above
-        let res = res.unwrap();
-        cur_state.samples = res.data.len();
+        let q_metrics = res.unwrap();
+        let num_series = res.len();
+        cur_state.samples = num_series;
 
-        let q_metrics = res.data;
-        let num_series = q_metrics.len();
         if limit > 0 && num_series > limit {
             let msg = format!("exec exceeded limit of {limit} with {num_series} series");
             let err = AlertsError::QueryExecutionError(msg);
@@ -98,8 +96,8 @@ impl Rule for RecordingRule {
 
         cur_state.series_fetched = num_series;
 
-        let duplicates: HashSet<String> = HashSet::with_capacity(q_metrics.len());
-        let mut tss: Vec<RawTimeSeries> = Vec::with_capacity(q_metrics.len());
+        let duplicates: HashSet<String> = HashSet::with_capacity(num_series);
+        let mut tss: Vec<RawTimeSeries> = Vec::with_capacity(num_series);
         for (_, r) in q_metrics.iter().enumerate() {
             let ts = self.to_time_series(r);
             let key = stringify_labels(&ts);
@@ -146,13 +144,6 @@ impl Rule for RecordingRule {
         Ok(tss)
     }
 
-    fn update_with(rule: impl Rule) -> AlertsResult<()> {
-        todo!()
-    }
-
-    fn close(&mut self) -> TsdbResult<()> {
-        todo!()
-    }
 }
 
 pub fn stringify_labels(ts: &RawTimeSeries) -> String {

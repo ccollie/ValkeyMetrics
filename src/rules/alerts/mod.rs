@@ -10,6 +10,7 @@ mod datasource;
 mod config;
 mod recording_rule;
 mod replay;
+mod executor;
 
 pub use alert::*;
 pub use notifier::*;

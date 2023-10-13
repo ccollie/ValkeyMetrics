@@ -2,15 +2,16 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::sync::atomic::AtomicU64;
 use std::time::Duration;
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use metricsql_engine::METRIC_NAME_LABEL;
 use serde::{Deserialize, Serialize};
 use crate::common::current_time_millis;
 
 use crate::rules::{Rule, RuleState, RuleStateEntry, RuleType};
 use crate::rules::alerts::{AlertsError, AlertsResult, Group, Metric, Querier, RuleConfig};
+use crate::rules::recording::stringify_labels;
 use crate::rules::types::{new_time_series, RawTimeSeries};
-use crate::ts::{Labels, Timestamp};
+use crate::ts::Timestamp;
 
 const ERR_DUPLICATE: &str =
     "result contains metrics with the same labelset after applying rule labels.";
@@ -22,7 +23,7 @@ pub struct RecordingRule {
     pub(crate) rule_id: u64,
     pub name: String,
     pub expr: String,
-    pub labels: Labels,
+    pub labels: AHashMap<String, String>,
     pub group_id: u64,
 
     /// id of created time series id
@@ -55,7 +56,7 @@ impl RecordingRule {
             rule_id: cfg.hash(),
             name: cfg.name().to_string(),
             expr: cfg.expr.clone(),
-            labels: cfg.labels.into(),
+            labels: cfg.labels.clone(),
             group_id: group.ID(),
             state: RuleState::new(cfg.update_entries_limit()),
             eval_alignment: None,
@@ -177,18 +178,4 @@ impl Rule for RecordingRule {
         }
         Ok(tss)
     }
-}
-
-pub fn stringify_labels(ts: &RawTimeSeries) -> String {
-    let mut labels = ts.labels.clone();
-    let mut b = String::with_capacity(40); // todo: better capacity calculation.
-    let mut i = 0;
-    labels.sort();
-    for label in ts.labels {
-        b.push_str(&*format!("{}={}", &label.name, &label.value));
-        if i < labels.len() - 1 {
-            b.push_str(",")
-        }
-    }
-    b
 }

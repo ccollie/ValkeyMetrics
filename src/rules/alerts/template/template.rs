@@ -15,13 +15,14 @@ use std::sync::{OnceLock, RwLock};
 use std::collections::HashMap;
 use chrono::{Duration, NaiveDateTime};
 use enquote::enquote;
-use crate::rules::alerts::{AlertsError, AlertsResult};
+use crate::rules::alerts::{AlertsError, AlertsResult, DatasourceMetric};
 use gtmpl::{FuncError, gtmpl_fn, Template, Func, Value};
 use gtmpl_derive::Gtmpl;
 use metricsql_engine::METRIC_NAME_LABEL;
 use regex::Regex;
 use url::Url;
 use crate::common;
+use crate::common::humanize::humanize_bytes;
 use crate::ts::Labels;
 use htmlescape::encode_minimal;
 
@@ -37,8 +38,6 @@ pub(crate) struct TextTemplate {
 }
 
 static MASTER_TEMPLATE: OnceLock<RwLock<TextTemplate>> = OnceLock::new();
-
-type DatasourceMetric = crate::rules::alerts::datasource::Metric;
 
 fn get_master_template_ref() -> &'static RwLock<TextTemplate> {
     MASTER_TEMPLATE.get_or_init(|| {

@@ -13,6 +13,7 @@ dynamic-lru-cache = "0.2.1"
 enquote = "1.1.0"
 gtmpl = "0.7.1"
 gtmpl_derive = "0.5.0"
+gtmpl_value = "0.5.1"
 htmlescape = "0.3.1"
 lazy_static = { version = "1.4.0", features = [] }
 linkme = "0.3.17"
@@ -31,7 +32,7 @@ rayon = "1.8.0"
 regex = "1.10.0"
 regex-syntax = { version = "0.8.1", features = [] }
 roaring = { version = "0.10.2", features = ["serde"]}
-url = { version = "2.2.2", features = ["serde"] }
+url = { version = "2.4.1", features = ["serde"] }
 xxhash-rust = { version = "0.8.7", features = ["xxh3"] }
 
 

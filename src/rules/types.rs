@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use ahash::{AHashMap, AHashSet};
 use serde::{Deserialize, Serialize};
 use crate::common::types::{Label, Sample};
@@ -6,11 +5,12 @@ use crate::common::types::{Label, Sample};
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RawTimeSeries {
+    pub key: String,
     pub samples: Vec<Sample>,
     pub labels: Vec<Label>,
 }
 
-pub fn new_time_series(values: &[f64], timestamps: &[i64], labels: HashMap<String, String>) -> RawTimeSeries {
+pub fn new_time_series(key: String, values: &[f64], timestamps: &[i64], labels: AHashMap<String, String>) -> RawTimeSeries {
     let samples = values
         .iter()
         .zip(timestamps.iter())
@@ -26,6 +26,7 @@ pub fn new_time_series(values: &[f64], timestamps: &[i64], labels: HashMap<Strin
         .collect();
 
     RawTimeSeries {
+        key,
         samples,
         labels: tags,
     }

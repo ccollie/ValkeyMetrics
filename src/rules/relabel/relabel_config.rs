@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
 use std::str::FromStr;
-use crate::rules::Label;
+use lazy_static::lazy_static;
+use crate::common::FastStringTransformer;
+use crate::common::types::Label;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub enum RelabelAction {
@@ -61,7 +63,6 @@ impl Display for RelabelAction {
 
 impl FromStr for RelabelAction {
     type Err = String;
-
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         use RelabelAction::*;
         match s.to_lowercase().as_str() {

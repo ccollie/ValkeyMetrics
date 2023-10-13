@@ -1,11 +1,13 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt::{Display};
+use std::fmt::Display;
 use std::hash::Hasher;
 use std::str::FromStr;
 use std::time::Duration;
+
 use ahash::AHashMap;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
+
 use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
 use crate::rules::alerts::{AlertsError, AlertsResult};
 use crate::rules::RuleType;
@@ -58,7 +60,7 @@ pub struct RuleConfig {
     pub id: u64,
     pub record: String,
     pub alert: String,
-    pub expr:  String,
+    pub expr: String,
     pub r#for: Duration,
     /// Alert will continue firing for this long even when the alerting expression no longer has results.
     pub keep_firing_for: Duration,
@@ -67,7 +69,7 @@ pub struct RuleConfig {
     pub debug: bool,
     /// update_entries_limit defines max number of rule's state updates stored in memory.
     /// Overrides `-rule.updateEntriesLimit`.
-    pub update_entries_limit: Option<usize>
+    pub update_entries_limit: Option<usize>,
 }
 
 impl RuleConfig {
@@ -102,27 +104,27 @@ impl RuleConfig {
         let name = self.name();
 
         let err = |msg: &str| -> AlertsResult<()> {
-            return Err(AlertsError::InvalidRule(msg.to_string()))
+            return Err(AlertsError::InvalidRule(msg.to_string()));
         };
 
         if self.record.is_empty() && self.alert.is_empty() {
             let msg = format!("rule \"{name}\" must have either record or alert field set");
-            return err(&msg)
+            return err(&msg);
         }
         if !self.record.is_empty() && !self.alert.is_empty() {
             let msg = format!("rule \"{name}\" should have either record or alert field set, not both");
-            return err(&msg)
+            return err(&msg);
         }
         if self.expr.is_empty() {
             let msg = format!("rule \"{name}\" must have expression set");
-            return err(&msg)
+            return err(&msg);
         }
         if self.r#for.as_millis() < 0 {
             let msg = format!("rule \"{name}\" for duration should not be negative");
-            return err(&msg)
+            return err(&msg);
         }
         if self.keep_firing_for.as_millis() < 0 {
-            return Err(AlertsError::InvalidRule("rule keep_firing_for duration shouldn't be negative".to_string()))
+            return Err(AlertsError::InvalidRule("rule keep_firing_for duration shouldn't be negative".to_string()));
         }
         Ok(())
     }
@@ -145,13 +147,14 @@ impl Display for RuleConfig {
             }
             write!(f, " ")?;
             write!(f, "{}={}", key, value)?;
-            if i < keys.len()-1 {
+            if i < keys.len() - 1 {
                 write!(f, ",")?;
             }
         }
         Ok(())
     }
 }
+
 /// Group contains list of Rules grouped into entity with one name and evaluation interval
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct GroupConfig {
@@ -179,7 +182,7 @@ pub struct GroupConfig {
     /// Optional HTTP URL parameters added to each rule request
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    pub params: Option<HashMap<String, String>>,
+    pub params: Option<AHashMap<String, String>>,
     /// Headers contains optional HTTP headers added to each rule request
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) headers: Headers,
@@ -194,8 +197,8 @@ pub struct GroupConfig {
 /// Header is a Key - Value struct for holding an HTTP header.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Header {
-    pub(crate) key:  String,
-    pub(crate) value: String
+    pub(crate) key: String,
+    pub(crate) value: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -238,16 +241,16 @@ impl GroupConfig {
         }
 
         if self.name.is_empty() {
-            return err("group name must be set")
+            return err("group name must be set");
         }
         if let Some(interval) = &self.interval {
             if interval.as_millis() < 0 {
-                return err("interval shouldn't be lower than 0")
+                return err("interval shouldn't be lower than 0");
             }
         }
         if let Some(offset) = &self.eval_offset {
             if offset.as_millis() < 0 {
-                return err("eval_offset shouldn't be lower than 0")
+                return err("eval_offset shouldn't be lower than 0");
             }
             if let Some(interval) = &self.interval {
                 // if `eval_offset` is set, interval won't use global evaluationInterval flag and
@@ -255,13 +258,13 @@ impl GroupConfig {
                 if offset > interval {
                     let msg = format!("eval_offset should be smaller than interval; now eval_offset: {}, interval: {}",
                                       offset.as_millis(), interval.as_millis());
-                    return err(&msg)
+                    return err(&msg);
                 }
             }
         }
         if self.concurrency < 0 {
             return Err(AlertsError::InvalidConfiguration(
-                format!("invalid concurrency {}, shouldn't be less than 0", self.concurrency)))
+                format!("invalid concurrency {}, shouldn't be less than 0", self.concurrency)));
         }
         let mut unique_rules = HashSet::with_capacity(self.rules.len());
 
@@ -269,7 +272,7 @@ impl GroupConfig {
             let rule_name = r.name();
             let id = r.id();
             if unique_rules.contains(&id) {
-                return Err(AlertsError::InvalidConfiguration(format!("{} is a duplicate in group", r)))
+                return Err(AlertsError::InvalidConfiguration(format!("{} is a duplicate in group", r)));
             }
             unique_rules.insert(id);
             r.validate()?;
