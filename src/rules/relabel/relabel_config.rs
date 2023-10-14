@@ -1,6 +1,12 @@
 use crate::common::regex_util::{remove_start_end_anchors, simplify, PromRegex};
+use crate::common::types::Label;
+use crate::common::FastStringTransformer;
 use crate::rules::relabel::relabel::ParsedRelabelConfig;
-use crate::rules::relabel::{new_graphite_label_rules, GraphiteLabelRule, GraphiteMatchTemplate, IfExpression, DebugStep, labels_to_string};
+use crate::rules::relabel::{
+    labels_to_string, new_graphite_label_rules, DebugStep, GraphiteLabelRule,
+    GraphiteMatchTemplate, IfExpression,
+};
+use lazy_static::lazy_static;
 use metricsql_engine::METRIC_NAME_LABEL;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -8,9 +14,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
 use std::str::FromStr;
-use lazy_static::lazy_static;
-use crate::common::FastStringTransformer;
-use crate::common::types::Label;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub enum RelabelAction {
@@ -144,17 +147,22 @@ impl ParsedConfigs {
     pub fn apply(&self, labels: &mut Vec<Label>, labels_offset: usize) {
         let _ = self.apply_internal(labels, labels_offset, false);
     }
-    fn apply_internal(&self, labels: &mut Vec<Label>, labels_offset: usize, debug: bool) -> Vec<DebugStep> {
+    fn apply_internal(
+        &self,
+        labels: &mut Vec<Label>,
+        labels_offset: usize,
+        debug: bool,
+    ) -> Vec<DebugStep> {
         let mut dss: Vec<DebugStep> = Vec::with_capacity(labels.len());
         let mut in_str: String = "".to_string();
         if debug {
-            in_str = labels_to_string(labels[&labels_offset.. ])
+            in_str = labels_to_string(labels[&labels_offset..])
         }
         for prc in self.0.iter() {
             let labels = prc.apply(labels, labels_offset);
             if debug {
-                let out_str = labels_to_string(labels[labels_offset .. ]);
-                dss.push(DebugStep{
+                let out_str = labels_to_string(labels[labels_offset..]);
+                dss.push(DebugStep {
                     rule: prc.to_string(),
                     r#in: in_str,
                     out: out_str.clone(),
@@ -169,9 +177,9 @@ impl ParsedConfigs {
 
         remove_empty_labels(labels, labels_offset);
         if debug {
-            let out_str = labels_to_string(&labels[labels_offset .. ]);
+            let out_str = labels_to_string(&labels[labels_offset..]);
             if out_str != in_str {
-                dss.push(DebugStep{
+                dss.push(DebugStep {
                     rule: "remove empty labels".to_string(),
                     r#in: in_str,
                     out: out_str,
@@ -199,16 +207,16 @@ impl Display for ParsedConfigs {
 pub fn parse_relabel_configs_data(data: &str) -> Result<ParsedConfigs, String> {
     let rcs: Vec<RelabelConfig> = serde_yaml::from_str(data)
         .map_err(|e| format!("cannot parse relabel configs from data: {:?}", e))?;
-    return parse_relabel_configs(&rcs);
+    return parse_relabel_configs(rcs);
 }
 
 /// parse_relabel_configs parses rcs to dst.
-pub fn parse_relabel_configs(rcs: &[RelabelConfig]) -> Result<ParsedConfigs, String> {
+pub fn parse_relabel_configs(rcs: Vec<RelabelConfig>) -> Result<ParsedConfigs, String> {
     if rcs.is_empty() {
         return Ok(ParsedConfigs::default());
     }
     let mut prcs: Vec<ParsedRelabelConfig> = Vec::with_capacity(rcs.len());
-    for (i, item) in rcs.iter().enumerate() {
+    for (i, item) in rcs.into_iter().enumerate() {
         let prc = parse_relabel_config(item);
         if let Err(err) = prc {
             return Err(format!(
@@ -224,48 +232,53 @@ pub fn parse_relabel_configs(rcs: &[RelabelConfig]) -> Result<ParsedConfigs, Str
 
 lazy_static! {
     pub static ref defaultOriginalRegexForRelabelConfig: Regex = Regex::new(".*");
-    pub static ref defaultRegexForRelabelConfig:Regex = Regex::new("^(.*)$");
+    pub static ref defaultRegexForRelabelConfig: Regex = Regex::new("^(.*)$");
 }
 
-pub fn parse_relabel_config(rc: &RelabelConfig) -> Result<ParsedRelabelConfig, String> {
+pub fn parse_relabel_config(rc: RelabelConfig) -> Result<ParsedRelabelConfig, String> {
     use RelabelAction::*;
 
-    let mut source_labels = &rc.source_labels;
+    let mut rc = rc;
+
+    let mut source_labels = rc.source_labels;
     let mut separator = ";";
 
     if !rc.separator.is_empty() {
         separator = &rc.separator;
     }
 
-    let mut target_label = &rc.target_label;
+    let mut target_label = rc.target_label;
     let reg_str = rc.regex.to_string();
-    let (regex_anchored, regex_original_compiled, prom_regex ) = if !is_empty_regex(&rc.regex) && !is_default_regex(&reg_str) {
-        let mut regex = reg_str;
-        let mut regex_orig = regex;
-        if rc.action != ReplaceAll && rc.action != LabelMapAll {
-            let stripped = remove_start_end_anchors(&regex);
-            regex_orig = stripped.to_string();
-            regex = format!("^(?:{stripped})$");
-        }
-        let regex_anchored =
-            Regex::new(&regex).map_err(|e| format!("cannot parse `regex` {regex}: {:?}", e))?;
+    let (regex_anchored, regex_original_compiled, prom_regex) =
+        if !is_empty_regex(&rc.regex) && !is_default_regex(&reg_str) {
+            let mut regex = reg_str;
+            let mut regex_orig = regex;
+            if rc.action != ReplaceAll && rc.action != LabelMapAll {
+                let stripped = remove_start_end_anchors(&regex);
+                regex_orig = stripped.to_string();
+                regex = format!("^(?:{stripped})$");
+            }
+            let regex_anchored =
+                Regex::new(&regex).map_err(|e| format!("cannot parse `regex` {regex}: {:?}", e))?;
 
-        let regex_original_compiled = Regex::new(&regex_orig)
-            .map_err(|e| format!("cannot parse `regex` {regex_orig}: {:?}", e))?;
+            let regex_original_compiled = Regex::new(&regex_orig)
+                .map_err(|e| format!("cannot parse `regex` {regex_orig}: {:?}", e))?;
 
-        let prom_regex = PromRegex::new(&regex_orig)
-            .map_err(|err|
-                format!("BUG: cannot parse already parsed regex {}: {:?}", regex_orig, err)
-            )?;
+            let prom_regex = PromRegex::new(&regex_orig).map_err(|err| {
+                format!(
+                    "BUG: cannot parse already parsed regex {}: {:?}",
+                    regex_orig, err
+                )
+            })?;
 
-        (regex_anchored, regex_original_compiled, prom_regex)
-    } else {
-        (
-            defaultRegexForRelabelConfig.clone(),
-            defaultOriginalRegexForRelabelConfig.clone(),
-            PromRegex::new(".*").unwrap()
-        )
-    };
+            (regex_anchored, regex_original_compiled, prom_regex)
+        } else {
+            (
+                defaultRegexForRelabelConfig.clone(),
+                defaultOriginalRegexForRelabelConfig.clone(),
+                PromRegex::new(".*").unwrap(),
+            )
+        };
     let modulus = rc.modulus;
     let mut replacement = if !rc.replacement.is_empty() {
         rc.replacement.clone()
@@ -393,7 +406,7 @@ pub fn parse_relabel_config(rc: &RelabelConfig) -> Result<ParsedRelabelConfig, S
                     source_labels
                 ));
             }
-            source_labels = &vec![METRIC_NAME_LABEL.to_string()];
+            source_labels = vec![METRIC_NAME_LABEL.to_string()];
             action = Keep;
         }
         DropMetrics => {
@@ -408,7 +421,7 @@ pub fn parse_relabel_config(rc: &RelabelConfig) -> Result<ParsedRelabelConfig, S
                     source_labels
                 ));
             }
-            source_labels = &vec![METRIC_NAME_LABEL.to_string()];
+            source_labels = vec![METRIC_NAME_LABEL.to_string()];
             action = Drop;
         }
         Uppercase | Lowercase => {
@@ -476,11 +489,10 @@ pub fn parse_relabel_config(rc: &RelabelConfig) -> Result<ParsedRelabelConfig, S
 }
 
 fn is_default_regex(expr: &str) -> bool {
-    let (prefix, suffix) = simplify(expr);
-    if prefix != "" {
-        return false;
+    match simplify(expr) {
+        Ok((prefix, suffix)) => prefix == "" && suffix == ".*",
+        _ => false
     }
-    return suffix == ".*";
 }
 
 fn is_empty_regex(regex: &Option<Regex>) -> bool {

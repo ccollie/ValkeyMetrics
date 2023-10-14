@@ -287,12 +287,7 @@ impl Group {
         let settings = get_global_settings();
         let eval_ts = current_time_millis();
 
-        let mut e = Executor {
-            rw: Arc::clone(&write_queue),
-            notifiers: nts,
-            notifier_headers: self.notifier_headers.clone(),
-            previously_sent_series_to_rw: Default::default(),
-        };
+        let mut e = Executor::new(nts, &self.notifier_headers, write_queue);
 
         // restore the rules state after the first evaluation so only active alerts can be restored.
         // todo: i doubt we need atomics here

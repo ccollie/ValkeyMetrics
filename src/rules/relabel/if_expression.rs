@@ -1,12 +1,12 @@
-use std::fmt::Display;
-use metricsql_parser::ast::Expr;
-use metricsql_parser::prelude::MetricExpr;
-use serde::{Deserialize, Serialize};
 use crate::common::regex_util::PromRegex;
 use crate::common::types::Label;
 use crate::rules::alerts::{AlertsError, AlertsResult};
-use crate::rules::relabel::{LabelFilter, LabelFilterOp, LabelMatchers};
 use crate::rules::relabel::label_filter::to_canonical_label_name;
+use crate::rules::relabel::{LabelFilter, LabelFilterOp, LabelMatchers};
+use metricsql_parser::ast::Expr;
+use metricsql_parser::prelude::MetricExpr;
+use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 
 /// IfExpression represents PromQL-like label filters such as `metric_name{filters...}`.
 ///
@@ -55,7 +55,7 @@ impl IfExpression {
 impl Display for IfExpression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.0.len() == 1 {
-            return write!(f, "{}", &self.0[0])
+            return write!(f, "{}", &self.0[0]);
         }
         write!(f, "{:?}", self.0)
     }
@@ -65,19 +65,18 @@ type BaseLabelFilter = metricsql_parser::prelude::LabelFilter;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct IfExpressionMatcher {
-    s:  String,
-    lfss: Vec<LabelMatchers>
+    s: String,
+    lfss: Vec<LabelMatchers>,
 }
 
 impl IfExpressionMatcher {
-
     // todo: error type
     pub fn parse(s: &str) -> Result<Self, String> {
         let expr = metricsql_parser::prelude::parse(s)
             .map_err(|e| format!("cannot parse series selector: {}", e))?;
 
         match expr {
-            Expr::MetricExpression(me)=> {
+            Expr::MetricExpression(me) => {
                 let lfss = metric_expr_to_label_filterss(&me)?;
                 let ie = IfExpressionMatcher {
                     s: s.to_string(),
@@ -85,7 +84,10 @@ impl IfExpressionMatcher {
                 };
                 Ok(ie)
             }
-            _ => Err(format!("expecting series selector; got {}", expr.return_type())),
+            _ => Err(format!(
+                "expecting series selector; got {}",
+                expr.return_type()
+            )),
         }
     }
 
@@ -111,10 +113,10 @@ impl Display for IfExpressionMatcher {
 fn match_label_filters(lfs: &[LabelFilter], labels: &[Label]) -> bool {
     for lf in lfs {
         if !lf.matches(labels) {
-            return false
+            return false;
         }
     }
-    return true
+    return true;
 }
 
 fn metric_expr_to_label_filterss(me: &MetricExpr) -> AlertsResult<Vec<LabelMatchers>> {
@@ -122,13 +124,12 @@ fn metric_expr_to_label_filterss(me: &MetricExpr) -> AlertsResult<Vec<LabelMatch
     for lfs in me.label_filters.iter() {
         let mut lfs_new: Vec<LabelFilter> = Vec::with_capacity(lfs.len());
         for filter in lfs.iter() {
-            let lf= new_label_filter(filter)
-                .map_err(|e| {
-                    let msg = format!("cannot parse label filter {me}: {:?}",  e);
-                    // todo: more specific error
-                    AlertsError::Generic(msg)
-                })?;
-            lfs_new.push( lf);
+            let lf = new_label_filter(filter).map_err(|e| {
+                let msg = format!("cannot parse label filter {me}: {:?}", e);
+                // todo: more specific error
+                AlertsError::Generic(msg)
+            })?;
+            lfs_new.push(lf);
         }
         let matchers = LabelMatchers::new(lfs_new);
         lfss_new.push(matchers)
@@ -136,9 +137,8 @@ fn metric_expr_to_label_filterss(me: &MetricExpr) -> AlertsResult<Vec<LabelMatch
     Ok(lfss_new)
 }
 
-
 fn new_label_filter(mlf: &BaseLabelFilter) -> AlertsResult<LabelFilter> {
-    let mut lf = LabelFilter{
+    let mut lf = LabelFilter {
         label: to_canonical_label_name(&mlf.label).to_string(),
         op: get_filter_op(mlf),
         value: mlf.value.to_string(),

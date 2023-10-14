@@ -1,7 +1,11 @@
 use redis_module::{NotifyEvent, redis_module, Context as RedisContext};
 use redis_module_macros::{config_changed_event_handler};
 
+#[macro_use]
 extern crate redis_module_macros;
+#[macro_use]
+extern crate scopeguard;
+
 mod common;
 mod error;
 mod module;

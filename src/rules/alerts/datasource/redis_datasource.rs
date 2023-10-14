@@ -3,13 +3,15 @@ use std::ops::Add;
 use std::time::Duration;
 
 use crate::globals::get_query_context;
-use metricsql_engine::prelude::query::QueryParams;
-use metricsql_engine::TimestampTrait;
+use crate::rules::alerts::{
+    AlertsError, AlertsResult, DataSourceType, Querier, QuerierBuilder, QuerierParams, QueryResult,
+};
+use crate::ts::Timestamp;
 use metricsql_engine::execution::query::{
     query as engine_query, query_range as engine_query_range,
 };
-use crate::rules::alerts::{AlertsError, AlertsResult, DataSourceType, Querier, QuerierBuilder, QuerierParams, QueryResult};
-use crate::ts::Timestamp;
+use metricsql_engine::prelude::query::QueryParams;
+use metricsql_engine::TimestampTrait;
 
 /// RedisDatasource represents entity with ability to read and write metrics
 #[derive(Clone, Debug)]

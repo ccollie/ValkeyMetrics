@@ -91,7 +91,7 @@ struct Metric {
 fn datasource_metrics_to_template_metrics(ms: &[DatasourceMetric]) -> Vec<Metric> {
     let mut mss = Vec::with_capacity(ms.len());
     for m in ms.iter() {
-        let labels_map = Labels::with_capacity(m.labels.len());
+        let mut labels_map = Labels::with_capacity(m.labels.len());
         for label in m.labels.iter() {
             labels_map.insert(label.name.clone(), label.value.clone());
         }
@@ -114,8 +114,7 @@ pub(crate) fn update_with_funcs(funcs: &FuncMap) {
     writer.current = writer.current.Funcs(funcs);
 }
 
-/// get_with_funcs returns a copy of current template with additional FuncMap
-/// provided with funcs argument
+/// returns a copy of current template with additional FuncMap provided with funcs argument
 pub(crate) fn get_with_funcs(funcs: FuncMap) -> AlertsResult<Template> {
     let master_template = get_master_template_ref();
     let mut reader = master_template.read().unwrap();
@@ -151,14 +150,14 @@ pub fn make_const_function<T: Into<Value>>(val: T) -> Func {
     }
 }
 
-/// funcs_with_query returns a function map that depends on metric data
+/// returns a function map that depends on metric data
 pub(crate) fn funcs_with_query(query: QueryFn) -> FuncMap {
     let mut map = FuncMap::new();
     map.insert("query".to_string(), make_query_fn(query));
     map
 }
 
-/// funcs_with_external_url returns a function map that depends on external_url value
+/// returns a function map that depends on external_url value
 pub(crate) fn funcs_with_external_url(external_url: Url) -> FuncMap {
     let mut funcs = FuncMap::new();
     funcs.insert("external_url".to_string(), make_const_function(external_url.to_string()));
@@ -478,7 +477,7 @@ gtmpl_fn!(fn query(_q: &str) -> Result<Value, FuncError> {
     Ok(Value::Array(vec![]))
 });
 
-// template_funcs initiates template helper functions
+/// template_funcs initiates template helper functions
 pub fn template_funcs() -> FuncMap {
 // See https://prometheus.io/docs/prometheus/latest/configuration/template_reference/
 // and https://github.com/prometheus/prometheus/blob/fa6e05903fd3ce52e374a6e1bf4eb98c9f1f45a7/template/template.go#L150

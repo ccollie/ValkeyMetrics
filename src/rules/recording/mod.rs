@@ -3,10 +3,10 @@ use crate::rules::types::{new_time_series, RawTimeSeries};
 use crate::rules::{Rule, RuleStateEntry, RuleType};
 use crate::ts::{Labels, Timestamp};
 use metricsql_engine::METRIC_NAME_LABEL;
-use metricsql_parser::prelude::tokens::Token::Duration;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicU64;
+use std::time::Duration;
 use crate::common::current_time_millis;
 
 const ERR_DUPLICATE: &str =

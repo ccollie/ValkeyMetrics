@@ -1,4 +1,3 @@
-
 /// ALERT_METRIC_NAME is the metric name for synthetic alert timeseries.
 pub static ALERT_METRIC_NAME: &str = "ALERTS";
 

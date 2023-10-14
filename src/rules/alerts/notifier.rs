@@ -21,14 +21,17 @@ pub struct NullNotifier {
 
 impl NullNotifier {
     pub fn new(addr: String) -> Self {
-        NullNotifier {
-            addr
-        }
+        NullNotifier { addr }
     }
 }
 
 impl Notifier for NullNotifier {
-    fn send(&self, _ctx: &Context, _alerts: &[Alert], _notifier_headers: HashMap<String, String>) -> TsdbResult<()> {
+    fn send(
+        &self,
+        _ctx: &Context,
+        _alerts: &[Alert],
+        _notifier_headers: HashMap<String, String>,
+    ) -> TsdbResult<()> {
         Ok(())
     }
 

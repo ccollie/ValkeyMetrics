@@ -1033,7 +1033,7 @@ action: replace
         let mut rc: RelabelConfig = Default::default();
         rc.action = RelabelAction::LabelDrop;
         rc.regex = Some(Regex::new(pattern).unwrap());
-        let prc = parse_relabel_config(&rc)
+        let prc = parse_relabel_config(rc)
             .map_err(|err| format!("cannot parse pattern {:?}: {}", pattern, err))
             .unwrap();
 

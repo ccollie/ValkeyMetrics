@@ -356,8 +356,8 @@ fn alert_to_time_series(alert: &Alert, timestamp: Timestamp) -> RawTimeSeries {
     new_time_series(&values, &timestamps, labels)
 }
 
-/// alert_for_to_time_series returns a timeseries that represents
-/// state of active alerts, where value is time when alert become active
+/// returns a series that represents the state of active alerts, where value is the timestamp when
+/// the alert became active
 fn alert_for_to_time_series(alert: &Alert, timestamp: Timestamp) -> RawTimeSeries {
     let mut labels = alert.labels.clone();
     labels.insert(

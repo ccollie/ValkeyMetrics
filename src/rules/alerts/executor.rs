@@ -16,10 +16,9 @@ pub struct Executor {
     eval_ts: Timestamp,
     pub(crate) notifiers: fn() -> Vec<Box<dyn Notifier>>,
     pub(crate) notifier_headers: AHashMap<String, String>,
-
     pub(crate) rw: Arc<WriteQueue>,
 
-    /// previously_sent_series_to_rw stores series sent to RW on previous iteration
+    /// previously_sent_series stores series sent to RW on previous iteration
     /// HashMap<RuleID, HashMap<ruleLabels, Vec<Label>>
     /// where `ruleID` is id of the Rule within a Group and `ruleLabels` is Vec<Label> marshalled
     /// to a string
@@ -32,14 +31,14 @@ static mut SKIP_RAND_SLEEP_ON_GROUP_START: bool = false;
 impl Executor {
     pub fn new(
         notifiers: fn() -> Vec<Box<dyn Notifier>>,
-        notifier_headers: AHashMap<String, String>,
+        notifier_headers: &AHashMap<String, String>,
         rw: Arc<WriteQueue>,
     ) -> Self {
         Executor {
             eval_ts: Timestamp::now(),
             notifiers,
-            notifier_headers,
-            rw,
+            notifier_headers: notifier_headers.clone(),
+            rw: Arc::clone(&rw),
             previously_sent_series: Mutex::new(HashMap::new()),
         }
     }
@@ -54,7 +53,7 @@ impl Executor {
         }
 
         let rid = rule.id();
-        let mut stale_s: Vec<RawTimeSeries> = Vec::with_capacity(tss.len());
+        let mut stales: Vec<RawTimeSeries> = Vec::with_capacity(tss.len());
         // check whether there are series which disappeared and need to be marked as stale
         let mut map = self.previously_sent_series.lock().unwrap();
 
@@ -67,14 +66,14 @@ impl Executor {
                 let values = [STALE_NAN.clone()];
                 // previously sent series are missing in current series, so we mark them as stale
                 let ss = new_time_series(&values, &stamps, &labels);
-                stale_s.push(ss)
+                stales.push(ss)
             }
         }
 
         // set previous series to current
         map.insert(rid, rule_labels);
 
-        return stale_s;
+        return stales;
     }
 
     /// deletes references in tracked previously_sent_series_to_rw list to rules
