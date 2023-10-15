@@ -19,7 +19,7 @@ pub(crate) fn series(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
 
     let values: RedisValue = series
         .into_iter()
-        .map(get_ts_metric_selector)
+        .map(|ts| get_ts_metric_selector(ts))
         .collect::<Vec<_>>()
         .into();
 
@@ -29,6 +29,15 @@ pub(crate) fn series(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
     ].into_iter().collect();
 
     Ok(RedisValue::Map(map))
+}
+
+pub(crate) fn cardinality(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
+    let label_args = parse_metadata_command_args(ctx, args, true)?;
+    let ts_index = get_timeseries_index();
+
+    let series = ts_index.series_by_matchers(ctx, &label_args.matchers, label_args.start, label_args.end);
+
+    Ok(RedisValue::Integer(series.len() as i64))
 }
 
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#getting-label-names

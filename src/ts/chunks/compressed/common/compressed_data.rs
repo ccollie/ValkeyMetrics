@@ -20,6 +20,14 @@ impl PageMetadata {
             // t_max
             std::mem::size_of::<i64>()
     }
+
+    pub fn overlaps(&self, start: Timestamp, end: Timestamp) -> bool {
+        start <= self.t_max && end >= self.t_min
+    }
+
+    pub fn contains_timestamp(&self, ts: Timestamp) -> bool {
+        ts >= self.t_min && ts <= self.t_max
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -34,18 +42,15 @@ impl CompressedData {
     pub fn len(&self) -> usize {
         self.count
     }
-
     pub fn is_empty(&self) -> bool {
         self.count == 0
     }
-
     pub fn overlaps(&self, start: i64, end: i64) -> bool {
         if let Some((first, last)) = self.get_timestamp_range() {
             return start <= last && end >= first;
         }
         false
     }
-
     pub fn get_timestamp_range(&self) -> Option<(i64, i64)> {
         if self.is_empty() {
             return None;
@@ -61,22 +66,18 @@ impl CompressedData {
         }
         self.pages[0].t_min
     }
-
     pub fn last_timestamp(&self) -> Timestamp {
         if self.is_empty() {
             return i64::MAX;
         }
         self.pages[self.pages.len() - 1].t_max
     }
-
     pub fn last_value(&self) -> f64 {
         self.last_value
     }
-
     pub fn num_samples(&self) -> usize {
         self.count
     }
-
     pub fn size(&self) -> usize {
         // data
         self.data.len() +

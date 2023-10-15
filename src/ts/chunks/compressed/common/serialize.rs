@@ -15,7 +15,7 @@ pub fn read_usize<'a>(slice: &'a [u8], context: &str) -> TsdbResult<(&'a [u8], u
   let to_decode = slice
       .get(0..4)
       .ok_or_else(|| TsdbError::CannotDeserialize(context.to_string()))?;
-  let byte_size = u32::from_be_bytes(to_decode.try_into().unwrap()); // TODO: remove this uunwrap
+  let byte_size = u32::from_be_bytes(to_decode.try_into().unwrap()); // TODO: remove this unwrap
   Ok((&slice[4..], byte_size as usize))
 }
 

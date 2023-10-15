@@ -8,7 +8,7 @@ use crate::error::{TsdbError, TsdbResult};
 use crate::ts::chunks::compressed::common::PageMetadata;
 use crate::ts::chunks::compressed::common::serialize::{read_usize, write_usize};
 
-const DATA_PAGE_SIZE: usize = 256;
+pub(super) const DATA_PAGE_SIZE: usize = 256;
 
 // todo: pass in opts. we can upfront determine if we need to use delta encoding
 // and type of value (gauge, counter, etc)
@@ -129,5 +129,38 @@ fn map_unmarshal_err(e: impl Error, what: &str) -> TsdbError {
 
 #[cfg(test)]
 mod test {
+    use std::time::{Duration, Instant, SystemTime};
+    use q_compress::errors::QCompressResult;
+    use rand::Rng;
 
+    fn main() -> QCompressResult<()> {
+        let mut rng = rand::thread_rng();
+
+        let mut series = TimeSeries::default();
+        let t0 = SystemTime::now();
+        let mut t = t0;
+        let mut v = 100.0;
+        for _ in 0..100000 {
+            t += Duration::from_nanos(1_000_000_000 + rng.gen_range(0..1_000_000));
+            v += rng.gen_range(0.0..1.0);
+            series.timestamps.push(t);
+            series.values.push(v);
+        }
+
+        let compressed = compress_time_series(&series)?;
+        println!("compressed to {} bytes", compressed.len());
+
+        let filter_t0 = t0 + Duration::from_secs(10000);
+        let filter_t1 = t0 + Duration::from_secs(20000);
+        let benchmark_instant = Instant::now();
+        let decompressed = decompress_time_series_between(&compressed, filter_t0, filter_t1)?;
+        let benchmark_dt = Instant::now() - benchmark_instant;
+        println!(
+            "decompressed {} numbers matching filter in {:?}",
+            decompressed.len(),
+            benchmark_dt,
+        );
+
+        Ok(())
+    }
 }

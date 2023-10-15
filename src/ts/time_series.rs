@@ -1,12 +1,12 @@
+use crate::error::{TsdbError, TsdbResult};
 use crate::ts::chunks::uncompressed::UncompressedChunk;
 use crate::ts::chunks::{Compression, TimeSeriesChunk, TimesSeriesBlock};
+use crate::ts::constants::{BLOCK_SIZE_FOR_TIME_SERIES, DEFAULT_CHUNK_SIZE_BYTES, SPLIT_FACTOR};
 use crate::ts::{DuplicatePolicy, Sample, Timestamp};
+use ahash::AHashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::BinaryHeap;
 use std::time::Duration;
-use ahash::AHashMap;
-use crate::error::{TsdbError, TsdbResult};
-use crate::ts::constants::{BLOCK_SIZE_FOR_TIME_SERIES, SPLIT_FACTOR, DEFAULT_CHUNK_SIZE_BYTES};
 
 pub type Labels = AHashMap<String, String>;
 
@@ -73,7 +73,10 @@ impl TimeSeries {
         }
 
         // Try to append the time+value to the last block.
-        let ret_val = self.last_chunk.add_sample(&Sample{ timestamp: time, value });
+        let ret_val = self.last_chunk.add_sample(&Sample {
+            timestamp: time,
+            value,
+        });
 
         if ret_val.is_err()
             && ret_val.err().unwrap() == TsdbError::CapacityFull(BLOCK_SIZE_FOR_TIME_SERIES)
@@ -94,7 +97,10 @@ impl TimeSeries {
 
             // Create a new last block and append the time+value to it.
             self.last_chunk = TimeSeriesChunk::Uncompressed(UncompressedChunk::default());
-            self.last_chunk.add_sample(&Sample{ timestamp: time, value })?;
+            self.last_chunk.add_sample(&Sample {
+                timestamp: time,
+                value,
+            })?;
 
             // We created a new block and pushed initial value - so set is_initial to true.
         }
@@ -138,7 +144,6 @@ impl TimeSeries {
             self.duplicate_policy.unwrap_or_default(), //.unwrap_or(/* TSGlobalConfig.duplicatePolicy),
         );
 
-
         let first_ts = self.first_timestamp;
         let max_size = self.chunk_size_bytes;
         let (size, new_chunk) = if timestamp < first_ts && self.chunks.len() > 1 {
@@ -172,11 +177,7 @@ impl TimeSeries {
     }
 
     /// Get the time series between give start and end time (both inclusive).
-    pub fn get_range(
-        &self,
-        start_time: Timestamp,
-        end_time: Timestamp,
-    ) -> TsdbResult<Vec<Sample>> {
+    pub fn get_range(&self, start_time: Timestamp, end_time: Timestamp) -> TsdbResult<Vec<Sample>> {
         // While each TimeSeriesBlock as well as TimeSeriesBlockCompressed has data points sorted by time, in a
         // multithreaded environment, they might not be sorted across blocks. Hence, we collect all the samples in a heap,
         // and return a vector created from the heap, so that the return value is a sorted vector of data points.
@@ -200,23 +201,35 @@ impl TimeSeries {
         timestamps: &mut Vec<Timestamp>,
         values: &mut Vec<f64>,
     ) -> TsdbResult<()> {
+        let mut _state: bool = false;
+
         // Get overlapping data points from the compressed blocks.
         for chunk in self.chunks.iter() {
             if chunk.overlaps(start_time, end_time) {
-                let iter = chunk.range_iter(start_time, end_time)?;
-                for page in iter {
-                    timestamps.extend_from_slice(page.timestamps);
-                    values.extend_from_slice(page.values);
-                }
+                chunk.iterate_range(
+                    &mut _state,
+                    start_time,
+                    end_time,
+                    |_, times, vals, done| {
+                        timestamps.extend_from_slice(times);
+                        values.extend_from_slice(vals);
+                        Ok(!done)
+                    },
+                )?;
             }
         }
 
         if self.last_chunk.overlaps(start_time, end_time) {
-            let iter = self.last_chunk.range_iter(start_time, end_time)?;
-            for page in iter {
-                timestamps.extend_from_slice(page.timestamps);
-                values.extend_from_slice(page.values);
-            }
+            self.last_chunk.iterate_range(
+                &mut _state,
+                start_time,
+                end_time,
+                |_, times, vals, done| {
+                    timestamps.extend_from_slice(times);
+                    values.extend_from_slice(vals);
+                    Ok(!done)
+                },
+            )?;
         }
         Ok(())
     }
@@ -352,8 +365,8 @@ impl Default for TimeSeries {
 
 #[cfg(test)]
 mod tests {
-    use crate::ts::constants::BLOCK_SIZE_FOR_TIME_SERIES;
     use super::*;
+    use crate::ts::constants::BLOCK_SIZE_FOR_TIME_SERIES;
 
     #[test]
     fn test_one_entry() {

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{TsdbError, TsdbResult};
 use crate::ts::{DuplicatePolicy, DuplicateStatus, handle_duplicate_sample, Sample, Timestamp};
 use crate::ts::chunks::{DataPage, TimesSeriesBlock};
-use crate::ts::utils::trim_data;
+use crate::ts::utils::{get_timestamp_index_bounds, trim_data};
 
 // todo: move to constants
 pub const MAX_UNCOMPRESSED_SAMPLES: usize = 256;
@@ -96,9 +96,33 @@ impl UncompressedChunk {
         }
         Ok(())
     }
+
+    pub(crate) fn iterate_range<F, State>(&self, start: Timestamp, end: Timestamp, state: &mut State, mut f: F) -> TsdbResult<()>
+        where F: FnMut(&mut State, &[i64], &[f64], bool) -> TsdbResult<bool> {
+
+        let (start_idx, end_idx) = get_timestamp_index_bounds(&self.timestamps, start, end);
+
+        if start_idx <= end_idx {
+            // todo(perf): use pool
+            let timestamps = &self.timestamps[start_idx .. end_idx];
+            let values = &self.values[start_idx .. end_idx];
+
+            f(state, &timestamps, &values, true)?;
+        } else {
+            let timestamps = vec![];
+            let values = vec![];
+            f(state, &timestamps, &values, true)?;
+        }
+        Ok(())
+    }
+
+    pub fn iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> impl Iterator<Item=Sample> + '_  {
+        SampleIter::new(self, start_ts, end_ts)
+    }
 }
 
 impl TimesSeriesBlock for UncompressedChunk {
+
     fn first_timestamp(&self) -> Timestamp {
         if self.timestamps.is_empty() {
             return 0;
@@ -178,15 +202,6 @@ impl TimesSeriesBlock for UncompressedChunk {
         return Ok(self.len() - count);
     }
 
-    fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> TsdbResult<Box<dyn Iterator<Item=DataPage> + '_>> {
-        let timestamps = &self.timestamps[0..];
-        let values = &self.values[0..];
-        trim_data(timestamps, values, start_ts, end_ts);
-
-        let page = DataPage::new(timestamps, values);
-        Ok(Box::new(std::iter::once(page)))
-    }
-
     fn split(&mut self) -> TsdbResult<Self> where Self: Sized {
         let half = self.timestamps.len() / 2;
         let (left_timestamps, right_timestamps) = self.timestamps.split_at(half);
@@ -199,5 +214,36 @@ impl TimesSeriesBlock for UncompressedChunk {
         self.values.truncate(llen);
 
         Ok(res)
+    }
+}
+
+struct SampleIter<'a> {
+    chunk: &'a UncompressedChunk,
+    index: usize,
+    end_index: usize,
+}
+
+impl<'a> SampleIter<'a> {
+    pub fn new(chunk: &'a UncompressedChunk, start: Timestamp, end: Timestamp) -> Self {
+        let (start_index, end_index) = get_timestamp_index_bounds(&chunk.timestamps, start, end);
+        Self {
+            chunk,
+            index: start_index,
+            end_index,
+        }
+    }
+}
+
+impl<'a> Iterator for SampleIter<'a> {
+    type Item = Sample;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.end_index {
+            return None;
+        }
+        let ts = self.chunk.timestamps[self.index];
+        let val = self.chunk.values[self.index];
+        self.index += 1;
+        Some(Sample::new(ts, val))
     }
 }

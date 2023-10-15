@@ -113,53 +113,64 @@ impl MatchFnHandler {
     }
 }
 
+#[allow(unused)]
 fn starts_with(prefix: &str, candidate: &str) -> bool {
     candidate.starts_with(prefix)
 }
 
+#[allow(unused)]
 fn matches_alternates(or_values: &[String], s: &str) -> bool {
     or_values.iter().any(|v| v == s)
 }
 
+#[allow(unused)]
 fn matches_literal(prefix: &str, candidate: &str) -> bool {
     prefix == candidate
 }
 
+#[allow(unused)]
 fn mismatches_literal(prefix: &str, candidate: &str) -> bool {
     prefix != candidate
 }
 
 // prefix + '.*'
+#[allow(unused)]
 fn prefix_dot_star(prefix: &str, candidate: &str) -> bool {
     // Fast path - the pr contains "prefix.*"
     return candidate.starts_with(prefix);
 }
 
+#[allow(unused)]
 fn not_prefix_dot_star(prefix: &str, candidate: &str) -> bool {
     !candidate.starts_with(prefix)
 }
 
 // prefix.+'
+#[allow(unused)]
 fn prefix_dot_plus(prefix: &str, candidate: &str) -> bool {
     // dot plus
     candidate.len() > prefix.len() && candidate.starts_with(prefix)
 }
 
+#[allow(unused)]
 fn not_prefix_dot_plus(prefix: &str, candidate: &str) -> bool {
     candidate.len() <= prefix.len() || !candidate.starts_with(prefix)
 }
 
 // suffix.*'
+#[allow(unused)]
 fn suffix_dot_star(suffix: &str, candidate: &str) -> bool {
     // Fast path - the pr contains "prefix.*"
     candidate.ends_with(suffix)
 }
 
+#[allow(unused)]
 fn not_suffix_dot_star(suffix: &str, candidate: &str) -> bool {
     !candidate.ends_with(suffix)
 }
 
 // suffix.+'
+#[allow(unused)]
 fn suffix_dot_plus(suffix: &str, candidate: &str) -> bool {
     // dot plus
     if candidate.len() > suffix.len() {
@@ -170,6 +181,7 @@ fn suffix_dot_plus(suffix: &str, candidate: &str) -> bool {
     }
 }
 
+#[allow(unused)]
 fn not_suffix_dot_plus(suffix: &str, candidate: &str) -> bool {
     if candidate.len() <= suffix.len() {
         true
@@ -179,15 +191,18 @@ fn not_suffix_dot_plus(suffix: &str, candidate: &str) -> bool {
     }
 }
 
+#[allow(unused)]
 fn dot_star_dot_star(pattern: &str, candidate: &str) -> bool {
     candidate.contains(pattern)
 }
 
+#[allow(unused)]
 fn not_dot_star_dot_star(pattern: &str, candidate: &str) -> bool {
     !candidate.contains(pattern)
 }
 
 // '.+middle.*'
+#[allow(unused)]
 fn dot_plus_dot_star(pattern: &str, candidate: &str) -> bool {
     if candidate.len() > pattern.len() {
         let temp = skip_first_char(candidate);
@@ -197,6 +212,7 @@ fn dot_plus_dot_star(pattern: &str, candidate: &str) -> bool {
     }
 }
 
+#[allow(unused)]
 fn not_dot_plus_dot_star(pattern: &str, candidate: &str) -> bool {
     if candidate.len() <= pattern.len() {
         true
@@ -207,6 +223,7 @@ fn not_dot_plus_dot_star(pattern: &str, candidate: &str) -> bool {
 }
 
 // '.*middle.+'
+#[allow(unused)]
 fn dot_star_dot_plus(pattern: &str, candidate: &str) -> bool {
     if candidate.len() > pattern.len() {
         let temp = skip_last_char(candidate);
@@ -216,6 +233,7 @@ fn dot_star_dot_plus(pattern: &str, candidate: &str) -> bool {
     }
 }
 
+#[allow(unused)]
 fn not_dot_star_dot_plus(pattern: &str, candidate: &str) -> bool {
     if candidate.len() <= pattern.len() {
         true
@@ -226,6 +244,7 @@ fn not_dot_star_dot_plus(pattern: &str, candidate: &str) -> bool {
 }
 
 // '.+middle.+'
+#[allow(unused)]
 fn dot_plus_dot_plus(pattern: &str, candidate: &str) -> bool {
     if candidate.len() > pattern.len() + 1 {
         let sub = skip_first_and_last_char(candidate);
@@ -235,6 +254,7 @@ fn dot_plus_dot_plus(pattern: &str, candidate: &str) -> bool {
     }
 }
 
+#[allow(unused)]
 fn not_dot_plus_dot_plus(pattern: &str, candidate: &str) -> bool {
     if candidate.len() <= pattern.len() + 1 {
         true

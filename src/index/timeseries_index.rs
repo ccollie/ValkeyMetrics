@@ -10,7 +10,7 @@ use roaring::{MultiOps, RoaringTreemap};
 use crate::common::types::Timestamp;
 use crate::module::get_timeseries;
 use crate::ts::time_series::TimeSeries;
-use crate::ts::{Labels};
+use crate::ts::{get_timeseries_mut, Labels};
 
 pub type RedisContext = Context;
 
@@ -170,7 +170,7 @@ impl TimeSeriesIndex {
         &'a self,
         ctx: &'a Context,
         id: u64,
-    ) -> Result<Option<&TimeSeries>, RedisError> {
+    ) -> Result<Option<&mut TimeSeries>, RedisError> {
         let id_to_key = self.id_to_key.read().unwrap();
         get_series_by_id(ctx, &id_to_key, id)
     }
@@ -179,7 +179,7 @@ impl TimeSeriesIndex {
         &'a self,
         ctx: &'a Context,
         metric: &str,
-        res: &mut Vec<&'a TimeSeries>,
+        res: &mut Vec<&'a mut TimeSeries>,
     ) {
         let label_kv_to_ts = self.label_kv_to_ts.read().unwrap();
         let id_to_key = self.id_to_key.read().unwrap();
@@ -225,7 +225,7 @@ impl TimeSeriesIndex {
         matchers: &Vec<Matchers>,
         start: Timestamp,
         end: Timestamp,
-    ) -> Vec<&TimeSeries> {
+    ) -> Vec<&mut TimeSeries> {
         let id_to_key = self.id_to_key.read().unwrap();
         let label_kv_to_ts = self.label_kv_to_ts.read().unwrap();
         matchers
@@ -309,11 +309,11 @@ fn get_series_by_id<'a>(
     ctx: &'a Context,
     id_to_key: &RwLockReadGuard<AHashMap<u64, String>>,
     id: u64,
-) -> Result<Option<&'a TimeSeries>, RedisError> {
+) -> Result<Option<&'a mut TimeSeries>, RedisError> {
     if let Some(key) = id_to_key.get(&id) {
         // todo: eliminate this copy
         let rkey = ctx.create_string(key.as_str());
-        return get_timeseries(ctx, &rkey, false);
+        return get_timeseries_mut(ctx, &rkey, false);
     }
     Ok(None)
 }
@@ -322,7 +322,7 @@ fn get_multi_series_by_id<'a>(
     ctx: &'a Context,
     id_to_key: &RwLockReadGuard<AHashMap<u64, String>>,
     ids: &[u64],
-) -> Result<Vec<Option<&'a TimeSeries>>, RedisError> {
+) -> Result<Vec<Option<&'a mut TimeSeries>>, RedisError> {
     ids.iter()
         .map(|id| get_series_by_id(ctx, &id_to_key, *id))
         .collect()

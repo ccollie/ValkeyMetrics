@@ -55,6 +55,25 @@ impl TimeSeriesChunk {
     pub fn is_contained_by_range(&self, start_ts: Timestamp, end_ts: Timestamp) -> bool {
         self.first_timestamp() >= start_ts && self.last_timestamp() <= end_ts
     }
+
+    pub fn overlaps(&self, start_time: i64, end_time: i64) -> bool {
+        let first_time = self.first_timestamp();
+        let last_time = self.last_timestamp();
+        first_time <= end_time && last_time >= start_time
+    }
+
+    pub fn iterate_range<F, State>(&self, state: &mut State, start: Timestamp, end: Timestamp, f: F) -> TsdbResult<()>
+        where F: FnMut(&mut State, &[i64], &[f64], bool) -> TsdbResult<bool> {
+        use TimeSeriesChunk::*;
+        match self {
+            Uncompressed(chunk) => {
+                chunk.iterate_range(start, end, state, f)
+            },
+            QuantileCompressed(chunk) => {
+                chunk.iterate_range(start, end, state, f)
+            },
+        }
+    }
 }
 
 impl TimesSeriesBlock for TimeSeriesChunk {
@@ -119,14 +138,6 @@ impl TimesSeriesBlock for TimeSeriesChunk {
         match self {
             Uncompressed(chunk) => chunk.upsert_sample(sample, dp_policy),
             QuantileCompressed(chunk) => chunk.upsert_sample(sample, dp_policy)
-        }
-    }
-
-    fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> TsdbResult<Box<dyn Iterator<Item=DataPage> + '_>> {
-        use TimeSeriesChunk::*;
-        match self {
-            Uncompressed(chunk) => chunk.range_iter(start_ts, end_ts),
-            QuantileCompressed(chunk) => chunk.range_iter(start_ts, end_ts)
         }
     }
 

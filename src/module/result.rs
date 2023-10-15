@@ -58,7 +58,6 @@ pub(super) fn sample_to_result(timestamp: Timestamp, value: f64) -> RedisValue {
     let value = RedisValue::SimpleString(value.to_string());
     vec![epoch, value].into()
 }
-
 pub(super) fn samples_to_result(timestamps: &[i64], values: &[f64]) -> RedisValue {
     timestamps
         .iter()
@@ -204,12 +203,9 @@ pub fn to_success_result(data: RedisValue, response_type: ResultType) -> RedisVa
 
     RedisValue::Map(map)
 }
-
-
 pub fn std_duration_to_redis_value(duration: &std::time::Duration) -> RedisValue {
     return RedisValue::Integer(duration.as_secs() as i64 * 1000 + duration.subsec_millis() as i64)
 }
-
 pub fn redis_value_to_std_duration(value: &RedisValue) -> std::time::Duration {
     let millis = match value {
         RedisValue::Integer(i) => *i,
@@ -217,11 +213,9 @@ pub fn redis_value_to_std_duration(value: &RedisValue) -> std::time::Duration {
     };
     std::time::Duration::from_millis(millis as u64)
 }
-
 pub fn string_hash_map_to_redis_value(map: &HashMap<String, String>) -> RedisValue {
     RedisValue::from(map.clone())
 }
-
 pub(super) fn get_ts_metric_selector(ts: &TimeSeries) -> RedisValue {
     let mut map: HashMap<RedisValueKey, RedisValue> = HashMap::with_capacity(ts.labels.len() + 1);
     map.insert(RedisValueKey::String(METRIC_NAME_LABEL.into()), RedisValue::from(&ts.metric_name));

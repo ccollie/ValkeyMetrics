@@ -22,19 +22,6 @@ pub fn call_reply_to_f64(reply: &CallReply) -> f64 {
     }
 }
 
-pub fn call_reply_to_string(reply: &CallReply) -> String {
-    match reply {
-        CallReply::String(s) => s.to_string().unwrap_or_default(),
-        CallReply::VerbatimString(s) => s.to_string(),
-        _ => panic!("unexpected reply type"),
-    }
-}
-
-pub fn call_reply_to_timestamp(reply: &CallReply) -> Timestamp {
-    let val = call_reply_to_i64(reply);
-    val
-}
-
 pub(crate) fn redis_value_to_f64(value: &RedisValue) -> RedisResult<f64> {
     match value {
         RedisValue::Integer(i) => Ok(*i as f64),

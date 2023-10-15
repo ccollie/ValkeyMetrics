@@ -89,6 +89,34 @@ impl<'a> DataPage<'a> {
 
 }
 
+#[derive(PartialEq)]
+pub enum ChunkRangeVisitorContinuation {
+    Continue,
+    Stop,
+}
+
+/// Trait that implements the [Visitor pattern](https://en.wikipedia.org/wiki/Visitor_pattern)
+/// to efficiently walk a chunk range. [`pre_visit`](ChunkRangeVisitor::pre_visit) is called
+/// before the range iteration begins, and then [`post_visit`](ChunkRangeVisitor::post_visit) is called
+/// after all samples in the range have been visited. [`visit`](ChunkRangeVisitor::visit) is called
+/// for all data pages in the range.
+pub trait ChunkRangeVisitor {
+    /// Called before any children are visited. Return `Ok(false)` to cut short the iteration
+    /// (skip traversing and return).
+    fn pre_visit(&mut self, chunk: &impl TimesSeriesBlock) -> Result<ChunkRangeVisitorContinuation, TsdbError> {
+        Ok(ChunkRangeVisitorContinuation::Continue)
+    }
+
+    fn visit(&mut self, page: &DataPage, finished: bool) -> Result<ChunkRangeVisitorContinuation, TsdbError>;
+
+    /// Called after all sanples are visited. Return `Ok(false)` to cut short the iteration
+    /// (skip traversing and return).
+    fn post_visit(&mut self, _plan: &impl TimesSeriesBlock) -> TsdbResult<()> {
+        Ok(())
+    }
+}
+
+
 pub trait TimesSeriesBlock {
     fn first_timestamp(&self) -> Timestamp;
     fn last_timestamp(&self) -> Timestamp;
@@ -97,11 +125,8 @@ pub trait TimesSeriesBlock {
     fn size(&self) -> usize;
     fn remove_range(&mut self, start_ts: Timestamp, end_ts: Timestamp) -> TsdbResult<usize>;
     fn add_sample(&mut self, sample: &Sample) -> TsdbResult<()>;
-
     fn upsert_sample(&mut self, sample: &mut Sample, dp_policy: DuplicatePolicy) -> TsdbResult<usize>;
-    fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> TsdbResult<Box<dyn Iterator<Item=DataPage> + '_>>;
     fn split(&mut self) -> TsdbResult<Self> where Self: Sized;
-
     fn overlaps(&self, start_ts: i64, end_ts: i64) -> bool {
         self.first_timestamp() <= end_ts && self.last_timestamp() >= start_ts
     }
