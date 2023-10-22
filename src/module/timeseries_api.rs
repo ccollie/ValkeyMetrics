@@ -1,16 +1,11 @@
 use std::fmt::Display;
 use std::time::Duration;
-use ahash::AHashMap;
-use metricsql_engine::Timestamp;
-use redis_module::{Context, NotifyEvent, RedisError, RedisResult, RedisString};
-use redis_module::key::RedisKeyWritable;
-use crate::globals::get_timeseries_index;
-use crate::module::REDIS_PROMQL_SERIES_TYPE;
-use crate::ts::{DuplicatePolicy, TimeSeriesOptions};
+use redis_module::{Context, RedisError, RedisString};
+use serde::{Deserialize, Serialize};
+use crate::common::types::Timestamp;
+use crate::ts::{DEFAULT_CHUNK_SIZE_BYTES, DuplicatePolicy};
 use crate::ts::time_series::TimeSeries;
 
-pub const DEFAULT_CHUNK_SIZE_BYTES: usize = 4 * 1024;
-pub type Labels = AHashMap<String, String>;  // todo use ahash
 
 pub(crate) fn create_timeseries(
     key: &RedisString,
@@ -87,9 +82,8 @@ pub(super) fn internal_add(
     dp_override: DuplicatePolicy,
 ) -> Result<(), RedisError> {
     let last_ts = series.last_timestamp;
-    let retention = series.retention.as_millis() as i64;
     // ensure inside retention period.
-    if retention > 0 && (timestamp < last_ts) && retention < (last_ts - timestamp) {
+    if series.is_older_than_retention(timestamp) {
         return Err(RedisError::Str("TSDB: Timestamp is older than retention"));
     }
 

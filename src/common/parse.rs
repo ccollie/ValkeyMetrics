@@ -8,6 +8,7 @@ use crate::common::current_time_millis;
 use crate::common::types::{Timestamp, TimestampRangeValue};
 use crate::error::{TsdbError, TsdbResult};
 use crate::index::RedisContext;
+use crate::ts::{MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
 
 pub fn parse_timestamp(arg: &str) -> TsdbResult<Timestamp> {
     // todo: handle +,
@@ -63,4 +64,27 @@ pub fn parse_series_selector(arg: &str) -> TsdbResult<Matchers> {
     }).and_then(|m| {
         Ok(Matchers::new(m))
     })
+}
+
+pub fn parse_chunk_size(arg: &str) -> RedisResult<usize> {
+    fn get_error_result() -> RedisResult<usize> {
+        let msg = format!("TSDB: CHUNK_SIZE value must be an integer multiple of 2 in the range [{MIN_CHUNK_SIZE} .. {MAX_CHUNK_SIZE}]");
+        return Err(RedisError::String(msg));
+    }
+
+    let chunk_size = parse_number_with_unit(arg).map_err(|_e| {
+        RedisError::Str("TSDB: invalid chunk size")
+    })?;
+
+    if chunk_size != chunk_size.floor() {
+        return get_error_result()
+    }
+    if chunk_size < MIN_CHUNK_SIZE as f64 || chunk_size > MAX_CHUNK_SIZE as f64 {
+        return get_error_result()
+    }
+    let chunk_size = chunk_size as usize;
+    if chunk_size % 2 != 0 {
+        return get_error_result()
+    }
+    Ok(chunk_size)
 }

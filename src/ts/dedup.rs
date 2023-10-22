@@ -1,4 +1,4 @@
-use crate::ts::Timestamp;
+use crate::common::types::Timestamp;
 
 /// removes samples from src* if they are closer to each other than dedup_interval in milliseconds.
 pub fn deduplicate_samples(
@@ -43,7 +43,7 @@ pub fn deduplicate_samples(
     src_values.truncate(count);
 }
 
-fn needs_dedup(timestamps: &[i64], dedup_interval: i64) -> bool {
+fn needs_dedup(timestamps: &[Timestamp], dedup_interval: i64) -> bool {
     if timestamps.len() < 2 || dedup_interval <= 0 {
         return false;
     }

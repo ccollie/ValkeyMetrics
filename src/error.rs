@@ -47,6 +47,9 @@ pub enum TsdbError {
 
   #[error("Invalid series selector. {0}")]
   InvalidSeriesSelector(String),
+
+  #[error("Sample timestamp is older than retention")]
+  SampleTooOld,
 }
 
 pub type TsdbResult<T> = Result<T, TsdbError>;

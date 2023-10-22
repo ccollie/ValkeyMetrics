@@ -1,6 +1,6 @@
-use std::fmt::Display;
-use crate::ts::Sample;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
+use crate::common::types::Sample;
 
 #[derive(Debug, Default, PartialEq, Deserialize, Serialize, Clone, Copy)]
 pub enum DuplicatePolicy {
@@ -16,7 +16,7 @@ pub enum DuplicatePolicy {
     /// only override if the value is higher than the existing value
     Max,
     /// append the new value to the existing value
-    Sum
+    Sum,
 }
 
 impl Display for DuplicatePolicy {
@@ -55,7 +55,11 @@ pub enum DuplicateStatus {
 
 // This function will decide according to the policy how to handle duplicate sample, the `new_sample`
 // will contain the data that will be kept in the database.
-pub fn handle_duplicate_sample(policy: DuplicatePolicy, old_sample: Sample, new_sample: &mut Sample) -> DuplicateStatus {
+pub fn handle_duplicate_sample(
+    policy: DuplicatePolicy,
+    old_sample: Sample,
+    new_sample: &mut Sample,
+) -> DuplicateStatus {
     let has_nan = old_sample.value.is_nan() || new_sample.value.is_nan();
     if has_nan && policy != DuplicatePolicy::Block {
         // take the valid sample regardless of policy

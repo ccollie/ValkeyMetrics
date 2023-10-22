@@ -1,4 +1,4 @@
-use crate::ts::Timestamp;
+use crate::common::types::Timestamp;
 
 pub(crate) fn get_timestamp_index_bounds(timestamps: &[i64], start_ts: Timestamp, end_ts: Timestamp) -> (usize, usize) {
     let stamps = &timestamps[0..];

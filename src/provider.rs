@@ -1,5 +1,4 @@
 use crate::ts::time_series::TimeSeries;
-use crate::ts::Timestamp;
 use metricsql_engine::provider::MetricDataProvider;
 use metricsql_engine::{
     Deadline, MetricName, QueryResult, QueryResults, RuntimeResult, SearchQuery,
@@ -7,6 +6,7 @@ use metricsql_engine::{
 use rayon::iter::IntoParallelRefIterator;
 use rayon::iter::ParallelIterator;
 use redis_module::Context;
+use crate::common::types::Timestamp;
 use crate::globals::get_timeseries_index;
 use crate::index::TimeSeriesIndex;
 

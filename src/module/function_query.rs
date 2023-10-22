@@ -1,17 +1,15 @@
 use crate::common::types::TimestampRangeValue;
-use crate::common::{
-    current_time_millis, duration_to_chrono, parse_duration,
-};
+use crate::common::{current_time_millis, duration_to_chrono, parse_duration};
 use crate::config::get_global_settings;
 use crate::globals::get_query_context;
 use crate::module::result::to_matrix_result;
+use crate::module::{normalize_range_args, parse_timestamp_arg};
 use metricsql_engine::execution::query::{
     query as engine_query, query_range as engine_query_range,
 };
 use metricsql_engine::prelude::query::QueryParams;
 use metricsql_engine::{QueryResult, RuntimeResult};
 use redis_module::{Context, NextArg, RedisError, RedisResult, RedisString};
-use crate::module::{normalize_range_args, parse_timestamp_arg};
 
 const CMD_ARG_FORMAT: &str = "FORMAT";
 const CMD_ARG_START: &str = "START";
@@ -63,7 +61,6 @@ pub(crate) fn prom_query_range(ctx: &Context, args: Vec<RedisString>) -> RedisRe
         };
     }
 
-
     let (start, end) = normalize_range_args(start_value, end_value)?;
 
     let step = normalize_step(step_value)?;
@@ -76,7 +73,7 @@ pub(crate) fn prom_query_range(ctx: &Context, args: Vec<RedisString>) -> RedisRe
     query_params.round_digits = round_digits;
 
     let query_context = get_query_context();
-    handle_query_result(engine_query_range(query_context, &query_params) )
+    handle_query_result(engine_query_range(query_context, &query_params))
 }
 
 ///
@@ -122,7 +119,7 @@ pub fn prom_query(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
     query_params.round_digits = round_digits;
 
     let query_context = get_query_context();
-    handle_query_result(engine_query(query_context, &query_params) )
+    handle_query_result(engine_query(query_context, &query_params))
 }
 
 fn parse_step(arg: &str) -> RedisResult<chrono::Duration> {

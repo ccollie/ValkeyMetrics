@@ -1,4 +1,3 @@
-pub const METRIC_NAME_LABEL: &str = "__name__";
 pub(crate) const U8_SIZE: usize = std::mem::size_of::<u8>();
 pub(crate) const U16_SIZE: usize = std::mem::size_of::<u16>();
 pub(crate) const U32_SIZE: usize = std::mem::size_of::<u32>();
