@@ -8,9 +8,9 @@ use ahash::AHashMap;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use roaring::{MultiOps, RoaringTreemap};
 use crate::common::types::Timestamp;
+use crate::module::get_timeseries_mut;
 use crate::module::get_timeseries;
 use crate::ts::time_series::{Labels, TimeSeries};
-use crate::ts::{get_timeseries_mut};
 
 pub type RedisContext = Context;
 

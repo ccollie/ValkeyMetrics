@@ -428,7 +428,7 @@ fn get_optimized_re_match_func_ext(
             // Remove parenthesis from expr, i.e. '(expr) -> expr'
             return get_optimized_re_match_func_ext(re_match, cap.sub.as_ref())
         }
-        HirKind::Literal(lit) => {
+        HirKind::Literal(_lit) => {
             if !is_literal(sre) {
                 return None;
             }

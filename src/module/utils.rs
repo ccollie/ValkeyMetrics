@@ -1,64 +1,8 @@
 use std::borrow::Cow;
-use redis_module::{CallOptionResp, CallOptions, CallOptionsBuilder, CallReply, CallResult, RedisError, RedisResult, RedisValue};
-use redis_module::redisvalue::RedisValueKey;
+use redis_module::{CallOptionResp, CallOptions, CallOptionsBuilder, CallResult, RedisError, RedisResult, RedisValue};
 use crate::common::{current_time_millis, parse_timestamp_range_value};
 use crate::common::types::{Timestamp, TimestampRangeValue};
 use crate::config::get_global_settings;
-use crate::index::RedisContext;
-
-// todo: utils
-pub fn call_reply_to_i64(reply: &CallReply) -> i64 {
-    match reply {
-        CallReply::I64(i) => i.to_i64(),
-        _ => panic!("unexpected reply type"),
-    }
-}
-
-pub fn call_reply_to_f64(reply: &CallReply) -> f64 {
-    match reply {
-        CallReply::Double(d) => d.to_double(),
-        CallReply::I64(i) => i.to_i64() as f64,
-        _ => panic!("unexpected reply type"),
-    }
-}
-
-pub(crate) fn redis_value_to_f64(value: &RedisValue) -> RedisResult<f64> {
-    match value {
-        RedisValue::Integer(i) => Ok(*i as f64),
-        RedisValue::Float(f) => Ok(*f),
-        _ => Err(RedisError::Str("TSDB: cannot convert value to float")),
-    }
-}
-
-
-pub(crate) fn redis_value_to_i64(value: &RedisValue) -> RedisResult<i64> {
-    match value {
-        RedisValue::Integer(i) => Ok(*i),
-        RedisValue::Float(f) => Ok(*f as i64),  // todo: handle overflow
-        _ => Err(RedisError::Str("TSDB: cannot convert value to i64")),
-    }
-}
-
-pub(crate) fn redis_value_key_as_str(value: &RedisValueKey) -> RedisResult<Cow<str>> {
-    match value {
-        RedisValueKey::String(s) => Ok(Cow::Borrowed(s)),
-        RedisValueKey::BulkString(s) => {
-            let value = String::from_utf8_lossy(s);
-            Ok(Cow::Owned(value.to_string()))
-        },
-        RedisValueKey::BulkRedisString(s) => {
-            let val = if let Ok(s) = s.try_as_str() {
-                Cow::Borrowed(s)
-            } else {
-                Cow::Owned(s.to_string())
-            };
-            Ok(val)
-        },
-        _ => Err(RedisError::Str("TSDB: cannot convert value to str")),
-    }
-
-}
-
 pub(crate) fn redis_value_as_str(value: &RedisValue) -> RedisResult<Cow<str>> {
     match value {
         RedisValue::SimpleStringStatic(s) => Ok(Cow::Borrowed(s)),
@@ -104,11 +48,10 @@ pub(crate) fn call_redis_command<'a>(ctx: &redis_module::Context, cmd: &'a str, 
 }
 
 pub fn parse_timestamp_arg(
-    ctx: &RedisContext,
     arg: &str,
     name: &str,
 ) -> Result<TimestampRangeValue, RedisError> {
-    parse_timestamp_range_value(ctx, arg).map_err(|_e| {
+    parse_timestamp_range_value(arg).map_err(|_e| {
         let msg = format!("ERR invalid {} timestamp", name);
         RedisError::String(msg)
     })

@@ -3,32 +3,106 @@ use chrono::DateTime;
 use metricsql_engine::parse_metric_selector;
 use metricsql_parser::common::Matchers;
 use metricsql_parser::parser::{parse_duration_value, parse_number};
-use redis_module::{RedisError, RedisResult};
+use redis_module::{RedisError, RedisResult, RedisString};
 use crate::common::current_time_millis;
-use crate::common::types::{Timestamp, TimestampRangeValue};
+use crate::common::types::{Timestamp, TimestampRange, TimestampRangeValue};
 use crate::error::{TsdbError, TsdbResult};
-use crate::index::RedisContext;
 use crate::ts::{MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
 
-pub fn parse_timestamp(arg: &str) -> TsdbResult<Timestamp> {
+
+pub fn parse_number_arg(arg: &RedisString, name: &str) -> RedisResult<f64> {
+    if let Ok(value) = arg.parse_float() {
+        return Ok(value);
+    }
+    let arg_str = arg.to_string_lossy();
+    parse_number_with_unit(&arg_str)
+        .map_err(|_| {
+            if name.is_empty() {
+              RedisError::Str("TSDB: invalid number")
+            } else {
+                RedisError::String(format!("TSDB: cannot parse {name} as number"))
+            }
+        })
+}
+
+pub fn parse_integer_arg(arg: &RedisString, name: &str, allow_negative: bool) -> RedisResult<i64> {
+    let value = if let Ok(val) = arg.parse_integer() {
+        val
+    } else {
+        let num = parse_number_arg(arg, name)?;
+        if num != num.floor() {
+            return Err(RedisError::Str("TSDB: value must be an integer"));
+        }
+        if num > i64::MAX as f64 {
+            return Err(RedisError::Str("TSDB: value is too large"));
+        }
+        num as i64
+    };
+    if !allow_negative && value < 0 {
+        let msg = format!("TSDB: {} must be a non-negative integer", name);
+        return Err(RedisError::String(msg));
+    }
+    Ok(value)
+}
+
+pub fn parse_timestamp_arg(arg: &RedisString) -> RedisResult<Timestamp> {
+    if arg.len() == 1 {
+        let arg = arg.as_slice();
+        if arg[0] == b'*' {
+            return Ok(current_time_millis());
+        }
+    }
+    let value = if let Ok(value) = arg.parse_integer() {
+        value
+    } else {
+        let arg_str = arg.to_string_lossy();
+        let value = DateTime::parse_from_rfc3339(&arg_str)
+            .map_err(|_| RedisError::Str("TSDB: invalid timestamp"))?;
+        value.timestamp_millis()
+    };
+    if value < 0 {
+        return Err(RedisError::Str("TSDB: invalid timestamp, must be a non-negative value"));
+    }
+    Ok(value as Timestamp)
+}
+
+pub fn parse_timestamp(arg: &str) -> RedisResult<Timestamp> {
     // todo: handle +,
     if arg == "*" {
         return Ok(current_time_millis());
     }
-    if let Ok(dt) = arg.parse::<i64>() {
-        Ok(dt)
+    let value = if let Ok(dt) = arg.parse::<i64>() {
+        dt
     } else {
-        DateTime::parse_from_rfc3339(arg)
-            .map_err(|_| {
-                TsdbError::InvalidTimestamp(arg.to_string())
-            }).and_then(|dt| {
-            Ok(dt.timestamp_millis())
-        })
+        let value = DateTime::parse_from_rfc3339(arg)
+            .map_err(|_| RedisError::Str("invalid timestamp"))?;
+        value.timestamp_millis()
+    };
+    if value < 0 {
+        return Err(RedisError::Str("TSDB: invalid timestamp, must be a non-negative integer"));
     }
+    Ok(value)
 }
 
-pub fn parse_timestamp_range_value(_ctx: &RedisContext, arg: &str) -> RedisResult<TimestampRangeValue> {
+pub fn parse_timestamp_range_value(arg: &str) -> RedisResult<TimestampRangeValue> {
     TimestampRangeValue::try_from(arg)
+}
+
+pub fn parse_timestamp_range(start: &RedisString, end: &RedisString) -> RedisResult<TimestampRange> {
+    let first: TimestampRangeValue = start.try_into()?;
+    let second: TimestampRangeValue = end.try_into()?;
+    TimestampRange::new(first, second)
+}
+
+pub fn parse_duration_arg(arg: &RedisString) -> RedisResult<Duration> {
+    if let Ok(value) = arg.parse_integer() {
+        if value < 0 {
+            return Err(RedisError::Str("TSDB: invalid duration, must be a non-negative integer"));
+        }
+        return Ok(Duration::from_millis(value as u64));
+    }
+    let value_str = arg.to_string_lossy();
+    parse_duration(&value_str)
 }
 
 pub fn parse_duration(arg: &str) -> RedisResult<Duration> {

@@ -30,7 +30,7 @@ impl TsdbDataProvider {
             .map(|ts| {
                 let mut timestamps: Vec<Timestamp> = Vec::new();
                 let mut values: Vec<f64> = Vec::new();
-                let res = ts.get_range_raw(
+                let res = ts.select_raw(
                     search_query.start,
                     search_query.end,
                     &mut timestamps,

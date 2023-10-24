@@ -1,5 +1,7 @@
 use redis_module::{NotifyEvent, redis_module, Context as RedisContext};
 use redis_module_macros::{config_changed_event_handler};
+#[cfg(not(test))]
+use redis_module::alloc::RedisAlloc;
 
 #[macro_use]
 extern crate redis_module_macros;
@@ -14,8 +16,7 @@ mod provider;
 mod globals;
 mod config;
 mod ts;
-mod rules;
-mod executor;
+mod aggregators;
 
 use module::*;
 use crate::globals::get_timeseries_index;
@@ -52,20 +53,34 @@ fn on_event(_ctx: &RedisContext, _event_type: NotifyEvent, event: &str, key: &[u
     }
 }
 
+#[cfg(not(test))]
+macro_rules! get_allocator {
+    () => {
+        RedisAlloc
+    };
+}
+
+#[cfg(test)]
+macro_rules! get_allocator {
+    () => {
+        std::alloc::System
+    };
+}
 
 redis_module! {
     name: MODULE_NAME,
     version: REDIS_PROMQL_VERSION,
-    allocator: (redis_module::alloc::RedisAlloc, redis_module::alloc::RedisAlloc),
+    allocator: (get_allocator!(), get_allocator!()),
     data_types: [REDIS_PROMQL_SERIES_TYPE],
     commands: [
         ["PROM.CREATE-SERIES", commands::create, "write deny-oom", 1, 1, 1],
         ["PROM.ALTER-SERIES", commands::alter, "write deny-oom", 1, 1, 1],
         ["PROM.ADD", commands::add, "write deny-oom", 1, 1, 1],
+        ["PROM.GET", commands::get, "write deny-oom", 1, 1, 1],
         ["PROM.MADD", commands::madd, "write deny-oom", 1, 1, 1],
         ["PROM.DEL", commands::del_range, "write deny-oom", 1, 1, 1],
         ["PROM.QUERY", commands::prom_query, "write deny-oom", 1, 1, 1],
-        ["PROM.QUERY-RANGE", commands::prom_query_range, "write deny-oom", 1, 1, 1],
+        ["PROM.QUERY-RANGE", commands::query_range, "write deny-oom", 1, 1, 1],
         ["PROM.RANGE", commands::range, "write deny-oom", 1, 1, 1],
         ["PROM.SERIES", commands::series, "write deny-oom", 1, 1, 1],
         ["PROM.CARDINALITY", commands::cardinality, "write deny-oom", 1, 1, 1],

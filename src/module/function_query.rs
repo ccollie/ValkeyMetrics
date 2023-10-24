@@ -1,5 +1,5 @@
 use crate::common::types::TimestampRangeValue;
-use crate::common::{current_time_millis, duration_to_chrono, parse_duration};
+use crate::common::{current_time_millis, duration_to_chrono, parse_duration_arg};
 use crate::config::get_global_settings;
 use crate::globals::get_query_context;
 use crate::module::result::to_matrix_result;
@@ -27,7 +27,7 @@ const CMD_ARG_ROUNDING: &str = "ROUNDING";
 ///     [STEP duration]
 ///     [ROUNDING digits]
 ///
-pub(crate) fn prom_query_range(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
+pub(crate) fn query_range(_ctx: &Context, args: Vec<RedisString>) -> RedisResult {
     let mut args = args.into_iter().skip(1);
     let query = args.next_string()?;
     let mut start_value: Option<TimestampRangeValue> = None;
@@ -41,15 +41,15 @@ pub(crate) fn prom_query_range(ctx: &Context, args: Vec<RedisString>) -> RedisRe
         match arg {
             arg if arg.eq_ignore_ascii_case(CMD_ARG_START) => {
                 let next = args.next_str()?;
-                start_value = Some(parse_timestamp_arg(ctx, &next, "START")?);
+                start_value = Some(parse_timestamp_arg(&next, "START")?);
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_END) => {
                 let next = args.next_str()?;
-                end_value = Some(parse_timestamp_arg(ctx, &next, "END")?);
+                end_value = Some(parse_timestamp_arg(&next, "END")?);
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_STEP) => {
-                let next = args.next_str()?;
-                step_value = Some(parse_step(next)?);
+                let next = args.next_arg()?;
+                step_value = Some(parse_step(&next)?);
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_ROUNDING) => {
                 round_digits = args.next_u64()?.max(100) as u8;
@@ -82,7 +82,7 @@ pub(crate) fn prom_query_range(ctx: &Context, args: Vec<RedisString>) -> RedisRe
 ///         [TIMEOUT duration]
 ///         [ROUNDING digits]
 ///
-pub fn prom_query(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
+pub fn prom_query(_ctx: &Context, args: Vec<RedisString>) -> RedisResult {
     let mut args = args.into_iter().skip(1);
     let query = args.next_string()?;
     let mut time_value: Option<TimestampRangeValue> = None;
@@ -94,7 +94,7 @@ pub fn prom_query(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
         match arg {
             arg if arg.eq_ignore_ascii_case(CMD_ARG_TIME) => {
                 let next = args.next_str()?;
-                time_value = Some(parse_timestamp_arg(ctx, &next, "TIME")?);
+                time_value = Some(parse_timestamp_arg(&next, "TIME")?);
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_ROUNDING) => {
                 round_digits = args.next_u64()?.max(100) as u8;
@@ -122,8 +122,8 @@ pub fn prom_query(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
     handle_query_result(engine_query(query_context, &query_params))
 }
 
-fn parse_step(arg: &str) -> RedisResult<chrono::Duration> {
-    return if let Ok(duration) = parse_duration(arg) {
+fn parse_step(arg: &RedisString) -> RedisResult<chrono::Duration> {
+    return if let Ok(duration) = parse_duration_arg(arg) {
         Ok(duration_to_chrono(duration))
     } else {
         Err(RedisError::Str("ERR invalid STEP duration"))

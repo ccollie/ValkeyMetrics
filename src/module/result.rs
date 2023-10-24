@@ -208,19 +208,9 @@ pub fn to_success_result(data: RedisValue, response_type: ResultType) -> RedisVa
 pub fn std_duration_to_redis_value(duration: &std::time::Duration) -> RedisValue {
     return RedisValue::Integer(duration.as_secs() as i64 * 1000 + duration.subsec_millis() as i64);
 }
-
-pub fn redis_value_to_std_duration(value: &RedisValue) -> std::time::Duration {
-    let millis = match value {
-        RedisValue::Integer(i) => *i,
-        _ => 0,
-    };
-    std::time::Duration::from_millis(millis as u64)
-}
-
 pub fn string_hash_map_to_redis_value(map: &HashMap<String, String>) -> RedisValue {
     RedisValue::from(map.clone())
 }
-
 pub(super) fn get_ts_metric_selector(ts: &TimeSeries) -> RedisValue {
     let mut map: HashMap<RedisValueKey, RedisValue> = HashMap::with_capacity(ts.labels.len() + 1);
     map.insert(

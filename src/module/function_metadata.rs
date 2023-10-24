@@ -130,12 +130,12 @@ static CMD_ARG_MATCH: &str = "MATCH";
 static CMD_ARG_LABEL: &str = "LABEL";
 
 fn parse_metadata_command_args(
-    ctx: &RedisContext,
+    _ctx: &RedisContext,
     args: Vec<RedisString>,
     require_matchers: bool,
 ) -> RedisResult<MetadataFunctionArgs> {
     let mut args = args.into_iter().skip(1);
-    let mut label_name = None;
+    let label_name = None;
     let mut matchers = Vec::with_capacity(4);
     let mut start_value: Option<TimestampRangeValue> = None;
     let mut end_value: Option<TimestampRangeValue> = None;
@@ -144,11 +144,11 @@ fn parse_metadata_command_args(
         match arg {
             arg if arg.eq_ignore_ascii_case(CMD_ARG_START) => {
                 let next = args.next_str()?;
-                start_value = Some(parse_timestamp_arg(ctx, &next, "START")?);
+                start_value = Some(parse_timestamp_arg(&next, "START")?);
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_END) => {
                 let next = args.next_str()?;
-                end_value = Some(parse_timestamp_arg(ctx, &next, "END")?);
+                end_value = Some(parse_timestamp_arg( &next, "END")?);
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_MATCH) => {
                 while let Ok(matcher) = args.next_str() {

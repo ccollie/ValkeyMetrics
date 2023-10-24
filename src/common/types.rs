@@ -1,15 +1,9 @@
-use std::any::Any;
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::fmt;
-use std::fmt::Display;
-use ahash::AHashMap;
-use enquote::enquote;
+use crate::common::parse_timestamp;
 use metricsql_engine::TimestampTrait;
 use redis_module::{RedisError, RedisResult, RedisString};
 use serde::{Deserialize, Serialize};
-use crate::common::parse_timestamp;
-use crate::index::RedisContext;
+use std::cmp::Ordering;
+use std::fmt::Display;
 
 pub trait AToAny: 'static {
     fn as_any(&self) -> &dyn Any;
@@ -23,147 +17,8 @@ impl<T: 'static> AToAny for T {
 
 
 pub type Timestamp = metricsql_engine::prelude::Timestamp;
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Label {
-    pub name: String,
-    pub value: String,
-}
-
-impl PartialOrd for Label {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let mut v = self.name.cmp(&other.name);
-        if v == Ordering::Equal {
-            v = self.value.cmp(&other.value);
-        }
-        Some(v)
-    }
-}
-
-/// MetricLabels is collection of Label
-pub struct MetricLabels(pub Vec<Label>);
-
-impl MetricLabels {
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub fn iter(&self) -> std::slice::Iter<Label> {
-        self.0.iter()
-    }
-
-    pub fn sort(&mut self) {
-        self.0.sort();
-    }
-}
-
-fn quote(s: &str) -> String {
-    if s.chars().count() < 2 {
-        return s.to_string()
-    }
-
-    let quote = s.chars().next().unwrap();
-    enquote(quote, s)
-}
-
-impl Display for MetricLabels {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let estimated_size = self.0.iter().fold(0, |acc, l| acc + l.name.len() + l.value.len() + 2);
-        let mut s = String::with_capacity(estimated_size);
-        s.push('{');
-        for (i, l) in self.0.iter().enumerate() {
-            if i > 0 {
-                s.push_str(", ");
-            }
-            s.push_str(&l.name);
-            s.push('=');
-            let quoted = quote(&l.value);
-            s.push_str(&quoted);
-            s.push(',');
-        }
-        write!(f, "{}", s)
-    }
-}
-
-
-impl PartialEq<Self> for MetricLabels {
-    fn eq(&self, other: &Self) -> bool {
-        label_compare(&self.0, &other.0) == Ordering::Equal
-    }
-}
-
-/// label_compare return negative if a is less than b, return 0 if they are the same
-/// eg.
-/// a=[Label{name: "a", value: "1"}],b=[Label{name: "b", value: "1"}], return -1
-/// a=[Label{name: "a", value: "2"}],b=[Label{name: "a", value: "1"}], return 1
-/// a=[Label{name: "a", value: "1"}],b=[Label{name: "a", value: "1"}], return 0
-impl PartialOrd for MetricLabels {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(label_compare(&self.0, &other.0))
-    }
-}
-fn label_compare(a: &[Label], b: &[Label]) -> Ordering {
-    let mut l = a.len();
-    if b.len() < l {
-        l = b.len();
-    }
-
-    for (a_label, b_label) in a.iter().zip(b.iter()) {
-        let mut v = a_label.partial_cmp(&b_label).map_or(Ordering::Equal, |o| o);
-        if v != Ordering::Equal {
-            return v;
-        }
-    }
-    // if all labels so far were in common, the set with fewer labels comes first.
-    let b_len = b.len();
-    return a.len().cmp(&b_len)
-}
-
-impl From<HashMap<String, String>> for MetricLabels {
-    fn from(m: HashMap<String, String>) -> Self {
-        let mut labels = Vec::with_capacity(m.len());
-        for (k, v) in m {
-            labels.push(Label{
-                name: k.to_string(),
-                value: v.to_string()
-            })
-        }
-        labels.sort();
-        MetricLabels(labels)
-    }
-}
-
-impl From<&AHashMap<String, String>> for MetricLabels {
-    fn from(m: &AHashMap<String, String>) -> Self {
-        let mut labels = Vec::with_capacity(m.len());
-        for (k, v) in m {
-            labels.push(Label{
-                name: k.to_string(),
-                value: v.to_string()
-            })
-        }
-        labels.sort();
-        MetricLabels(labels)
-    }
-}
-
-impl From<AHashMap<String, String>> for MetricLabels {
-    fn from(m: AHashMap<String, String>) -> Self {
-        let mut labels = Vec::with_capacity(m.len());
-        for (k, v) in m.into_iter() {
-            labels.push(Label{
-                name: k,
-                value: v
-            })
-        }
-        labels.sort();
-        MetricLabels(labels)
-    }
-}
+pub type PooledTimestampVec = metricsql_common::pool::PooledVecI64;
+pub type PooledValuesVec = metricsql_common::pool::PooledVecF64;
 
 /// Represents a data point in time series.
 #[derive(Debug, Deserialize, Serialize)]
@@ -178,7 +33,10 @@ pub struct Sample {
 impl Sample {
     /// Create a new DataPoint from given time and value.
     pub fn new(time: Timestamp, value: f64) -> Self {
-        Sample { timestamp: time, value }
+        Sample {
+            timestamp: time,
+            value,
+        }
     }
 
     /// Get time.
@@ -231,6 +89,7 @@ impl PartialOrd for Sample {
     }
 }
 
+pub const SAMPLE_SIZE: usize = std::mem::size_of::<Sample>();
 pub const MAX_TIMESTAMP: i64 = 253402300799;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Copy)]
@@ -242,17 +101,6 @@ pub enum TimestampRangeValue {
 }
 
 impl TimestampRangeValue {
-    pub fn to_redis_string(&self, ctx: &RedisContext) -> RedisString {
-        match self {
-            TimestampRangeValue::Earliest => ctx.create_string("-"),
-            TimestampRangeValue::Latest => ctx.create_string("+"),
-            TimestampRangeValue::Now => ctx.create_string("*"),
-            TimestampRangeValue::Value(ts) => {
-                ctx.create_string(ts.to_string())
-            },
-        }
-    }
-
     pub fn to_timestamp(&self) -> Timestamp {
         match self {
             TimestampRangeValue::Earliest => 0,
@@ -272,13 +120,45 @@ impl TryFrom<&str> for TimestampRangeValue {
             "+" => Ok(TimestampRangeValue::Latest),
             "*" => Ok(TimestampRangeValue::Now),
             _ => {
-                let ts = parse_timestamp(value).map_err(|_| RedisError::Str("invalid timestamp"))?;
+                let ts =
+                    parse_timestamp(value).map_err(|_| RedisError::Str("invalid timestamp"))?;
                 if ts < 0 {
-                    return Err(RedisError::Str("TSDB: invalid timestamp, must be a non-negative integer"));
+                    return Err(RedisError::Str(
+                        "TSDB: invalid timestamp, must be a non-negative integer",
+                    ));
                 }
                 Ok(TimestampRangeValue::Value(ts))
             }
         }
+    }
+}
+
+impl TryFrom<&RedisString> for TimestampRangeValue {
+    type Error = RedisError;
+
+    fn try_from(value: &RedisString) -> Result<Self, Self::Error> {
+        if value.len() == 1 {
+            let bytes = value.as_slice();
+            match bytes[0] {
+                b'-' => return Ok(TimestampRangeValue::Earliest),
+                b'+' => return Ok(TimestampRangeValue::Latest),
+                b'*' => return Ok(TimestampRangeValue::Now),
+                _ => {}
+            }
+        }
+        return if let Ok(int_val) = value.parse_integer() {
+            if int_val < 0 {
+                return Err(RedisError::Str(
+                    "TSDB: invalid timestamp, must be a non-negative integer",
+                ));
+            }
+            Ok(TimestampRangeValue::Value(int_val))
+        } else {
+            let date_str = value.to_string_lossy();
+            let ts =
+                parse_timestamp(&date_str).map_err(|_| RedisError::Str("invalid timestamp"))?;
+            Ok(TimestampRangeValue::Value(ts))
+        };
     }
 }
 
@@ -311,11 +191,11 @@ impl PartialOrd for TimestampRangeValue {
             (Now, Value(v)) => {
                 let now = Timestamp::now();
                 now.partial_cmp(v)
-            },
+            }
             (Value(v), Now) => {
                 let now = Timestamp::now();
                 v.partial_cmp(&now)
-            },
+            }
             (Earliest, _) => Some(Ordering::Less),
             (_, Earliest) => Some(Ordering::Greater),
             (Latest, _) => Some(Ordering::Greater),
@@ -324,7 +204,7 @@ impl PartialOrd for TimestampRangeValue {
     }
 }
 
-
+// todo: better naming
 pub struct TimestampRange {
     start: TimestampRangeValue,
     end: TimestampRangeValue,
@@ -333,7 +213,7 @@ pub struct TimestampRange {
 impl TimestampRange {
     pub fn new(start: TimestampRangeValue, end: TimestampRangeValue) -> RedisResult<Self> {
         if start > end {
-            return Err( RedisError::Str("invalid range"));
+            return Err(RedisError::Str("invalid timestamp range: start > end"));
         }
         Ok(TimestampRange { start, end })
     }
