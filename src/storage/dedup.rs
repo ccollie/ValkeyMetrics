@@ -1,6 +1,6 @@
 use std::time::Duration;
 use crate::common::types::Timestamp;
-use crate::ts::utils::get_timestamp_index_bounds;
+use crate::storage::utils::get_timestamp_index_bounds;
 
 /// removes samples from src* if they are closer to each other than dedup_interval in milliseconds.
 pub fn deduplicate_samples(

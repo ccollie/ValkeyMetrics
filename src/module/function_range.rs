@@ -3,10 +3,12 @@ use std::time::Duration;
 use std::vec::IntoIter;
 use redis_module::{Context, NextArg, RedisError, RedisResult, RedisString, RedisValue};
 use crate::aggregators::Aggregator;
-use crate::common::{parse_duration_arg, parse_integer_arg, parse_number_with_unit, parse_timestamp};
+use crate::arg_parse::{parse_duration_arg, parse_integer_arg, parse_number_with_unit, parse_timestamp};
 use crate::common::types::Timestamp;
+use crate::error::TsdbResult;
 use crate::module::{get_timeseries_mut, parse_timestamp_arg};
 use crate::module::result::sample_to_result;
+use crate::storage::{RangeFilter, ValueFilter};
 
 
 const CMD_ARG_FILTER_BY_VALUE: &str = "FILTER_BY_VALUE";
@@ -37,7 +39,6 @@ pub enum BucketTimestampOutput {
 
 impl TryFrom<&str> for BucketTimestampOutput {
     type Error = RedisError;
-
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         if value.len() == 1 {
             let c = value.chars().next().unwrap();
@@ -59,24 +60,8 @@ impl TryFrom<&str> for BucketTimestampOutput {
 
 impl TryFrom<&RedisString> for BucketTimestampOutput {
     type Error = RedisError;
-
     fn try_from(value: &RedisString) -> Result<Self, Self::Error> {
         value.to_string_lossy().as_str().try_into()
-    }
-}
-
-#[derive(Debug, PartialEq, Clone, Copy, Default)]
-pub struct ValueFilter {
-    pub min: f64,
-    pub max: f64,
-}
-
-impl ValueFilter {
-    fn new(min: f64, max: f64) -> RedisResult<Self> {
-        if min > max {
-            return Err(RedisError::Str("ERR invalid range"));
-        }
-        Ok(Self { min, max })
     }
 }
 
@@ -95,8 +80,30 @@ pub struct RangeOptions {
     pub end: Timestamp,
     pub count: Option<usize>,
     pub aggregation: Option<AggregationOptions>,
-    pub value_filter: Option<ValueFilter>,
-    pub timestamps_filter: Option<Vec<Timestamp>>
+    pub filter: Option<RangeFilter>,
+}
+
+impl RangeOptions {
+    pub fn new(start: Timestamp, end: Timestamp) -> Self {
+        Self {
+            start,
+            end,
+            ..Default::default()
+        }
+    }
+
+    pub fn set_value_range(&mut self, start: f64, end: f64) -> TsdbResult<()> {
+        let mut filter = self.filter.clone().unwrap_or_default();
+        filter.value = Some(ValueFilter::new(start, end)?);
+        self.filter = Some(filter);
+        Ok(())
+    }
+
+    pub fn set_valid_timestamps(&mut self, timestamps: Vec<Timestamp>) {
+        let mut filter = self.filter.clone().unwrap_or_default();
+        filter.timestamps = Some(timestamps);
+        self.filter = Some(filter);
+    }
 }
 
 pub fn range(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
@@ -138,11 +145,10 @@ pub fn parse_range_options(args: &mut Skip<IntoIter<RedisString>>) -> RedisResul
                     .map_err(|_| RedisError::Str("TSDB: cannot parse filter min parameter"))?;
                 let max = parse_number_with_unit(args.next_str()?)
                     .map_err(|_| RedisError::Str("TSDB: cannot parse filter max parameter"))?;
-                let filter = ValueFilter::new(min, max);
-                options.value_filter = Some(filter?);
+                options.set_value_range(min, max)?;
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_FILTER_BY_TS) => {
-                options.timestamps_filter = Some(parse_timestamp_filter(args)?);
+                options.set_valid_timestamps(parse_timestamp_filter(args)?);
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_AGGREGATION) => {
                 options.aggregation = Some(parse_aggregation_args(args)?);

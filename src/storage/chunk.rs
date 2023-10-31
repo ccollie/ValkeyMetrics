@@ -1,25 +1,27 @@
-use crate::common::types::{PooledTimestampVec, PooledValuesVec, Sample, Timestamp};
+use crate::common::types::{PooledTimestampVec, PooledValuesVec, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
-use crate::ts::compressed_chunk::CompressedChunk;
-use crate::ts::merge::merge;
-use crate::ts::uncompressed_chunk::UncompressedChunk;
-use crate::ts::utils::get_timestamp_index;
-use crate::ts::{DuplicatePolicy, SeriesSlice};
+use crate::storage::compressed_chunk::CompressedChunk;
+use crate::storage::merge::merge;
+use crate::storage::uncompressed_chunk::UncompressedChunk;
+use crate::storage::utils::get_timestamp_index;
+use crate::storage::{DuplicatePolicy, Sample, SeriesSlice};
 use ahash::AHashSet;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use redis_module::{RedisError, RedisResult};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
+use get_size::GetSize;
 
 pub const MIN_CHUNK_SIZE: usize = 48;
 pub const MAX_CHUNK_SIZE: usize = 1048576;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(GetSize)]
 #[non_exhaustive]
 pub enum ChunkCompression {
-    Uncompressed,
+    Uncompressed = 0,
     #[default]
-    Compressed,
+    Compressed = 1,
 }
 
 impl Display for ChunkCompression {
@@ -27,6 +29,17 @@ impl Display for ChunkCompression {
         match self {
             ChunkCompression::Uncompressed => write!(f, "uncompressed"),
             ChunkCompression::Compressed => write!(f, "compressed"),
+        }
+    }
+}
+
+impl TryFrom<u8> for ChunkCompression {
+    type Error = TsdbError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(ChunkCompression::Uncompressed),
+            1 => Ok(ChunkCompression::Compressed),
+            _ => Err(TsdbError::InvalidCompression(value.to_string())),
         }
     }
 }
@@ -71,10 +84,12 @@ pub trait Chunk: Sized {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(GetSize)]
 pub enum TimeSeriesChunk {
     Uncompressed(UncompressedChunk),
     Compressed(CompressedChunk),
 }
+
 impl TimeSeriesChunk {
     pub fn new(
         compression: ChunkCompression,
@@ -138,28 +153,17 @@ impl TimeSeriesChunk {
         used as f64 / total as f64
     }
 
-    /// Determine if we this chunk has the capacity to should store a given number of samples.
-    /// This is used to decide to merge adjacent nodes, for example when the last chunk of a time series
-    /// overflows and we need to create a new one.
-    pub fn has_sample_capacity(&self, num_samples: usize) -> bool {
-        if self.is_full() {
-            return false;
-        }
-        let sample_size_in_bytes = num_samples * self.bytes_per_sample();
-        let new_size = (sample_size_in_bytes + self.size()) as f64;
-        let new_utilization = new_size / self.max_size_in_bytes() as f64;
-        new_utilization <= 1.2 // todo: configurable const
-    }
-
     /// Get an estimate of the remaining capacity in number of samples
     pub fn estimate_remaining_sample_capacity(&self) -> usize {
-        if self.is_full() {
-            return 0;
-        }
         let used = self.size();
         let total = self.max_size_in_bytes();
+        if used >= total {
+            return 0;
+        }
         let remaining = total - used;
-        remaining / self.bytes_per_sample()
+        let bytes_per_sample = self.bytes_per_sample();
+        let res = remaining / bytes_per_sample;
+        res
     }
 
     pub fn clear(&mut self) {
@@ -263,24 +267,18 @@ impl TimeSeriesChunk {
             return Ok(0);
         }
 
-        let min_timestamp = retention_threshold.max(start_ts);
-        let mut state: AHashSet<Timestamp> = AHashSet::new();
-        let (res, timestamps, values) = self.process_range(
-            &mut state,
-            min_timestamp,
-            end_ts,
-            |state, timestamps, values| {
-                let slice = SeriesSlice::new(timestamps, values);
-                self.merge_samples_internal(slice, min_timestamp, duplicate_policy, state)
-            },
-        )?;
+        let min_timestamp = retention_threshold;;
+        let mut timestamps = get_pooled_vec_i64(other.num_samples());
+        let mut values = get_pooled_vec_f64(self.num_samples());
+        other.get_range(min_timestamp.max(start_ts), end_ts, &mut timestamps, &mut values)?;
 
-        self.set_data(timestamps.as_slice(), values.as_slice())?;
+        let mut duplicates = AHashSet::new();
+        let slice = SeriesSlice::new(timestamps.as_slice(), values.as_slice());
 
-        Ok(res)
+        self.merge_slice(slice, retention_threshold, duplicate_policy,  &mut duplicates)
     }
 
-    pub fn merge_samples<'a>(
+    pub fn merge_slice<'a>(
         &mut self,
         samples: SeriesSlice<'a>,
         min_timestamp: Timestamp,
@@ -291,14 +289,14 @@ impl TimeSeriesChunk {
             return Ok(0);
         }
         let (res, timestamps, values) =
-            self.merge_samples_internal(samples, min_timestamp, duplicate_policy, duplicates)?;
+            self.merge_slice_internal(samples, min_timestamp, duplicate_policy, duplicates)?;
 
         self.set_data(timestamps.as_slice(), values.as_slice())?;
 
         Ok(res)
     }
 
-    fn merge_samples_internal<'a>(
+    fn merge_slice_internal<'a>(
         &self,
         samples: SeriesSlice<'a>,
         min_timestamp: Timestamp,
@@ -342,6 +340,11 @@ impl TimeSeriesChunk {
         )?;
 
         Ok((res, state.timestamps, state.values))
+    }
+
+    pub fn memory_usage(&self) -> usize {
+        std::mem::size_of::<Self>() +
+            self.get_heap_size()
     }
 }
 
@@ -562,7 +565,7 @@ pub fn merge_by_capacity(
         let slice = SeriesSlice::new(&timestamps, &values);
         let (left, right) = slice.split_at(remaining_capacity);
         let mut duplicates = AHashSet::new();
-        let res = dest.merge_samples(
+        let res = dest.merge_slice(
             left,
             min_timestamp,
             duplicate_policy,
@@ -572,4 +575,32 @@ pub fn merge_by_capacity(
         return Ok(Some(res));
     }
     Ok(None)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use rand::Rng;
+    use crate::error::TsdbError;
+    use crate::tests::generators::create_rng;
+    use crate::storage::{Chunk, Sample, TimeSeriesChunk};
+
+    pub fn saturate_chunk(chunk: &mut TimeSeriesChunk) {
+        let mut rng = create_rng(None).unwrap();
+        let mut ts: i64 = 10000;
+        loop {
+            let sample = Sample {
+                timestamp: ts,
+                value: rng.gen_range(0.0..100.0),
+            };
+            ts += rng.gen_range(1000..20000);
+            match chunk.add_sample(&sample) {
+                Ok(_) => {}
+                Err(TsdbError::CapacityFull(_)) => {
+                    break
+                }
+                Err(e) => panic!("unexpected error: {:?}", e),
+            }
+        }
+    }
 }

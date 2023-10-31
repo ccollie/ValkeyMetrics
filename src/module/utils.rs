@@ -1,8 +1,10 @@
 use std::borrow::Cow;
 use redis_module::{CallOptionResp, CallOptions, CallOptionsBuilder, CallResult, RedisError, RedisResult, RedisValue};
-use crate::common::{current_time_millis, parse_timestamp_range_value};
-use crate::common::types::{Timestamp, TimestampRangeValue};
+use crate::common::{current_time_millis};
+use crate::common::types::{Timestamp};
 use crate::config::get_global_settings;
+use crate::module::arg_parse::{parse_timestamp_range_value, TimestampRangeValue};
+
 pub(crate) fn redis_value_as_str(value: &RedisValue) -> RedisResult<Cow<str>> {
     match value {
         RedisValue::SimpleStringStatic(s) => Ok(Cow::Borrowed(s)),

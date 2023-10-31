@@ -1,6 +1,5 @@
-use crate::common::types::{Sample, Timestamp};
-use crate::ts::duplicate_policy::handle_duplicate_sample;
-use crate::ts::{DuplicatePolicy, DuplicateStatus, SeriesSlice};
+use crate::common::types::{Timestamp};
+use crate::storage::{DuplicatePolicy, Sample, SeriesSlice};
 use ahash::AHashSet;
 use binary_merge::{MergeOperation, MergeState};
 use std::cmp::Ordering;
@@ -18,15 +17,12 @@ impl<'a> MergeSource<'a> {
             index: 0,
         }
     }
-
     pub fn len(&self) -> usize {
         self.data.len()
     }
-
     fn timestamp_slice(&self) -> &[i64] {
         &self.data.timestamps[self.index..]
     }
-
     fn next(&mut self) -> Option<Sample> {
         if self.index >= self.len() {
             return None;
@@ -38,7 +34,6 @@ impl<'a> MergeSource<'a> {
         self.index += 1;
         Some(sample)
     }
-
     fn take(&mut self, n: usize) -> SeriesSlice {
         let end_index = self.index + n;
 
@@ -77,13 +72,13 @@ impl<'a> SeriesMergeState<'a> {
         }
     }
 
-    fn take_from_a(&mut self, n: usize)  {
+    fn take_from_a(&mut self, n: usize) {
         let slice = self.a.take(n);
         self.dest_timestamps.extend_from_slice(slice.timestamps);
         self.dest_values.extend_from_slice(slice.values);
     }
 
-    fn take_from_b(&mut self, n: usize)  {
+    fn take_from_b(&mut self, n: usize) {
         let slice = self.b.take(n);
         self.dest_timestamps.extend_from_slice(slice.timestamps);
         self.dest_values.extend_from_slice(slice.values);
@@ -126,29 +121,31 @@ impl<'a> MergeOperation<SeriesMergeState<'a>> for SeriesMerger {
         m.take_from_b(n);
         true
     }
-
     fn collision(&self, m: &mut SeriesMergeState<'a>) -> bool {
         let mut sample = m.a.next().unwrap();
         let old = m.b.next().unwrap();
-        match handle_duplicate_sample(self.duplicate_policy, old, &mut sample) {
-            DuplicateStatus::Ok => {
+        match self.duplicate_policy.value_on_duplicate(old.timestamp, old.value, sample.value) {
+            Ok(value) => {
+                sample.value = value;
                 m.add_sample(sample);
             }
-            DuplicateStatus::Err => {
+            Err(_) => {
                 m.duplicates.insert(sample.timestamp);
             }
-            _ => {}
-        };
+        }
         true
     }
 
-    fn cmp(&self, a: &<SeriesMergeState<'a> as MergeState>::A,
-           b: &<SeriesMergeState<'a> as MergeState>::B) -> Ordering {
+    fn cmp(
+        &self,
+        a: &<SeriesMergeState<'a> as MergeState>::A,
+        b: &<SeriesMergeState<'a> as MergeState>::B,
+    ) -> Ordering {
         a.cmp(b)
     }
 }
 
-// merge_blocks merges ib1 and ib2 to ob.
+/// merges time series slices.
 pub(crate) fn merge<'a>(
     dest_timestamps: &'a mut Vec<i64>,
     dest_values: &'a mut Vec<f64>,
@@ -179,6 +176,9 @@ pub(crate) fn merge<'a>(
 }
 
 fn skip_samples_outside_retention(b: &mut MergeSource, retention_deadline: Timestamp) -> usize {
+    if b.data.is_empty() {
+        return 0;
+    }
     if b.data.first_timestamp() >= retention_deadline {
         // Fast path - the block contains only samples with timestamps bigger than retention_deadline.
         return 0;

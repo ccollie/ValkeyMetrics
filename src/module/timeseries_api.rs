@@ -1,6 +1,6 @@
 use redis_module::{RedisError, RedisResult};
 use crate::common::types::Timestamp;
-use crate::ts::time_series::TimeSeries;
+use crate::storage::time_series::TimeSeries;
 
 pub fn validate_sample_timestamp_for_insert(series: &TimeSeries, ts: Timestamp) -> RedisResult<()> {
     let last_ts = series.last_timestamp;

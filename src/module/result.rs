@@ -1,10 +1,11 @@
 use crate::common::types::Timestamp;
-use crate::ts::time_series::TimeSeries;
+use crate::storage::time_series::TimeSeries;
 use metricsql_engine::{MetricName, QueryResult, Tag, METRIC_NAME_LABEL};
 use redis_module::redisvalue::RedisValueKey;
 use redis_module::RedisValue;
 use std::collections::HashMap;
 use std::fmt::Display;
+use crate::storage::Label;
 
 pub static META_KEY_LABEL: &str = "__meta:key__";
 
@@ -217,8 +218,8 @@ pub(super) fn get_ts_metric_selector(ts: &TimeSeries) -> RedisValue {
         RedisValueKey::String(METRIC_NAME_LABEL.into()),
         RedisValue::from(&ts.metric_name),
     );
-    for (k, v) in ts.labels.iter() {
-        map.insert(RedisValueKey::String(k.into()), RedisValue::from(v));
+    for Label { name, value } in ts.labels.iter() {
+        map.insert(RedisValueKey::String(name.into()), RedisValue::from(value));
     }
     RedisValue::Map(map)
 }

@@ -1,32 +1,134 @@
-use std::fmt::Display;
-use std::str::FromStr;
-use std::time::Duration;
+use std::cmp::Ordering;
 use ahash::AHashMap;
 use redis_module::RedisString;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
+use std::str::FromStr;
+use std::time::Duration;
+use get_size::GetSize;
 
-pub mod time_series;
-mod dedup;
-mod utils;
-mod constants;
-mod duplicate_policy;
-mod encoding;
-mod compressed_chunk;
-mod uncompressed_chunk;
 mod chunk;
+mod compressed_chunk;
+mod constants;
+mod dedup;
+mod encoding;
 mod merge;
 mod slice;
+pub mod time_series;
+mod uncompressed_chunk;
+mod utils;
+mod series_data;
+mod defrag;
 
-
+use crate::error::{TsdbError, TsdbResult};
 pub(super) use chunk::*;
 pub(crate) use constants::*;
 pub(crate) use slice::*;
-use crate::common::types::Timestamp;
-use crate::error::{TsdbError, TsdbResult};
+pub(crate) use series_data::*;
+pub(crate) use defrag::*;
+
+pub type Timestamp = metricsql_engine::prelude::Timestamp;
+
+/// Represents a data point in time series.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Sample {
+    /// Timestamp from epoch.
+    pub(crate) timestamp: Timestamp,
+
+    /// Value for this data point.
+    pub(crate) value: f64,
+}
+
+impl Sample {
+    /// Create a new DataPoint from given time and value.
+    pub fn new(time: Timestamp, value: f64) -> Self {
+        Sample {
+            timestamp: time,
+            value,
+        }
+    }
+
+    /// Get time.
+    pub fn get_time(&self) -> i64 {
+        self.timestamp
+    }
+
+    /// Get value.
+    pub fn get_value(&self) -> f64 {
+        self.value
+    }
+}
+
+impl Clone for Sample {
+    fn clone(&self) -> Sample {
+        Sample {
+            timestamp: self.get_time(),
+            value: self.get_value(),
+        }
+    }
+}
+
+impl PartialEq for Sample {
+    #[inline]
+    fn eq(&self, other: &Sample) -> bool {
+        // Two data points are equal if their times are equal, and their values are either equal or are NaN.
+        if self.timestamp == other.timestamp {
+            return if self.value.is_nan() {
+                other.value.is_nan()
+            } else {
+                self.value == other.value
+            }
+        }
+        false
+    }
+}
+
+impl Eq for Sample {}
+
+impl Ord for Sample {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.timestamp.cmp(&other.timestamp)
+    }
+}
+
+impl PartialOrd for Sample {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+pub const SAMPLE_SIZE: usize = std::mem::size_of::<Sample>();
+
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(GetSize)]
+pub struct Label {
+    pub name: String,
+    pub value: String,
+}
+
+impl Label {
+    pub fn new<S: Into<String>>(key: S, value: String) -> Self {
+        Self {
+            name: key.into(),
+            value,
+        }
+    }
+}
+
+impl PartialOrd for Label {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.name == other.name {
+            return Some(self.value.cmp(&other.value));
+        }
+        Some(self.name.cmp(&other.name))
+    }
+}
 
 
 #[non_exhaustive]
 #[derive(Clone, Debug, Default, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(GetSize)]
 pub enum Encoding {
     #[default]
     Compressed,
@@ -68,14 +170,15 @@ impl FromStr for Encoding {
 }
 
 #[derive(Debug, Default, PartialEq, Deserialize, Serialize, Clone, Copy)]
+#[derive(GetSize)]
 pub enum DuplicatePolicy {
     /// ignore any newly reported value and reply with an error
     #[default]
     Block,
     /// ignore any newly reported value
-    First,
+    KeepFirst,
     /// overwrite the existing value with the new value
-    Last,
+    KeepLast,
     /// only override if the value is lower than the existing value
     Min,
     /// only override if the value is higher than the existing value
@@ -88,8 +191,8 @@ impl Display for DuplicatePolicy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DuplicatePolicy::Block => write!(f, "block"),
-            DuplicatePolicy::First => write!(f, "first"),
-            DuplicatePolicy::Last => write!(f, "last"),
+            DuplicatePolicy::KeepFirst => write!(f, "first"),
+            DuplicatePolicy::KeepLast => write!(f, "last"),
             DuplicatePolicy::Min => write!(f, "min"),
             DuplicatePolicy::Max => write!(f, "max"),
             DuplicatePolicy::Sum => write!(f, "sum"),
@@ -98,31 +201,22 @@ impl Display for DuplicatePolicy {
 }
 
 impl DuplicatePolicy {
-    pub fn value_on_duplicate(
-        self,
-        ts: Timestamp,
-        old: f64,
-        new: f64,
-    ) -> TsdbResult<f64> {
+    pub fn value_on_duplicate(self, ts: Timestamp, old: f64, new: f64) -> TsdbResult<f64> {
         use DuplicatePolicy::*;
         let has_nan = old.is_nan() || new.is_nan();
         if has_nan && self != Block {
             // take the valid sample regardless of policy
-            let value = if new.is_nan() {
-                old
-            } else {
-                new
-            };
+            let value = if new.is_nan() { old } else { new };
             return Ok(value);
         }
         Ok(match self {
             Block => {
-                // todo: format ts as iso-8601 or rfc3339
+                // todo: format storage as iso-8601 or rfc3339
                 let msg = format!("{new} @ {ts}");
                 return Err(TsdbError::DuplicateSample(msg));
-            },
-            First => old,
-            Last => new,
+            }
+            KeepFirst => old,
+            KeepLast => new,
             Min => old.min(new),
             Max => old.max(new),
             Sum => old + new,
@@ -138,8 +232,10 @@ impl FromStr for DuplicatePolicy {
 
         match s {
             s if s.eq_ignore_ascii_case("block") => Ok(Block),
-            s if s.eq_ignore_ascii_case("first") => Ok(First),
-            s if s.eq_ignore_ascii_case("last") => Ok(Last),
+            s if s.eq_ignore_ascii_case("first") => Ok(KeepFirst),
+            s if s.eq_ignore_ascii_case("keepfirst") => Ok(KeepFirst),
+            s if s.eq_ignore_ascii_case("last") => Ok(KeepLast),
+            s if s.eq_ignore_ascii_case("keeplast") => Ok(KeepLast),
             s if s.eq_ignore_ascii_case("min") => Ok(Min),
             s if s.eq_ignore_ascii_case("max") => Ok(Max),
             s if s.eq_ignore_ascii_case("sum") => Ok(Sum),
@@ -159,7 +255,6 @@ pub enum DuplicateStatus {
     Err,
     Deduped,
 }
-
 
 #[derive(Debug, Default, Clone)]
 pub struct TimeSeriesOptions {
@@ -203,5 +298,46 @@ impl TimeSeriesOptions {
 
     pub fn labels(&mut self, labels: AHashMap<String, String>) {
         self.labels = Some(labels);
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy, Default)]
+pub struct ValueFilter {
+    pub min: f64,
+    pub max: f64,
+}
+
+impl ValueFilter {
+    pub(crate) fn new(min: f64, max: f64) -> TsdbResult<Self> {
+        if min > max {
+            return Err(TsdbError::General("ERR invalid range".to_string()));
+        }
+        Ok(Self { min, max })
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Default)]
+pub struct RangeFilter {
+    pub value: Option<ValueFilter>,
+    pub timestamps: Option<Vec<Timestamp>>,
+}
+
+impl RangeFilter {
+    pub fn new(value: Option<ValueFilter>, timestamps: Option<Vec<Timestamp>>) -> Self {
+        Self { value, timestamps }
+    }
+
+    pub fn filter(&self, timestamp: Timestamp, value: f64) -> bool {
+        if let Some(value_filter) = &self.value {
+            if value < value_filter.min || value > value_filter.max {
+                return false;
+            }
+        }
+        if let Some(timestamps) = &self.timestamps {
+            if !timestamps.contains(&timestamp) {
+                return false;
+            }
+        }
+        true
     }
 }

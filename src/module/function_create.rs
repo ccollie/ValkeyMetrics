@@ -1,10 +1,10 @@
 use redis_module::{Context, NextArg, REDIS_OK, RedisError, RedisResult, RedisString};
 use ahash::AHashMap;
-use crate::common::{parse_chunk_size, parse_duration_arg};
+use crate::arg_parse::{parse_chunk_size, parse_duration_arg};
 use crate::globals::get_timeseries_index;
 use crate::module::{REDIS_PROMQL_SERIES_TYPE};
-use crate::ts::{DEFAULT_CHUNK_SIZE_BYTES, DuplicatePolicy, TimeSeriesOptions};
-use crate::ts::time_series::TimeSeries;
+use crate::storage::{DEFAULT_CHUNK_SIZE_BYTES, DuplicatePolicy, Label, TimeSeriesOptions};
+use crate::storage::time_series::TimeSeries;
 
 const CMD_ARG_RETENTION: &str = "RETENTION";
 const CMD_ARG_DUPLICATE_POLICY: &str = "DUPLICATE_POLICY";
@@ -91,9 +91,14 @@ pub(crate) fn create_timeseries(
     ts.chunk_size_bytes = options.chunk_size.unwrap_or(DEFAULT_CHUNK_SIZE_BYTES);
     ts.retention = options.retention.unwrap_or(Duration::from_millis(0u64));
     ts.dedupe_interval = options.dedupe_interval;
-    ts.duplicate_policy = options.duplicate_policy;
+    ts.duplicate_policy = options.duplicate_policy.unwrap_or(DuplicatePolicy::KeepLast);
     if let Some(labels) = options.labels {
-        ts.labels = labels;
+        for (k, v) in labels.iter() {
+            ts.labels.push(Label {
+                name: k.to_string(),
+                value: v.to_string(),
+            });
+        }
     }
     let ts_index = get_timeseries_index();
     ts_index.index_time_series(&mut ts, key.to_string());

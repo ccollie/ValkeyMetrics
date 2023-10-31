@@ -3,6 +3,7 @@ use crate::common::types::Timestamp;
 trait ModuloSignedExt {
     fn modulo(&self, n: Self) -> Self;
 }
+#[macro_export]
 macro_rules! modulo_signed_ext_impl {
     ($($t:ty)*) => ($(
         impl ModuloSignedExt for $t {
@@ -15,6 +16,7 @@ macro_rules! modulo_signed_ext_impl {
 }
 modulo_signed_ext_impl! { i8 i16 i32 i64 i128 }
 
+/// Retyrns the index of the first timestamp that is greater than or equal to `start_ts`.
 pub(crate) fn get_timestamp_index(timestamps: &[i64], start_ts: Timestamp) -> Option<usize> {
     if timestamps.is_empty() {
         return None;
@@ -116,4 +118,35 @@ pub const VEC_BASE_SIZE: usize = 24;
 pub(crate) fn vec_memory_usage<T>(v: &Vec<T>) -> usize {
     let size = v.capacity() * std::mem::size_of::<T>();
     VEC_BASE_SIZE + size
+}
+
+// todo: move this elsewhere
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn get_timestamp_index_empty() {
+        let timestamps = vec![];
+        assert_eq!(super::get_timestamp_index(&timestamps, 0), None);
+        assert_eq!(super::get_timestamp_index(&timestamps, 1), None);
+        assert_eq!(super::get_timestamp_index(&timestamps, 100), None);
+    }
+
+    #[test]
+    fn get_timestamp_index_found() {
+        let timestamps = vec![1, 2, 3, 4, 5];
+        assert_eq!(super::get_timestamp_index(&timestamps, 1), Some(0));
+        assert_eq!(super::get_timestamp_index(&timestamps, 2), Some(1));
+        assert_eq!(super::get_timestamp_index(&timestamps, 3), Some(2));
+        assert_eq!(super::get_timestamp_index(&timestamps, 4), Some(3));
+        assert_eq!(super::get_timestamp_index(&timestamps, 5), Some(4));
+    }
+
+    #[test]
+    fn get_timestamp_index_not_found() {
+        let timestamps = vec![1, 2, 3, 4, 5, 10];
+        assert_eq!(super::get_timestamp_index(&timestamps, 0), Some(0));
+        assert_eq!(super::get_timestamp_index(&timestamps, 6), Some(5));
+        assert_eq!(super::get_timestamp_index(&timestamps, 100), None);
+    }
 }

@@ -19,24 +19,19 @@ impl TagFilters {
         filters.sort_by(|a, b| a.partial_cmp(b).unwrap());
         Self(filters)
     }
-
     pub fn is_match(&self, b: &str) -> bool {
         // todo: should sort first
         self.0.iter().all(|tf| tf.is_match(b))
     }
-
     pub fn len(&self) -> usize {
         self.0.len()
     }
-
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
-
     pub fn get(&self, index: usize) -> Option<&TagFilter> {
         self.0.get(index)
     }
-
     pub fn sort(&mut self) {
         self.0.sort_by(|a, b| a.partial_cmp(b).unwrap());
     }

@@ -22,11 +22,9 @@ impl StringMatchHandler {
     pub fn literal(value: String) -> Self {
         Self::Literal(value)
     }
-
     pub fn literal_mismatch(value: String) -> Self {
         Self::MatchFn(MatchFnHandler::new(value, mismatches_literal))
     }
-
     pub fn always_false() -> Self {
         Self::Predicate(|_| false)
     }
@@ -127,7 +125,6 @@ fn matches_alternates(or_values: &[String], s: &str) -> bool {
 fn matches_literal(prefix: &str, candidate: &str) -> bool {
     prefix == candidate
 }
-
 #[allow(unused)]
 fn mismatches_literal(prefix: &str, candidate: &str) -> bool {
     prefix != candidate

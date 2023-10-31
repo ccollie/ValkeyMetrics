@@ -1,5 +1,4 @@
-use crate::common::types::TimestampRangeValue;
-use crate::common::{current_time_millis, duration_to_chrono, parse_duration_arg};
+use crate::common::{current_time_millis, duration_to_chrono};
 use crate::config::get_global_settings;
 use crate::globals::get_query_context;
 use crate::module::result::to_matrix_result;
@@ -10,6 +9,7 @@ use metricsql_engine::execution::query::{
 use metricsql_engine::prelude::query::QueryParams;
 use metricsql_engine::{QueryResult, RuntimeResult};
 use redis_module::{Context, NextArg, RedisError, RedisResult, RedisString};
+use crate::module::arg_parse::{parse_duration_arg, TimestampRangeValue};
 
 const CMD_ARG_FORMAT: &str = "FORMAT";
 const CMD_ARG_START: &str = "START";

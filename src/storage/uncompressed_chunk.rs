@@ -1,33 +1,49 @@
-use crate::common::types::{Sample, Timestamp, SAMPLE_SIZE};
+use crate::common::types::{Timestamp};
 use crate::error::{TsdbError, TsdbResult};
-use crate::ts::chunk::Chunk;
-use crate::ts::utils::get_timestamp_index_bounds;
-use crate::ts::{DuplicatePolicy, DuplicateStatus};
+use crate::storage::chunk::Chunk;
+use crate::storage::utils::get_timestamp_index_bounds;
+use crate::storage::{DuplicatePolicy, Sample, SAMPLE_SIZE};
 use serde::{Deserialize, Serialize};
-use crate::ts::duplicate_policy::handle_duplicate_sample;
+use get_size::GetSize;
 
 // todo: move to constants
 pub const MAX_UNCOMPRESSED_SAMPLES: usize = 256;
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(GetSize)]
 pub struct UncompressedChunk {
     pub max_size: usize,
     pub timestamps: Vec<i64>,
     pub values: Vec<f64>,
+    max_elements: usize,
+}
+
+impl Default for UncompressedChunk {
+    fn default() -> Self {
+        Self {
+            max_size: MAX_UNCOMPRESSED_SAMPLES * SAMPLE_SIZE,
+            timestamps: Vec::with_capacity(MAX_UNCOMPRESSED_SAMPLES),
+            values: Vec::with_capacity(MAX_UNCOMPRESSED_SAMPLES),
+            max_elements: MAX_UNCOMPRESSED_SAMPLES,
+        }
+    }
 }
 
 impl UncompressedChunk {
     pub fn new(size: usize, timestamps: Vec<i64>, values: Vec<f64>) -> Self {
+        let max_elements = size / SAMPLE_SIZE;
         Self {
             timestamps,
             values,
             max_size: size,
+            max_elements,
         }
     }
 
     pub fn with_max_size(size: usize) -> Self {
         let mut res = Self::default();
         res.max_size = size;
+        res.max_elements = size / SAMPLE_SIZE;
         res
     }
 
@@ -40,7 +56,7 @@ impl UncompressedChunk {
     }
 
     pub fn is_full(&self) -> bool {
-        self.timestamps.len() * self.bytes_per_sample() >= self.max_size
+        self.len() >= self.max_elements
     }
 
     pub fn clear(&mut self) {
@@ -71,17 +87,7 @@ impl UncompressedChunk {
             // update value in case timestamp exists
             let ts = timestamps[idx];
             let value = self.values[idx];
-            let current = Sample {
-                timestamp: ts,
-                value,
-            };
-            let cr = handle_duplicate_sample(policy, current, sample);
-            if cr != DuplicateStatus::Ok {
-                // todo: format ts as iso-8601 or rfc3339
-                let msg = format!("{} @ {}", value, ts);
-                return Err(TsdbError::DuplicateSample(msg));
-            }
-            self.values[idx] = sample.value;
+            self.values[idx] = policy.value_on_duplicate(ts, value, sample.value)?;
         } else {
             if idx < timestamps.len() {
                 self.timestamps.insert(idx, ts);
@@ -119,14 +125,6 @@ impl UncompressedChunk {
 
     pub fn bytes_per_sample(&self) -> usize {
         return SAMPLE_SIZE;
-    }
-
-    pub fn iter_range(
-        &self,
-        start_ts: Timestamp,
-        end_ts: Timestamp,
-    ) -> impl Iterator<Item = Sample> + '_ {
-        SampleIter::new(self, start_ts, end_ts)
     }
 
     fn find_timestamp_index(&self, ts: Timestamp) -> (usize, bool) {
@@ -171,7 +169,8 @@ impl Chunk for UncompressedChunk {
     }
 
     fn size(&self) -> usize {
-        let mut size = std::mem::size_of::<Vec<i64>>() + std::mem::size_of::<Vec<f64>>();
+        let mut size = std::mem::size_of::<Vec<Self>>() +
+            std::mem::size_of::<Vec<f64>>();
         size += self.timestamps.capacity() * std::mem::size_of::<i64>();
         size += self.values.capacity() * std::mem::size_of::<f64>();
         size
@@ -265,47 +264,30 @@ impl Chunk for UncompressedChunk {
     }
 }
 
-struct SampleIter<'a> {
-    chunk: &'a UncompressedChunk,
-    index: usize,
-    end_index: usize,
-}
+#[cfg(test)]
+mod tests {
+    use rand::Rng;
+    use crate::error::TsdbError;
+    use crate::tests::generators::create_rng;
+    use crate::storage::{Chunk, Sample};
+    use crate::storage::uncompressed_chunk::UncompressedChunk;
 
-impl<'a> SampleIter<'a> {
-    pub fn new(chunk: &'a UncompressedChunk, start: Timestamp, end: Timestamp) -> Self {
-        if let Some((start_index, end_index)) =
-            get_timestamp_index_bounds(&chunk.timestamps, start, end)
-        {
-            Self {
-                chunk,
-                index: start_index,
-                end_index,
-            }
-        } else {
-            Self {
-                chunk,
-                index: 0,
-                end_index: 0,
+    pub(crate) fn saturate_uncompressed_chunk(chunk: &mut UncompressedChunk) {
+        let mut rng = create_rng(None).unwrap();
+        let mut ts: i64 = 1;
+        loop {
+            let sample = Sample {
+                timestamp: ts,
+                value: rng.gen_range(0.0..100.0),
+            };
+            ts += rng.gen_range(1000..20000);
+            match chunk.add_sample(&sample) {
+                Ok(_) => {}
+                Err(TsdbError::CapacityFull(_)) => {
+                    break
+                }
+                Err(e) => panic!("unexpected error: {:?}", e),
             }
         }
-    }
-}
-
-impl<'a> Iterator for SampleIter<'a> {
-    type Item = Sample;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.end_index {
-            return None;
-        }
-        let ts = self.chunk.timestamps[self.index];
-        let val = self.chunk.values[self.index];
-        self.index += 1;
-        Some(Sample::new(ts, val))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.end_index - self.index;
-        (len, Some(len))
     }
 }

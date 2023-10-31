@@ -5,6 +5,8 @@ use redis_module::alloc::RedisAlloc;
 
 #[macro_use]
 extern crate redis_module_macros;
+extern crate get_size;
+
 #[macro_use]
 extern crate scopeguard;
 
@@ -15,8 +17,10 @@ mod index;
 mod provider;
 mod globals;
 mod config;
-mod ts;
+mod storage;
 mod aggregators;
+#[cfg(test)]
+mod tests;
 
 use module::*;
 use crate::globals::get_timeseries_index;
@@ -44,7 +48,7 @@ fn on_event(_ctx: &RedisContext, _event_type: NotifyEvent, event: &str, key: &[u
         "rename_from" => {
             // RenameSeriesFrom(ctx, key);
         }
-        "ts.alter" => {
+        "storage.alter" => {
             remove_key_from_cache(key)
         }
         _ => {
