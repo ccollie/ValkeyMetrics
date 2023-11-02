@@ -1,4 +1,4 @@
-use super::{Chunk, ChunkCompression, Label, merge_by_capacity, Sample, TimeSeriesChunk};
+use super::{Chunk, ChunkCompression, Encoding, Label, merge_by_capacity, Sample, TimeSeriesChunk, TimeSeriesOptions, validate_chunk_size};
 use crate::common::types::{PooledTimestampVec, PooledValuesVec, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
 use crate::storage::constants::{DEFAULT_CHUNK_SIZE_BYTES, SPLIT_FACTOR};
@@ -34,6 +34,7 @@ pub struct TimeSeries {
     pub last_value: f64,
 }
 
+
 impl TimeSeries {
     /// Create a new empty time series.
     pub fn new() -> Self {
@@ -52,6 +53,35 @@ impl TimeSeries {
             last_timestamp: 0,
             last_value: f64::NAN,
         }
+    }
+
+    pub fn with_options(options: TimeSeriesOptions) -> TsdbResult<Self> {
+        let mut res = Self::new();
+        if let Some(chunk_size) = options.chunk_size {
+            validate_chunk_size(chunk_size)?;
+            res.chunk_size_bytes = chunk_size;
+        }
+        res.duplicate_policy = options.duplicate_policy.unwrap_or(DuplicatePolicy::KeepLast);
+        // res.chunk_compression = options.encoding.unwrap_or(Encoding::Compressed);
+        if let Some(metric_name) = options.metric_name {
+            // todo: validate against regex
+            res.metric_name = metric_name;
+        }
+        if let Some(retention) = options.retention {
+            res.retention = retention;
+        }
+        if let Some(dedupe_interval) = options.dedupe_interval {
+            res.dedupe_interval = Some(dedupe_interval);
+        }
+        if let Some(labels) = options.labels {
+            for (k, v) in labels.iter() {
+                res.labels.push(Label {
+                    name: k.to_string(),
+                    value: v.to_string(),
+                });
+            }
+        }
+        Ok(res)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -356,7 +386,7 @@ impl TimeSeries {
             self.total_samples -= deleted_count;
         }
 
-        // now deal with partials (cases where a chunk has only some expired items). There should be at most 1
+        // now deal with partials (a chunk with only some expired items). There should be at most 1
         if let Some(chunk) = self.chunks.first_mut() {
             if chunk.first_timestamp() > min_timestamp {
                 let deleted = chunk.remove_range(0, min_timestamp)?;
@@ -444,7 +474,21 @@ impl TimeSeries {
 
 impl Default for TimeSeries {
     fn default() -> Self {
-        Self::new()
+        Self {
+            id: 0,
+            metric_name: "".to_string(),
+            labels: vec![],
+            retention: Default::default(),
+            duplicate_policy: DuplicatePolicy::KeepLast,
+            chunk_compression: Default::default(),
+            chunk_size_bytes: DEFAULT_CHUNK_SIZE_BYTES,
+            dedupe_interval: Default::default(),
+            chunks: vec![],
+            total_samples: 0,
+            first_timestamp: 0,
+            last_timestamp: 0,
+            last_value: f64::NAN,
+        }
     }
 }
 
@@ -484,7 +528,6 @@ pub struct SampleIterator<'a> {
     end: Timestamp,
     err: bool,
     first_iter: bool,
-    filter: Option<Box<dyn Fn(&Sample) -> bool>>,
 }
 
 impl<'a> SampleIterator<'a> {
@@ -515,17 +558,7 @@ impl<'a> SampleIterator<'a> {
             end,
             err: false,
             first_iter: false,
-            filter: None,
         }
-    }
-
-    fn with_filter<F>(series: &'a TimeSeries, start: Timestamp, end: Timestamp, filter: F) -> Self
-    where
-        F: Fn(&Sample) -> bool + 'static,
-    {
-        let mut iter = Self::new(series, start, end);
-        iter.filter = Some(Box::new(filter));
-        iter
     }
 
     fn next_chunk(&mut self) -> bool {
@@ -563,7 +596,6 @@ impl<'a> SampleIterator<'a> {
 // todo: implement next_chunk
 impl<'a> Iterator for SampleIterator<'a> {
     type Item = Sample;
-
     fn next(&mut self) -> Option<Self::Item> {
         if self.sample_index >= self.timestamps.len() || self.first_iter {
             if !self.next_chunk() {

@@ -76,24 +76,30 @@ unsafe extern "C" fn free(value: *mut c_void) {
 
 #[allow(non_snake_case, unused)]
 unsafe extern "C" fn copy(
-    fromkey: *mut raw::RedisModuleString,
-    tokey: *mut raw::RedisModuleString,
+    fromkey: *mut RedisModuleString,
+    tokey: *mut RedisModuleString,
     value: *const c_void,
 ) -> *mut c_void {
     let sm = &*(value as *mut TimeSeries);
-    let new_series = sm.clone();
+    let mut new_series = sm.clone();
     let mut ts_index = get_timeseries_index();
-    ts_index.reindex_timeseries(&new_series);
+    // ???? How to handle failure ??
+    match RedisString::from_ptr(tokey) {
+        Ok(key) => {
+            ts_index.index_time_series(&mut new_series, key.to_string())
+        },
+        Err(_) => {}
+    }
     Box::into_raw(Box::new(new_series)).cast::<c_void>()
 }
 
-unsafe extern "C" fn unlink(_key: *mut raw::RedisModuleString, value: *const c_void) {
+unsafe extern "C" fn unlink(_key: *mut RedisModuleString, value: *const c_void) {
     let series = &*(value as *mut TimeSeries);
     if value.is_null() {
         return;
     }
-    let mut ts_index = get_timeseries_index();
-    ts_index.reindex_timeseries(series)
+    let ts_index = get_timeseries_index();
+    ts_index.remove_series(series)
 }
 
 unsafe extern "C" fn defrag(
@@ -101,11 +107,11 @@ unsafe extern "C" fn defrag(
     _key: *mut RedisModuleString,
     value: *mut *mut c_void,
 ) -> c_int {
-    let mut series = &*(value as *mut TimeSeries);
+    let series = &mut *(value as *mut TimeSeries);
     if value.is_null() {
         return 0;
     }
-    match defrag_series(&mut series) {
+    match defrag_series(series) {
         Ok(_) => 0,
         Err(_) => 1,
     }

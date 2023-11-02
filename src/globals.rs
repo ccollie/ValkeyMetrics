@@ -72,6 +72,8 @@ pub(crate) fn set_query_context(ctx: QueryContext) {
 }
 
 
+// todo: segregate by database
+// see RedisModule_GetSelectedDb
 pub fn get_timeseries_index() -> &'static TimeSeriesIndex {
     TIMESERIES_INDEX.get_or_init(|| TimeSeriesIndex::new())
 }

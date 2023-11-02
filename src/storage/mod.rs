@@ -341,3 +341,78 @@ impl RangeFilter {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+    use crate::error::TsdbError;
+    use crate::storage::DuplicatePolicy;
+
+    #[test]
+    fn test_duplicate_policy_parse() {
+        assert!(matches!(DuplicatePolicy::from_str("block"), Ok(DuplicatePolicy::Block)));
+        assert!(matches!(DuplicatePolicy::from_str("last"), Ok(DuplicatePolicy::KeepLast)));
+        assert!(matches!(DuplicatePolicy::from_str("keepLast"), Ok(DuplicatePolicy::KeepLast)));
+        assert!(matches!(DuplicatePolicy::from_str("first"), Ok(DuplicatePolicy::KeepFirst)));
+        assert!(matches!(DuplicatePolicy::from_str("KeEpFIRst"), Ok(DuplicatePolicy::KeepFirst)));
+        assert!(matches!(DuplicatePolicy::from_str("min"), Ok(DuplicatePolicy::Min)));
+        assert!(matches!(DuplicatePolicy::from_str("max"), Ok(DuplicatePolicy::Max)));
+        assert!(matches!(DuplicatePolicy::from_str("sum"), Ok(DuplicatePolicy::Sum)));
+    }
+
+    #[test]
+    fn test_duplicate_policy_handle_duplicate() {
+        let dp = DuplicatePolicy::Block;
+        let ts = 0;
+        let old = 1.0;
+        let new = 2.0;
+        assert!(matches!(dp.value_on_duplicate(ts, old, new), Err(TsdbError::DuplicateSample(_))));
+
+        let dp = DuplicatePolicy::KeepFirst;
+        let ts = 0;
+        let old = 1.0;
+        let new = 2.0;
+        assert_eq!(dp.value_on_duplicate(ts, old, new).unwrap(), old);
+
+        let dp = DuplicatePolicy::KeepLast;
+        let ts = 0;
+        let old = 1.0;
+        let new = 2.0;
+        assert_eq!(dp.value_on_duplicate(ts, old, new).unwrap(), new);
+
+        let dp = DuplicatePolicy::Min;
+        let ts = 0;
+        let old = 1.0;
+        let new = 2.0;
+        assert_eq!(dp.value_on_duplicate(ts, old, new).unwrap(), old);
+
+        let dp = DuplicatePolicy::Max;
+        let ts = 0;
+        let old = 1.0;
+        let new = 2.0;
+        assert_eq!(dp.value_on_duplicate(ts, old, new).unwrap(), new);
+
+        let dp = DuplicatePolicy::Sum;
+        let ts = 0;
+        let old = 1.0;
+        let new = 2.0;
+        assert_eq!(dp.value_on_duplicate(ts, old, new).unwrap(), old + new);
+    }
+
+    #[test]
+    fn test_duplicate_policy_handle_nan() {
+        use DuplicatePolicy::*;
+
+        let dp = Block;
+        let ts = 0;
+        let old = 1.0;
+        let new = f64::NAN;
+        assert!(matches!(dp.value_on_duplicate(ts, old, new), Err(TsdbError::DuplicateSample(_))));
+
+        let policies = [KeepFirst, KeepLast, Min, Max, Sum];
+        for policy in policies {
+            assert_eq!(policy.value_on_duplicate(ts, 10.0, f64::NAN).unwrap(), 10.0);
+            assert_eq!(policy.value_on_duplicate(ts, f64::NAN, 8.0).unwrap(), 8.0);
+        }
+    }
+}

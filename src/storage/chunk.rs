@@ -7,7 +7,6 @@ use crate::storage::utils::get_timestamp_index;
 use crate::storage::{DuplicatePolicy, Sample, SeriesSlice};
 use ahash::AHashSet;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
-use redis_module::{RedisError, RedisResult};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use get_size::GetSize;
@@ -267,7 +266,7 @@ impl TimeSeriesChunk {
             return Ok(0);
         }
 
-        let min_timestamp = retention_threshold;;
+        let min_timestamp = retention_threshold;
         let mut timestamps = get_pooled_vec_i64(other.num_samples());
         let mut values = get_pooled_vec_f64(self.num_samples());
         other.get_range(min_timestamp.max(start_ts), end_ts, &mut timestamps, &mut values)?;
@@ -510,10 +509,10 @@ impl<'a> Iterator for SampleIterator<'a> {
     }
 }
 
-pub(crate) fn validate_chunk_size(chunk_size_bytes: usize) -> RedisResult<()> {
-    fn get_error_result() -> RedisResult<()> {
+pub(crate) fn validate_chunk_size(chunk_size_bytes: usize) -> TsdbResult<()> {
+    fn get_error_result() -> TsdbResult<()> {
         let msg = format!("TSDB: CHUNK_SIZE value must be a multiple of 2 in the range [{MIN_CHUNK_SIZE} .. {MAX_CHUNK_SIZE}]");
-        Err(RedisError::String(msg))
+        Err(TsdbError::InvalidConfiguration(msg))
     }
 
     if chunk_size_bytes < MIN_CHUNK_SIZE {

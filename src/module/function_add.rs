@@ -1,4 +1,4 @@
-use crate::module::function_create::{create_timeseries};
+use crate::module::function_create::{create_series};
 use crate::module::{get_timeseries_mut, REDIS_PROMQL_SERIES_TYPE};
 use crate::storage::{DuplicatePolicy, TimeSeriesOptions};
 use redis_module::key::RedisKeyWritable;
@@ -78,7 +78,7 @@ pub fn add(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
         };
     }
 
-    let mut ts = create_timeseries(&key, options);
+    let mut ts = create_series(&key, options)?;
     ts.add(timestamp, value, None)?;
 
     let redis_key = RedisKeyWritable::open(ctx.ctx, &key);

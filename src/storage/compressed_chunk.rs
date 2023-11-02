@@ -647,11 +647,12 @@ fn decompress_timestamps(src: &[u8], dst: &mut Vec<i64>) -> TsdbResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
     use rand::Rng;
     use crate::error::TsdbError;
     use crate::storage::chunk::Chunk;
     use crate::storage::compressed_chunk::{compress_timestamps, CompressedChunk, CompressionOptimization, decompress_timestamps};
-    use crate::tests::generators::{create_rng, GeneratorOptions, generate_series_data};
+    use crate::tests::generators::{create_rng, GeneratorOptions, generate_series_data, RandAlgo, generate_timestamps};
     use crate::storage::{DuplicatePolicy, Sample, SeriesData};
 
     fn decompress(chunk: &CompressedChunk) -> SeriesData {
@@ -703,11 +704,8 @@ mod tests {
         use CompressionOptimization::*;
 
         fn run_test(option: Option<CompressionOptimization>) {
-            let mut timestamps: Vec<i64> = vec![];
-            let now = 1000;
-            for i in 0..1000 {
-                timestamps.push(now + i * 1000);
-            }
+            let timestamps: Vec<i64> = generate_timestamps(1000, 1000, Duration::from_secs(5));
+
             let mut dst: Vec<u8> = Vec::with_capacity(1000);
             assert!(compress_timestamps(None, &timestamps, &mut dst).is_ok());
 
@@ -720,18 +718,13 @@ mod tests {
         run_test(None);
         run_test(Some(Speed));
         run_test(Some(Size));
-
     }
 
     #[test]
     fn test_compress_timestamps_size_optimization() {
 
         fn compress(option: Option<CompressionOptimization>) -> Vec<u8> {
-            let mut timestamps: Vec<i64> = vec![];
-            let now = 1000;
-            for i in 0..1000 {
-                timestamps.push(now + i * 1000);
-            }
+            let timestamps: Vec<i64> = generate_timestamps(1000, 1000, Duration::from_secs(5));
             let mut dst: Vec<u8> = Vec::with_capacity(1000);
             assert!(compress_timestamps(option, &timestamps, &mut dst).is_ok());
             dst
@@ -748,8 +741,9 @@ mod tests {
     fn test_chunk_compress() {
         let mut chunk = CompressedChunk::default();
         let mut options = GeneratorOptions::default();
-        options.samples = 500;
+        options.samples = 1000;
         options.range = 0.0..100.0;
+        options.typ = RandAlgo::Uniform;
         let data = generate_series_data(&options).unwrap();
         chunk.set_data(&data.timestamps, &data.values).unwrap();
         assert_eq!(chunk.num_samples(), data.len());
@@ -763,12 +757,9 @@ mod tests {
     #[test]
     fn test_compress_decompress() {
         let mut chunk = CompressedChunk::default();
-        let mut timestamps = vec![];
-        let mut values = vec![];
-        for i in 0..1000 {
-            timestamps.push(i);
-            values.push(i as f64);
-        }
+        let mut timestamps = generate_timestamps(1000, 1000, Duration::from_secs(5));
+        let values = timestamps.iter().map(|x| *x as f64).collect::<Vec<f64>>();
+
         chunk.set_data(&timestamps, &values).unwrap();
         let mut timestamps2 = vec![];
         let mut values2 = vec![];

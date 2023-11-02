@@ -14,35 +14,44 @@ pub fn defrag_series(series: &mut TimeSeries) -> TsdbResult<()> {
     let mut deleted_count = 0;
 
     let mut chunks_to_remove = Vec::new();
-    let mut i = series.chunks.len() - 1;
+    let mut i = 0;
 
-    let mut iter = series.chunks.iter_mut().rev();
+    let mut iter = series.chunks.iter_mut();
+    // we ensure above that we have at least 2 chunks
+    let mut prev_chunk = iter.next().unwrap();
     while let Some(mut chunk) = iter.next() {
         if chunk.is_empty() {
             deleted_count += chunk.num_samples();
             chunks_to_remove.push(i);
-            i -= 1;
+            i += 1;
             continue;
         }
-        i -= 1;
 
-        loop {
-            // check if previous block has capacity, and if so merge into it
-            if let Some(prev_chunk) = iter.next() {
-                if let Some(deleted) = merge_by_capacity(
-                    prev_chunk,
-                    chunk,
-                    min_timestamp,
-                    duplicate_policy,
-                )? {
-                    deleted_count -= deleted;
-                }
-            } else {
-                break
+        // while previous block has capacity merge into it
+        while let Some(deleted) = merge_by_capacity(
+            prev_chunk,
+            chunk,
+            min_timestamp,
+            duplicate_policy,
+        )? {
+            deleted_count -= deleted;
+            if chunk.is_empty() {
+                chunks_to_remove.push(i);
             }
-            break;
+            i += 1;
+            if let Some(next_chunk) = iter.next() {
+                chunk = next_chunk;
+            } else {
+                break;
+            }
         }
+
+        i += 1;
+        prev_chunk = chunk;
     }
+
+    // todo: don't delete last chunk if it's empty
+    // chunks_to_remove.remove(series.chunks.len() - 1);
 
     for chunk in chunks_to_remove {
         series.chunks.remove(chunk);

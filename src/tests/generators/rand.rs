@@ -1,17 +1,17 @@
 use crate::common::current_time_millis;
 use crate::common::types::Timestamp;
-use crate::tests::generators::create_rng;
-use rand::prelude::*;
-use rand_distr::StandardNormal;
 use std::ops::Range;
 use std::time::Duration;
 use crate::storage::SeriesData;
+use crate::tests::generators::generators::{DerivativeGenerator, MackeyGlassGenerator, RandomGenerator, StdNormalGenerator, UniformGenerator};
 
 #[derive(Debug, Copy, Clone, Default)]
 pub enum RandAlgo {
     #[default]
     Rand,
-    Norm,
+    StdNorm,
+    Uniform,
+    MackeyGlass,
     Deriv,
 }
 
@@ -70,106 +70,25 @@ impl Default for GeneratorOptions {
             range: 0.0..1.0,
             samples: 100,
             seed: None,
-            typ: RandAlgo::Rand,
+            typ: RandAlgo::StdNorm,
         };
         res.fixup();
         res
     }
 }
 
-trait NumGenerator {
-    fn next(&mut self) -> f64;
-}
-
-struct RandomGenerator {
-    rng: StdRng,
-    range: Range<f64>,
-}
-
-impl RandomGenerator {
-    pub fn new(seed: Option<u64>, range: &Range<f64>) -> Result<Self, String> {
-        let rng = create_rng(seed)?;
-        Ok(Self {
-            rng,
-            range: range.clone(),
-        })
-    }
-}
-
-impl NumGenerator for RandomGenerator {
-    fn next(&mut self) -> f64 {
-        self.rng.gen_range(self.range.start..self.range.end)
-    }
-}
-
-fn get_value_in_range(rng: &mut StdRng, r: &Range<f64>) -> f64 {
-    r.start + (r.end - r.start) * rng.gen::<f64>()
-}
-
-struct NormalGenerator {
-    rng: StdRng,
-    range: Range<f64>,
-    last_value: f64,
-}
-
-impl NormalGenerator {
-    pub fn new(seed: Option<u64>, range: &Range<f64>) -> Result<Self, String> {
-        let rng = create_rng(seed)?;
-        Ok(Self {
-            rng,
-            range: range.clone(),
-            last_value: 0.0,
-        })
-    }
-}
-
-impl NumGenerator for NormalGenerator {
-    fn next(&mut self) -> f64 {
-        let m = self.rng.sample::<f64, _>(StandardNormal);
-        self.range.start + (self.range.end - self.range.start) * m
-    }
-}
-
-struct DerivativeGenerator {
-    p: f64,
-    n: f64,
-    rng: StdRng,
-    range: Range<f64>,
-}
-
-impl DerivativeGenerator {
-    pub fn new(seed: Option<u64>, range: &Range<f64>) -> Result<Self, String> {
-        let mut rng = create_rng(seed)?;
-        let c = get_value_in_range(&mut rng, range);
-        let p = c;
-        let n = c + get_value_in_range(&mut rng, range);
-        Ok(Self {
-            p,
-            n,
-            rng,
-            range: range.clone(),
-        })
-    }
-}
-
-impl NumGenerator for DerivativeGenerator {
-    fn next(&mut self) -> f64 {
-        let v = (self.n - self.p) / 2.0;
-        self.p = self.n;
-        self.n += v;
-        v
-    }
-}
 
 fn get_generator_impl(
     typ: RandAlgo,
     seed: Option<u64>,
     range: &Range<f64>,
-) -> Result<Box<dyn NumGenerator>, String> {
+) -> Result<Box<dyn Iterator<Item=f64>>, String> {
     match typ {
         RandAlgo::Rand => Ok(Box::new(RandomGenerator::new(seed, range)?)),
-        RandAlgo::Norm => Ok(Box::new(NormalGenerator::new(seed, range)?)),
+        RandAlgo::StdNorm => Ok(Box::new(StdNormalGenerator::new(seed, range)?)),
         RandAlgo::Deriv => Ok(Box::new(DerivativeGenerator::new(seed, range)?)),
+        RandAlgo::Uniform => Ok(Box::new(UniformGenerator::new(seed, range)?)),
+        RandAlgo::MackeyGlass => Ok(Box::new(MackeyGlassGenerator::new(17, seed, range)))
     }
 }
 
@@ -191,13 +110,36 @@ pub(crate) fn generate_series_data(options: &GeneratorOptions) -> Result<SeriesD
 
     let mut generator = get_generator_impl(options.typ, options.seed, &options.range)?;
 
-    let mut t = options.start;
-    for _ in 0..options.samples {
-        let v = generator.next();
-        ts.timestamps.push(t);
-        ts.values.push(v);
-        t += interval;
-    }
+    let values = generator.take(options.samples).collect::<Vec<f64>>();
+    let timestamps = generate_timestamps(options.samples, options.start, Duration::from_millis(interval as u64));
+
+    ts.timestamps = timestamps;
+    ts.values = values;
 
     return Ok(ts);
+}
+
+pub fn generate_timestamps_in_range(start: Timestamp, end: Timestamp, interval: Duration) -> Vec<Timestamp> {
+    let interval_millis = interval.as_millis() as i64;
+    let capacity = ((end - start) / interval_millis) as usize;
+    let mut res = Vec::with_capacity(capacity);
+    let mut t = start;
+
+    while t < end {
+        res.push(t);
+        t += interval_millis;
+    }
+    res
+}
+
+pub fn generate_timestamps(count: usize, start: Timestamp, interval: Duration) -> Vec<Timestamp> {
+    let interval_millis = interval.as_millis() as i64;
+    let mut res = Vec::with_capacity(count);
+    let mut t = start;
+
+    for _ in 0..count {
+        res.push(t);
+        t += interval_millis;
+    }
+    res
 }

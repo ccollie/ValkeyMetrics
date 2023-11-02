@@ -113,15 +113,6 @@ pub fn trim_vec_data<'a>(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start
     }
 }
 
-pub const VEC_BASE_SIZE: usize = 24;
-
-pub(crate) fn vec_memory_usage<T>(v: &Vec<T>) -> usize {
-    let size = v.capacity() * std::mem::size_of::<T>();
-    VEC_BASE_SIZE + size
-}
-
-// todo: move this elsewhere
-
 #[cfg(test)]
 mod tests {
     #[test]

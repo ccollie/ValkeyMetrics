@@ -1,5 +1,6 @@
 mod mackey_glass;
 mod rand;
+mod generators;
 
 use ::rand::prelude::*;
 
