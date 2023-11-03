@@ -10,6 +10,7 @@ pub const DEFAULT_MAX_SERIES_LIMIT: usize = 30_000;
 /// Default step used if not set.
 pub const DEFAULT_STEP: Duration = Duration::from_millis(5 * 60 * 1000);
 
+// todo: Clap
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     pub retention_policy: Option<Duration>,
@@ -24,7 +25,7 @@ pub struct Settings {
     /// evaluation_interval of the parent group.
     pub max_resolve_duration: Duration,
 
-    /// The maximum number of time series, which can be returned from /api/v1/series. 
+    /// The maximum number of time series which can be returned from /api/v1/series.
     /// This option allows limiting memory usage
     pub max_series_limit: usize,  
 

@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Debug, Error, Eq, PartialEq)]
-/// Enum for various errors in Tsldb.
+/// Enum for various errors in Tsdb.
 pub enum TsdbError {
   #[error("Invalid size. Expected {0}, Received {1}.")]
   InvalidSize(usize, usize),
@@ -55,10 +55,10 @@ pub enum TsdbError {
 pub type TsdbResult<T> = Result<T, TsdbError>;
 
 /*
-impl Into<RedisError> for TsdbError {
-  fn into(self) -> RedisError {
+impl Into<ValkeyError> for TsdbError {
+  fn into(self) -> ValkeyError {
     let msg = format!("TSDB: {}", self.to_string());
-    RedisError::String(msg)
+    ValkeyError::String(msg)
   }
 }
  */

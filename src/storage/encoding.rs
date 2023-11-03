@@ -1,7 +1,7 @@
 use crate::error::{TsdbError, TsdbResult};
 
 pub fn encode_usize(x: usize) -> [u8; 4] {
-    (x as u32).to_le_bytes()
+    (x as u32).to_be_bytes()
 }
 
 pub fn write_usize(buf: &mut Vec<u8>, x: usize) {

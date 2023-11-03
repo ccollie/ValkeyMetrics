@@ -1,7 +1,9 @@
+use serde::{Deserialize, Serialize};
 use crate::error::TsdbResult;
 use crate::storage::{DuplicatePolicy, Sample};
 
 // Time series measurements.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SeriesData {
     pub timestamps: Vec<i64>,
     pub values: Vec<f64>,
@@ -14,6 +16,14 @@ impl SeriesData {
             values: Vec::with_capacity(n),
         }
     }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            timestamps: Vec::with_capacity(capacity),
+            values: Vec::with_capacity(capacity),
+        }
+    }
+
     pub fn new_with_data(timestamps: Vec<i64>, values: Vec<f64>) -> Self {
         Self { timestamps, values }
     }
@@ -35,6 +45,17 @@ impl SeriesData {
     pub fn push_sample(&mut self, sample: &Sample, policy: Option<DuplicatePolicy>) -> TsdbResult<usize>{
         self.push(sample.timestamp, sample.value, policy)
     }
+
+    pub fn truncate(&mut self, len: usize) {
+        self.timestamps.truncate(len);
+        self.values.truncate(len);
+    }
+
+    pub fn clear(&mut self) {
+        self.timestamps.clear();
+        self.values.clear();
+    }
+
     pub fn len(&self) -> usize {
         self.timestamps.len()
     }

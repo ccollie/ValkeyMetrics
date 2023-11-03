@@ -1,6 +1,6 @@
-use crate::common::types::{Timestamp};
-use crate::storage::Sample;
+use crate::common::types::Timestamp;
 use crate::storage::utils::{get_timestamp_index, get_timestamp_index_bounds};
+use crate::storage::Sample;
 
 #[derive(Debug, Clone)]
 pub struct SeriesSlice<'a> {
@@ -63,6 +63,12 @@ impl<'a> SeriesSlice<'a> {
             index: 0
         }
     }
+
+    pub fn clear(&mut self) {
+        self.timestamps = &[];
+        self.values = &[];
+    }
+
 }
 
 pub struct SeriesSliceIter<'a> {

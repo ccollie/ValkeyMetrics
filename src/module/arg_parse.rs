@@ -2,20 +2,21 @@ use std::cmp::Ordering;
 use std::fmt::Display;
 use std::time::Duration;
 use chrono::DateTime;
-use metricsql_engine::{parse_metric_selector, TimestampTrait};
-use metricsql_parser::common::Matchers;
+use metricsql_runtime::{parse_metric_selector, TimestampTrait};
+use metricsql_parser::prelude::Matchers;
 use metricsql_parser::parser::{parse_duration_value, parse_number};
-use redis_module::{RedisError, RedisResult, RedisString};
+use valkey_module::{ValkeyError, ValkeyResult, ValkeyString};
 use crate::common::current_time_millis;
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::storage::{MAX_CHUNK_SIZE, MAX_TIMESTAMP, MIN_CHUNK_SIZE};
+use crate::storage::time_series::TimeSeries;
 
-
-#[derive(Clone, Debug, PartialEq, Copy)]
+#[derive(Clone, Default, Debug, PartialEq, Copy)]
 pub enum TimestampRangeValue {
     Earliest,
     Latest,
+    #[default]
     Now,
     Value(Timestamp),
 }
@@ -29,10 +30,19 @@ impl TimestampRangeValue {
             TimestampRangeValue::Value(ts) => *ts,
         }
     }
+
+    pub fn to_series_timestamp(&self, series: &TimeSeries) -> Timestamp {
+        match self {
+            TimestampRangeValue::Earliest => series.first_timestamp,
+            TimestampRangeValue::Latest => series.last_timestamp,
+            TimestampRangeValue::Now => Timestamp::now(),
+            TimestampRangeValue::Value(ts) => *ts,
+        }
+    }
 }
 
 impl TryFrom<&str> for TimestampRangeValue {
-    type Error = RedisError;
+    type Error = ValkeyError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
@@ -41,9 +51,9 @@ impl TryFrom<&str> for TimestampRangeValue {
             "*" => Ok(TimestampRangeValue::Now),
             _ => {
                 let ts =
-                    parse_timestamp(value).map_err(|_| RedisError::Str("invalid timestamp"))?;
+                    parse_timestamp(value).map_err(|_| ValkeyError::Str("invalid timestamp"))?;
                 if ts < 0 {
-                    return Err(RedisError::Str(
+                    return Err(ValkeyError::Str(
                         "TSDB: invalid timestamp, must be a non-negative integer",
                     ));
                 }
@@ -53,10 +63,10 @@ impl TryFrom<&str> for TimestampRangeValue {
     }
 }
 
-impl TryFrom<&RedisString> for TimestampRangeValue {
-    type Error = RedisError;
+impl TryFrom<&ValkeyString> for TimestampRangeValue {
+    type Error = ValkeyError;
 
-    fn try_from(value: &RedisString) -> Result<Self, Self::Error> {
+    fn try_from(value: &ValkeyString) -> Result<Self, Self::Error> {
         if value.len() == 1 {
             let bytes = value.as_slice();
             match bytes[0] {
@@ -66,9 +76,9 @@ impl TryFrom<&RedisString> for TimestampRangeValue {
                 _ => {}
             }
         }
-        return if let Ok(int_val) = value.parse_integer() {
+        if let Ok(int_val) = value.parse_integer() {
             if int_val < 0 {
-                return Err(RedisError::Str(
+                return Err(ValkeyError::Str(
                     "TSDB: invalid timestamp, must be a non-negative integer",
                 ));
             }
@@ -76,9 +86,9 @@ impl TryFrom<&RedisString> for TimestampRangeValue {
         } else {
             let date_str = value.to_string_lossy();
             let ts =
-                parse_timestamp(&date_str).map_err(|_| RedisError::Str("invalid timestamp"))?;
+                parse_timestamp(&date_str).map_err(|_| ValkeyError::Str("invalid timestamp"))?;
             Ok(TimestampRangeValue::Value(ts))
-        };
+        }
     }
 }
 
@@ -131,9 +141,9 @@ pub struct TimestampRange {
 }
 
 impl TimestampRange {
-    pub fn new(start: TimestampRangeValue, end: TimestampRangeValue) -> RedisResult<Self> {
+    pub fn new(start: TimestampRangeValue, end: TimestampRangeValue) -> ValkeyResult<Self> {
         if start > end {
-            return Err(RedisError::Str("invalid timestamp range: start > end"));
+            return Err(ValkeyError::Str("invalid timestamp range: start > end"));
         }
         Ok(TimestampRange { start, end })
     }
@@ -164,7 +174,7 @@ pub(crate) fn normalize_range_timestamps(
 }
 
 
-pub fn parse_number_arg(arg: &RedisString, name: &str) -> RedisResult<f64> {
+pub fn parse_number_arg(arg: &ValkeyString, name: &str) -> ValkeyResult<f64> {
     if let Ok(value) = arg.parse_float() {
         return Ok(value);
     }
@@ -172,34 +182,34 @@ pub fn parse_number_arg(arg: &RedisString, name: &str) -> RedisResult<f64> {
     parse_number_with_unit(&arg_str)
         .map_err(|_| {
             if name.is_empty() {
-              RedisError::Str("TSDB: invalid number")
+              ValkeyError::Str("TSDB: invalid number")
             } else {
-                RedisError::String(format!("TSDB: cannot parse {name} as number"))
+                ValkeyError::String(format!("TSDB: cannot parse {name} as number"))
             }
         })
 }
 
-pub fn parse_integer_arg(arg: &RedisString, name: &str, allow_negative: bool) -> RedisResult<i64> {
+pub fn parse_integer_arg(arg: &ValkeyString, name: &str, allow_negative: bool) -> ValkeyResult<i64> {
     let value = if let Ok(val) = arg.parse_integer() {
         val
     } else {
         let num = parse_number_arg(arg, name)?;
         if num != num.floor() {
-            return Err(RedisError::Str("TSDB: value must be an integer"));
+            return Err(ValkeyError::Str("TSDB: value must be an integer"));
         }
         if num > i64::MAX as f64 {
-            return Err(RedisError::Str("TSDB: value is too large"));
+            return Err(ValkeyError::Str("TSDB: value is too large"));
         }
         num as i64
     };
     if !allow_negative && value < 0 {
         let msg = format!("TSDB: {} must be a non-negative integer", name);
-        return Err(RedisError::String(msg));
+        return Err(ValkeyError::String(msg));
     }
     Ok(value)
 }
 
-pub fn parse_timestamp_arg(arg: &RedisString) -> RedisResult<Timestamp> {
+pub fn parse_timestamp_arg(arg: &ValkeyString) -> ValkeyResult<Timestamp> {
     if arg.len() == 1 {
         let arg = arg.as_slice();
         if arg[0] == b'*' {
@@ -211,16 +221,16 @@ pub fn parse_timestamp_arg(arg: &RedisString) -> RedisResult<Timestamp> {
     } else {
         let arg_str = arg.to_string_lossy();
         let value = DateTime::parse_from_rfc3339(&arg_str)
-            .map_err(|_| RedisError::Str("TSDB: invalid timestamp"))?;
+            .map_err(|_| ValkeyError::Str("TSDB: invalid timestamp"))?;
         value.timestamp_millis()
     };
     if value < 0 {
-        return Err(RedisError::Str("TSDB: invalid timestamp, must be a non-negative value"));
+        return Err(ValkeyError::Str("TSDB: invalid timestamp, must be a non-negative value"));
     }
     Ok(value as Timestamp)
 }
 
-pub fn parse_timestamp(arg: &str) -> RedisResult<Timestamp> {
+pub fn parse_timestamp(arg: &str) -> ValkeyResult<Timestamp> {
     // todo: handle +,
     if arg == "*" {
         return Ok(current_time_millis());
@@ -229,29 +239,29 @@ pub fn parse_timestamp(arg: &str) -> RedisResult<Timestamp> {
         dt
     } else {
         let value = DateTime::parse_from_rfc3339(arg)
-            .map_err(|_| RedisError::Str("invalid timestamp"))?;
+            .map_err(|_| ValkeyError::Str("invalid timestamp"))?;
         value.timestamp_millis()
     };
     if value < 0 {
-        return Err(RedisError::Str("TSDB: invalid timestamp, must be a non-negative integer"));
+        return Err(ValkeyError::Str("TSDB: invalid timestamp, must be a non-negative integer"));
     }
     Ok(value)
 }
 
-pub fn parse_timestamp_range_value(arg: &str) -> RedisResult<TimestampRangeValue> {
+pub fn parse_timestamp_range_value(arg: &str) -> ValkeyResult<TimestampRangeValue> {
     TimestampRangeValue::try_from(arg)
 }
 
-pub fn parse_timestamp_range(start: &RedisString, end: &RedisString) -> RedisResult<TimestampRange> {
+pub fn parse_timestamp_range(start: &ValkeyString, end: &ValkeyString) -> ValkeyResult<TimestampRange> {
     let first: TimestampRangeValue = start.try_into()?;
     let second: TimestampRangeValue = end.try_into()?;
     TimestampRange::new(first, second)
 }
 
-pub fn parse_duration_arg(arg: &RedisString) -> RedisResult<Duration> {
+pub fn parse_duration_arg(arg: &ValkeyString) -> ValkeyResult<Duration> {
     if let Ok(value) = arg.parse_integer() {
         if value < 0 {
-            return Err(RedisError::Str("TSDB: invalid duration, must be a non-negative integer"));
+            return Err(ValkeyError::Str("TSDB: invalid duration, must be a non-negative integer"));
         }
         return Ok(Duration::from_millis(value as u64));
     }
@@ -259,7 +269,7 @@ pub fn parse_duration_arg(arg: &RedisString) -> RedisResult<Duration> {
     parse_duration(&value_str)
 }
 
-pub fn parse_duration(arg: &str) -> RedisResult<Duration> {
+pub fn parse_duration(arg: &str) -> ValkeyResult<Duration> {
     match parse_duration_value(arg, 1) {
         Ok(d) => Ok(Duration::from_millis(d as u64)),
         Err(_e) => {
@@ -267,16 +277,16 @@ pub fn parse_duration(arg: &str) -> RedisResult<Duration> {
                 Ok(v) => Ok(Duration::from_millis(v as u64)),
                 Err(_e) => {
                     let str = format!("ERR: failed to parse duration: {}", arg);
-                    Err(RedisError::String(str))
+                    Err(ValkeyError::String(str))
                 },
             }
         },
     }
 }
 
-pub fn parse_double(arg: &str) -> RedisResult<f64> {
+pub fn parse_double(arg: &str) -> ValkeyResult<f64> {
     arg.parse::<f64>().map_err(|_e| {
-        RedisError::Str("TSDB: invalid value")
+        ValkeyError::Str("TSDB: invalid value")
     })
 }
 
@@ -289,19 +299,17 @@ pub fn parse_number_with_unit(arg: &str) -> TsdbResult<f64> {
 pub fn parse_series_selector(arg: &str) -> TsdbResult<Matchers> {
     parse_metric_selector(arg).map_err(|_e| {
         TsdbError::InvalidSeriesSelector(arg.to_string())
-    }).and_then(|m| {
-        Ok(Matchers::new(m))
     })
 }
 
-pub fn parse_chunk_size(arg: &str) -> RedisResult<usize> {
-    fn get_error_result() -> RedisResult<usize> {
+pub fn parse_chunk_size(arg: &str) -> ValkeyResult<usize> {
+    fn get_error_result() -> ValkeyResult<usize> {
         let msg = format!("TSDB: CHUNK_SIZE value must be an integer multiple of 2 in the range [{MIN_CHUNK_SIZE} .. {MAX_CHUNK_SIZE}]");
-        return Err(RedisError::String(msg));
+        Err(ValkeyError::String(msg))
     }
 
     let chunk_size = parse_number_with_unit(arg).map_err(|_e| {
-        RedisError::Str("TSDB: invalid chunk size")
+        ValkeyError::Str("TSDB: invalid chunk size")
     })?;
 
     if chunk_size != chunk_size.floor() {

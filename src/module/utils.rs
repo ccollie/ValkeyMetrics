@@ -1,16 +1,18 @@
 use std::borrow::Cow;
-use redis_module::{CallOptionResp, CallOptions, CallOptionsBuilder, CallResult, RedisError, RedisResult, RedisValue};
-use crate::common::{current_time_millis};
-use crate::common::types::{Timestamp};
+
+use valkey_module::{CallOptionResp, CallOptions, CallOptionsBuilder, CallResult, ValkeyError, ValkeyResult, ValkeyValue};
+
+use crate::common::current_time_millis;
+use crate::common::types::Timestamp;
 use crate::config::get_global_settings;
 use crate::module::arg_parse::{parse_timestamp_range_value, TimestampRangeValue};
 
-pub(crate) fn redis_value_as_str(value: &RedisValue) -> RedisResult<Cow<str>> {
+pub(crate) fn valkey_value_as_str(value: &ValkeyValue) -> ValkeyResult<Cow<str>> {
     match value {
-        RedisValue::SimpleStringStatic(s) => Ok(Cow::Borrowed(s)),
-        RedisValue::SimpleString(s) => Ok(Cow::Borrowed(&s.as_str())),
-        RedisValue::BulkString(s) => Ok(Cow::Borrowed(&s.as_str())),
-        RedisValue::BulkRedisString(s) => {
+        ValkeyValue::SimpleStringStatic(s) => Ok(Cow::Borrowed(s)),
+        ValkeyValue::SimpleString(s) => Ok(Cow::Borrowed(&s.as_str())),
+        ValkeyValue::BulkString(s) => Ok(Cow::Borrowed(&s.as_str())),
+        ValkeyValue::BulkValkeyString(s) => {
             let val = if let Ok(s) = s.try_as_str() {
                 Cow::Borrowed(s)
             } else {
@@ -18,29 +20,29 @@ pub(crate) fn redis_value_as_str(value: &RedisValue) -> RedisResult<Cow<str>> {
             };
             Ok(val)
         },
-        RedisValue::StringBuffer(s) => {
+        ValkeyValue::StringBuffer(s) => {
             let value = String::from_utf8_lossy(s);
             Ok(Cow::Owned(value.to_string()))
         },
-        _ => Err(RedisError::Str("TSDB: cannot convert value to str")),
+        _ => Err(ValkeyError::Str("TSDB: cannot convert value to str")),
     }
 }
 
-pub(crate) fn redis_value_as_string(value: &RedisValue) -> RedisResult<Cow<String>> {
+pub(crate) fn valkey_value_as_string(value: &ValkeyValue) -> ValkeyResult<Cow<String>> {
     match value {
-        RedisValue::SimpleStringStatic(s) => Ok(Cow::Owned(s.to_string())),
-        RedisValue::SimpleString(s) => Ok(Cow::Borrowed(&s)),
-        RedisValue::BulkString(s) => Ok(Cow::Borrowed(&s)),
-        RedisValue::BulkRedisString(s) => Ok(Cow::Owned(s.to_string())),
-        RedisValue::StringBuffer(s) => {
+        ValkeyValue::SimpleStringStatic(s) => Ok(Cow::Owned(s.to_string())),
+        ValkeyValue::SimpleString(s) => Ok(Cow::Borrowed(&s)),
+        ValkeyValue::BulkString(s) => Ok(Cow::Borrowed(&s)),
+        ValkeyValue::BulkValkeyString(s) => Ok(Cow::Owned(s.to_string())),
+        ValkeyValue::StringBuffer(s) => {
             let value = String::from_utf8_lossy(s);
             Ok(Cow::Owned(value.to_string()))
         },
-        _ => Err(RedisError::Str("TSDB: cannot convert value to str")),
+        _ => Err(ValkeyError::Str("TSDB: cannot convert value to str")),
     }
 }
 
-pub(crate) fn call_redis_command<'a>(ctx: &redis_module::Context, cmd: &'a str, args: &'a [String]) -> RedisResult {
+pub(crate) fn call_valkey_command<'a>(ctx: &valkey_module::Context, cmd: &'a str, args: &'a [String]) -> ValkeyResult {
     let call_options: CallOptions = CallOptionsBuilder::default()
         .resp(CallOptionResp::Resp3)
         .build();
@@ -52,17 +54,17 @@ pub(crate) fn call_redis_command<'a>(ctx: &redis_module::Context, cmd: &'a str, 
 pub fn parse_timestamp_arg(
     arg: &str,
     name: &str,
-) -> Result<TimestampRangeValue, RedisError> {
+) -> Result<TimestampRangeValue, ValkeyError> {
     parse_timestamp_range_value(arg).map_err(|_e| {
         let msg = format!("ERR invalid {} timestamp", name);
-        RedisError::String(msg)
+        ValkeyError::String(msg)
     })
 }
 
 pub(crate) fn normalize_range_args(
     start: Option<TimestampRangeValue>,
     end: Option<TimestampRangeValue>,
-) -> RedisResult<(Timestamp, Timestamp)> {
+) -> ValkeyResult<(Timestamp, Timestamp)> {
     let config = get_global_settings();
     let now = current_time_millis();
 
@@ -80,10 +82,23 @@ pub(crate) fn normalize_range_args(
     };
 
     if start > end {
-        return Err(RedisError::Str(
+        return Err(ValkeyError::Str(
             "ERR end timestamp must not be before start time",
         ));
     }
 
     Ok((start, end))
+}
+
+/// todo: move to file range_utils
+
+/// Calculate the beginning of aggregation bucket
+pub(crate) fn calc_bucket_start(ts: Timestamp, bucket_duration: i64, timestamp_alignment: i64) -> Timestamp {
+    let timestamp_diff = ts - timestamp_alignment;
+    ts - ((timestamp_diff % bucket_duration + bucket_duration) % bucket_duration)
+}
+
+// If bucket_ts is negative converts it to 0
+pub fn normalize_bucket_start(bucket_ts: Timestamp) -> Timestamp {
+    bucket_ts.max(0)
 }

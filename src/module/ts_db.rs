@@ -1,22 +1,21 @@
-use redis_module::RedisModuleTypeMethods;
-use redis_module::REDISMODULE_AUX_BEFORE_RDB;
-use redis_module::{native_types::RedisType, RedisModuleDefragCtx, RedisModuleString, RedisString};
+use valkey_module::RedisModuleTypeMethods;
+use valkey_module::REDISMODULE_AUX_BEFORE_RDB;
+use valkey_module::{native_types::ValkeyType, RedisModuleDefragCtx, RedisModuleString, ValkeyString};
 
-use crate::globals::get_timeseries_index;
+use crate::globals::with_timeseries_index;
+use crate::storage::defrag_series;
 use crate::storage::time_series::TimeSeries;
-use redis_module::raw;
 use std::os::raw::{c_int, c_void};
 use std::ptr::null_mut;
-use crate::storage::defrag_series;
-
+use valkey_module::raw;
 // see https://github.com/redis/redis/blob/unstable/tests/modules
 
 pub static REDIS_PROMQL_SERIES_VERSION: i32 = 1;
-pub static REDIS_PROMQL_SERIES_TYPE: RedisType = RedisType::new(
+pub static VALKEY_PROMQL_SERIES_TYPE: ValkeyType = ValkeyType::new(
     "RedPromTS",
     REDIS_PROMQL_SERIES_VERSION,
     RedisModuleTypeMethods {
-        version: redis_module::TYPE_METHOD_VERSION,
+        version: valkey_module::TYPE_METHOD_VERSION,
         rdb_load: Some(rdb_load),
         rdb_save: Some(rdb_save),
         aof_rewrite: None,
@@ -50,7 +49,7 @@ unsafe extern "C" fn rdb_load(rdb: *mut raw::RedisModuleIO, _encver: c_int) -> *
         return null_mut();
     }
     let f = v.unwrap();
-    let sm = new_from_redis_string(f);
+    let sm = new_from_valkey_string(f);
     if sm.is_err() {
         return null_mut();
     }
@@ -80,17 +79,15 @@ unsafe extern "C" fn copy(
     tokey: *mut RedisModuleString,
     value: *const c_void,
 ) -> *mut c_void {
-    let sm = &*(value as *mut TimeSeries);
-    let mut new_series = sm.clone();
-    let mut ts_index = get_timeseries_index();
-    // ???? How to handle failure ??
-    match RedisString::from_ptr(tokey) {
-        Ok(key) => {
-            ts_index.index_time_series(&mut new_series, key.to_string())
-        },
-        Err(_) => {}
-    }
-    Box::into_raw(Box::new(new_series)).cast::<c_void>()
+    let guard = valkey_module::MODULE_CONTEXT.lock();
+    with_timeseries_index(&guard, |index| {
+        let sm = &*(value as *mut TimeSeries);
+        let mut new_series = sm.clone();
+        new_series.id = index.next_id();
+        let key = ValkeyString::from_redis_module_string(guard.ctx, tokey);
+        index.index_time_series(&mut new_series, &key);
+        Box::into_raw(Box::new(new_series)).cast::<c_void>()
+    })
 }
 
 unsafe extern "C" fn unlink(_key: *mut RedisModuleString, value: *const c_void) {
@@ -98,8 +95,10 @@ unsafe extern "C" fn unlink(_key: *mut RedisModuleString, value: *const c_void) 
     if value.is_null() {
         return;
     }
-    let ts_index = get_timeseries_index();
-    ts_index.remove_series(series)
+    let guard = valkey_module::MODULE_CONTEXT.lock();
+    with_timeseries_index(&guard, |ts_index| {
+        ts_index.remove_series(series);
+    });
 }
 
 unsafe extern "C" fn defrag(
@@ -118,7 +117,7 @@ unsafe extern "C" fn defrag(
 }
 
 
-pub(crate) fn new_from_redis_string(c: RedisString) -> Result<TimeSeries, serde_json::Error> {
+pub(crate) fn new_from_valkey_string(c: ValkeyString) -> Result<TimeSeries, serde_json::Error> {
     // let mut val = bincode::deserialize::<TimeSeries>(&c.to_string().as_bytes());
     serde_json::from_str(&c.to_string())
 }

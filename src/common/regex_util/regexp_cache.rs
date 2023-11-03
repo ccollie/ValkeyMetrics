@@ -1,18 +1,18 @@
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU64, Ordering};
 use lru_time_cache::LruCache;
-use crate::common::regex_util::match_handlers::StringMatchHandler;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use metricsql_common::prelude::match_handlers::StringMatchHandler;
 
 const DEFAULT_MAX_SIZE_BYTES: usize = 1024 * 1024 * 1024;
 const DEFAULT_CACHE_SIZE: usize = 100;
 
 #[derive(Clone, Debug)]
-pub struct RegexpCacheValue {
-    pub(crate) or_values: Vec<String>,
-    pub(crate) re_match: StringMatchHandler,
-    pub(crate) re_cost: usize,
-    pub(crate) literal_suffix: String,
-    pub(crate) size_bytes: usize
+pub(crate) struct RegexpCacheValue {
+    pub or_values: Vec<String>,
+    pub re_match: StringMatchHandler,
+    pub re_cost: usize,
+    pub literal_suffix: String,
+    pub size_bytes: usize,
 }
 
 pub struct RegexpCache {
@@ -37,7 +37,7 @@ impl RegexpCache {
         let item = inner.get(key);
         if item.is_some() {
             self.requests.fetch_add(1, Ordering::Relaxed);
-            Some(item.unwrap().clone())
+            Some(item?.clone())
         } else {
             self.misses.fetch_add(1, Ordering::Relaxed);
             None

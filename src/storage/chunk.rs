@@ -23,12 +23,26 @@ pub enum ChunkCompression {
     Compressed = 1,
 }
 
+impl ChunkCompression {
+    pub fn is_compressed(&self) -> bool {
+        matches!(self, ChunkCompression::Compressed)
+    }
+
+    pub fn is_uncompressed(&self) -> bool {
+        matches!(self, ChunkCompression::Uncompressed)
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            ChunkCompression::Uncompressed => "uncompressed",
+            ChunkCompression::Compressed => "compressed",
+        }
+    }
+}
+
 impl Display for ChunkCompression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ChunkCompression::Uncompressed => write!(f, "uncompressed"),
-            ChunkCompression::Compressed => write!(f, "compressed"),
-        }
+        write!(f, "{}", self.name())
     }
 }
 
@@ -251,7 +265,7 @@ impl TimeSeriesChunk {
     /// If the chunk is full or the other chunk is empty, returns 0.
     /// If the other chunk is compressed, it will be decompressed first.
     /// Duplicate values are handled according to `duplicate_policy`.
-    /// Samples with timestamps before `retention_threshold` will be ignored, whether or not
+    /// Samples with timestamps before `retention_threshold` will be ignored, whether
     /// they fall with the given range [start_ts..end_ts].
     /// Returns the number of samples merged.
     pub fn merge_range(

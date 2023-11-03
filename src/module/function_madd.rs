@@ -1,44 +1,48 @@
-use redis_module::{Context, NextArg, REDIS_OK, RedisError, RedisResult, RedisString, RedisValue};
 use crate::arg_parse::parse_timestamp;
-use crate::module::get_timeseries_mut;
+use crate::module::with_timeseries_mut;
+use crate::storage::Timestamp;
+use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
-pub(crate) fn madd(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
+pub(crate) fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let arg_count = args.len() - 1;
     let mut args = args.into_iter().skip(1);
 
-    let key = args.next_arg()?;
-
     if arg_count < 3 {
-        return Err(RedisError::WrongArity);
+        return Err(ValkeyError::WrongArity);
     }
 
     if arg_count % 3 != 0 {
-        return Err(RedisError::Str("ERR TSDB: wrong number of arguments for 'TS.MADD' command"));
+        return Err(ValkeyError::Str("ERR TSDB: wrong number of arguments for 'TS.MADD' command"));
     }
 
     let sample_count = arg_count / 3;
 
-    if let Some(series) = get_series_mut(ctx, &key, true)? {
-        let policy = series.duplicate_policy;
+    let mut values: Vec<ValkeyValue> = Vec::with_capacity(sample_count);
+    let mut inputs: Vec<(ValkeyString, Timestamp, f64)> = Vec::with_capacity(sample_count);
 
-        let mut values: Vec<RedisValue> = Vec::with_capacity(sample_count);
-
-        while let Some(arg) = args.next() {
-            let res = get_series_mut(ctx, &arg, true);
-            if res.is_err() {
-                values.push(RedisValue::SimpleStringStatic("ERR TSDB: the key is not a timeseries") );
-            } else {
-                let timestamp = parse_timestamp(args.next_str()?)?;
-                let value = args.next_f64()?;
-                // Safety: we checked above that the key exists
-                let series = res.unwrap().unwrap();
-                if let Ok(res) = series.add( timestamp, value, Some(policy)) {
-                }
-            }
-        }
-
-        return Ok(RedisValue::Array(values));
+    while let Some(key) = args.next() {
+        let timestamp = parse_timestamp(args.next_str()?)?;
+        let value = args.next_f64()?;
+        inputs.push((key, timestamp, value));
     }
 
-    REDIS_OK
+    for (key, timestamp, value) in inputs {
+        let value = with_timeseries_mut(ctx, &key, |series| {
+            if series.add(timestamp, value, None).is_ok() {
+                Ok(ValkeyValue::from(timestamp))
+            } else {
+                // todo !!!!!
+                Ok(ValkeyValue::SimpleString("ERR".to_string()))
+            }
+        });
+        match value {
+            Ok(value) => values.push(value),
+            Err(err) => values.push(
+                ValkeyValue::SimpleString(format!("ERR TSDB: {}", err.to_string())),
+            ),
+        }
+    }
+
+    Ok(ValkeyValue::Array(values))
+
 }

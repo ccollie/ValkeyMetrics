@@ -1,4 +1,4 @@
-use redis_module::{Context, RedisError, RedisResult, RedisString};
+use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
 pub(crate) use ts_db::*;
 pub(crate) use utils::*;
 use crate::storage::time_series::TimeSeries;
@@ -17,7 +17,8 @@ mod function_add;
 mod function_alter;
 mod function_get;
 pub mod arg_parse;
-
+mod aggregation;
+mod range_utils;
 
 pub mod commands {
     pub(crate) use super::function_add::*;
@@ -31,28 +32,20 @@ pub mod commands {
     pub(crate) use super::function_range::*;
 }
 
-pub(crate) fn get_timeseries_mut<'a>(ctx: &'a Context, key: &RedisString, must_exist: bool) -> RedisResult<Option<&'a mut TimeSeries>> {
-    let redis_key = ctx.open_key_writable(key.into());
-    let result = redis_key.get_value::<TimeSeries>(&REDIS_PROMQL_SERIES_TYPE)?;
-    if must_exist && result.is_none() {
-        return Err(RedisError::Str("ERR TSDB: the key is not a timeseries"));
+pub(crate) fn with_timeseries(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&TimeSeries) -> ValkeyResult) -> ValkeyResult {
+    let redis_key = ctx.open_key(key);
+    let series = redis_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE)?;
+    match series {
+        Some(series) => f(series),
+        None => Err(ValkeyError::Str("ERR TSDB: the key is not a timeseries")),
     }
-    Ok(result)
 }
 
-/*pub(crate) fn get_timeseries<'a>(ctx: &'a Context, key: &RedisString, must_exist: bool) -> RedisResult<Option<&'a TimeSeries>> {
-    let redis_key = ctx.open_key(key.into());
-    let result = redis_key.get_value::<TimeSeries>(&REDIS_PROMQL_SERIES_TYPE)?;
-    if must_exist && result.is_none() {
-        return Err(RedisError::Str("ERR TSDB: the key is not a timeseries"));
+pub(crate) fn with_timeseries_mut(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&mut TimeSeries) -> ValkeyResult) -> ValkeyResult {
+    let redis_key = ctx.open_key_writable(key);
+    let series = redis_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE)?;
+    match series {
+        Some(series) => f(series),
+        None => Err(ValkeyError::Str("ERR TSDB: the key is not a timeseries")),
     }
-    Ok(result)
 }
-
-pub(crate) fn get_timeseries_multi<'a>(ctx: &'a Context, keys: &[&RedisString]) -> RedisResult<Vec<Option<&'a TimeSeries>>> {
-    keys
-        .iter()
-        .map(|key| get_timeseries(ctx, key, false)).collect::<Result<Vec<_>, _>>()
-}
-
-*/

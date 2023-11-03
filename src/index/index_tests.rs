@@ -1,8 +1,18 @@
 #[cfg(test)]
 mod tests {
+    use valkey_module::ValkeyString;
     use crate::index::TimeSeriesIndex;
     use crate::storage::Label;
     use crate::storage::time_series::TimeSeries;
+
+    fn create_valkey_string(s: &str) -> ValkeyString {
+        ValkeyString::create(None, s.as_bytes())
+    }
+
+    fn index_time_series(index: &mut TimeSeriesIndex, ts: &TimeSeries, name: &str) {
+        let key = create_valkey_string(name);
+        index.index_time_series(ts, &key);
+    }
 
     #[test]
     fn test_index_series() {
@@ -20,7 +30,7 @@ mod tests {
         ];
 
         let mut index = TimeSeriesIndex::new();
-        index.index_time_series(&mut ts, "time-series-1".to_string());
+        index_time_series(&mut index, &ts, "time-series-1");
 
         assert_ne!(ts.id, 0);
         assert_eq!(index.label_count(), 3 /* metric_name + region + env */);
@@ -50,8 +60,8 @@ mod tests {
         });
 
         let mut index = TimeSeriesIndex::new();
-        index.index_time_series(&mut ts, "time-series-1".to_string());
-        index.index_time_series(&mut ts2, "time-series-2".to_string());
+        index_time_series(&mut index, &ts, "time-series-1");
+        index_time_series(&mut index, &ts2, "time-series-2");
 
         assert_eq!(index.series_count(), 2);
         assert_eq!(index.label_count(), 4);
@@ -86,9 +96,9 @@ mod tests {
         let mut ts3 = ts.clone();
         ts3.labels[1].value = "prod".to_string();
 
-        index.index_time_series(&mut ts, "time-series-1".to_string());
-        index.index_time_series(&mut ts2, "time-series-2".to_string());
-        index.index_time_series(&mut ts3, "time-series-3".to_string());
+        index_time_series(&mut index, &ts, "time-series-1");
+        index_time_series(&mut index, &ts2, "time-series-2");
+        index_time_series(&mut index, &ts3, "time-series-3");
 
         let values = index.get_label_values("region");
         assert_eq!(values.len(), 2);

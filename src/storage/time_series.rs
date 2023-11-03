@@ -1,15 +1,15 @@
-use super::{Chunk, ChunkCompression, Encoding, Label, merge_by_capacity, Sample, TimeSeriesChunk, TimeSeriesOptions, validate_chunk_size};
+use super::{merge_by_capacity, validate_chunk_size, Chunk, ChunkCompression, Label, Sample, TimeSeriesChunk, TimeSeriesOptions};
 use crate::common::types::{PooledTimestampVec, PooledValuesVec, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
 use crate::storage::constants::{DEFAULT_CHUNK_SIZE_BYTES, SPLIT_FACTOR};
+use crate::storage::timestamps_filter_iterator::TimestampsFilterIterator;
 use crate::storage::uncompressed_chunk::UncompressedChunk;
 use crate::storage::DuplicatePolicy;
+use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use serde::{Deserialize, Serialize};
 use std::collections::BinaryHeap;
 use std::time::Duration;
-use get_size::GetSize;
-
 
 /// Represents a time series. The time series consists of time series blocks, each containing BLOCK_SIZE_FOR_TIME_SERIES
 /// data points. All but the last block are compressed.
@@ -28,6 +28,7 @@ pub struct TimeSeries {
     pub chunk_size_bytes: usize,
     pub chunks: Vec<TimeSeriesChunk>,
 
+    // meta
     pub total_samples: usize,
     pub first_timestamp: Timestamp,
     pub last_timestamp: Timestamp,
@@ -159,7 +160,7 @@ impl TimeSeries {
         let chunk = self.get_last_chunk();
         match chunk.add_sample(sample) {
             Err(TsdbError::CapacityFull(_)) => Ok(false),
-            Err(e) => return Err(e),
+            Err(e) => Err(e),
             _ => Ok(true),
         }
     }
@@ -202,7 +203,7 @@ impl TimeSeries {
                 &uncompressed_chunk.values,
             )?;
 
-            // reuse last chunk
+            // clear last chunk for reuse
             last_chunk.clear();
 
             // insert new chunk before last block
@@ -218,7 +219,7 @@ impl TimeSeries {
             return Ok(());
         }
 
-        return Ok(());
+        Ok(())
     }
 
     fn append_uncompressed_chunk(&mut self) {
@@ -296,9 +297,11 @@ impl TimeSeries {
         }
     }
 
-    /// Get the time series between give start and end time (both inclusive).
+    /// Get the time series between given start and end time (both inclusive).
+    /// todo: return a SeriesSlice or SeriesData so we don't realloc
     pub fn get_range(&self, start_time: Timestamp, end_time: Timestamp) -> TsdbResult<Vec<Sample>> {
         let mut result: BinaryHeap<Sample> = BinaryHeap::new();
+        // todo: possibly used pooled vecs
         let mut timestamps = Vec::with_capacity(64);
         let mut values = Vec::with_capacity(64);
 
@@ -344,6 +347,13 @@ impl TimeSeries {
         end: Timestamp,
     ) -> impl Iterator<Item = Sample> + 'a {
         SampleIterator::new(self, start, end)
+    }
+
+    pub fn timestamp_filter_iter<'a>(
+        &'a self,
+        timestamp_filters: &'a Vec<Timestamp>,
+    ) -> impl Iterator<Item = Sample> + 'a {
+        TimestampsFilterIterator::new(self, timestamp_filters)
     }
 
     #[cfg(test)]
@@ -459,7 +469,7 @@ impl TimeSeries {
     }
 
     pub fn memory_usage(&self) -> usize {
-        std::mem::size_of::<Self>() +
+        size_of::<Self>() +
             self.get_heap_size()
     }
 
@@ -493,18 +503,17 @@ impl Default for TimeSeries {
 }
 
 /// Return the index of the chunk in which the timestamp belongs. Assumes !chunks.is_empty()
-fn get_chunk_index(chunks: &Vec<TimeSeriesChunk>, timestamp: Timestamp) -> (usize, bool) {
+fn get_chunk_index(chunks: &[TimeSeriesChunk], timestamp: Timestamp) -> (usize, bool) {
     let len = chunks.len();
-    let slice = chunks.as_slice();
-    let first = slice[0].first_timestamp();
-    let last = slice[len - 1].last_timestamp();
+    let first = chunks[0].first_timestamp();
+    let last = chunks[len - 1].last_timestamp();
     if timestamp <= first {
         return (0, false);
     }
     if timestamp >= last {
-        return (slice.len() - 1, false);
+        return (len - 1, false);
     }
-    return match chunks.binary_search_by(|probe| {
+    match chunks.binary_search_by(|probe| {
         if timestamp < probe.first_timestamp() {
             std::cmp::Ordering::Greater
         } else if timestamp > probe.last_timestamp() {
@@ -515,7 +524,7 @@ fn get_chunk_index(chunks: &Vec<TimeSeriesChunk>, timestamp: Timestamp) -> (usiz
     }) {
         Ok(pos) => (pos, true),
         Err(pos) => (pos, false),
-    };
+    }
 }
 
 pub struct SampleIterator<'a> {
@@ -579,10 +588,7 @@ impl<'a> SampleIterator<'a> {
             return false;
         }
         self.sample_index = if self.first_iter {
-            match self.timestamps.binary_search(&self.start) {
-                Ok(idx) => idx,
-                Err(idx) => idx,
-            }
+            self.timestamps.binary_search(&self.start).unwrap_or_else(|idx| idx)
         } else {
             0
         };
@@ -608,6 +614,7 @@ impl<'a> Iterator for SampleIterator<'a> {
         Some(Sample::new(timestamp, value))
     }
 }
+
 
 #[cfg(test)]
 mod tests {

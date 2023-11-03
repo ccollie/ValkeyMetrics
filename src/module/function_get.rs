@@ -1,19 +1,19 @@
-use redis_module::{Context, NextArg, RedisResult, RedisString, RedisValue};
-use crate::module::get_timeseries_mut;
+use crate::module::with_timeseries_mut;
+use valkey_module::{Context, NextArg, ValkeyResult, ValkeyString, ValkeyValue};
 
-pub(crate) fn get(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
+pub(crate) fn get(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1);
     let key = args.next_arg()?;
 
-    // Safety: the 3rd parameter means that wee Err is not found and the error is propagated out
-    // before the unwrap()
-    let series = get_timeseries_mut(ctx, &key, true)?.unwrap();
+    with_timeseries_mut(ctx, &key, |series| {
+        args.done()?;
 
-    let result = if series.is_empty() {
-        vec![]
-    } else {
-        vec![RedisValue::from(series.last_timestamp), RedisValue::from(series.last_value)]
-    };
+        let result = if series.is_empty() {
+            vec![]
+        } else {
+            vec![ValkeyValue::from(series.last_timestamp), ValkeyValue::from(series.last_value)]
+        };
 
-    Ok(RedisValue::Array(result))
+        Ok(ValkeyValue::Array(result))
+    })
 }

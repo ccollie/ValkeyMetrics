@@ -1,13 +1,13 @@
-use crate::common::regex_util::prefix_cache::{PrefixCache, PrefixSuffix};
-use crate::common::regex_util::{get_match_func_for_or_suffixes, get_optimized_re_match_func, regex_utils};
-use crate::common::regex_util::regex_utils::{FULL_MATCH_COST, LITERAL_MATCH_COST};
-use crate::common::regex_util::regexp_cache::{RegexpCache, RegexpCacheValue};
+use super::regexp_cache::{RegexpCache, RegexpCacheValue};
 use regex::{Regex, Error as RegexError};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
-use std::sync::{Arc, OnceLock};
-use crate::common::bytes_util::FastRegexMatcher;
-use crate::common::regex_util::match_handlers::StringMatchHandler;
+use std::sync::{Arc, LazyLock, OnceLock};
+use metricsql_common::bytes_util::FastRegexMatcher;
+use metricsql_common::regex_util::match_handlers::StringMatchHandler;
+use metricsql_common::regex_util::{get_match_func_for_or_suffixes, get_optimized_re_match_func, regex_utils, FULL_MATCH_COST, LITERAL_MATCH_COST};
+use crate::common::METRIC_NAME_LABEL;
+use super::prefix_cache::{PrefixCache, PrefixSuffix};
 
 /// TagFilters represents filters used for filtering tags.
 #[derive(Clone, Default, Debug)]
@@ -36,9 +36,9 @@ impl TagFilters {
         self.0.sort_by(|a, b| a.partial_cmp(b).unwrap());
     }
 
-    /// Add adds the given tag filter to tfs.
+    /// Adds the given tag filter.
     ///
-    /// MetricGroup must be encoded with nil key.
+    /// metric_group must be encoded with nil key.
     pub fn add(
         &mut self,
         key: &str,
@@ -52,9 +52,8 @@ impl TagFilters {
         let mut value_ = value;
         // Verify whether tag filter is empty.
         if value.is_empty() {
-            // Substitute an empty tag value with the negative match
-            // of `.+` regexp in order to filter out all the values with
-            // the given tag.
+            // Substitute an empty tag value with the negative match of `.+` regexp in order to
+            // filter out all the values with the given tag.
             is_negative = !is_negative;
             is_regexp = true;
             value_ = ".+";
@@ -74,7 +73,7 @@ impl TagFilters {
             .map_err(|err| format!("cannot parse tag filter: {}", err))?;
 
         if tf.is_negative && tf.is_empty_match {
-            // We have {key!~"|foo"} tag filter, which matches non=empty key values.
+            // We have {key!~"|foo"} tag filter, which matches non-empty key values.
             // So add {key=~".+"} tag filter in order to enforce this.
             // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/546 for details.
             let tf_new = TagFilter::new(key, ".+", false, true)
@@ -106,7 +105,7 @@ impl Display for TagFilters {
 
 /// TagFilter represents a filter used for filtering tags.
 #[derive(Clone, Default, Debug)]
-pub struct TagFilter {
+pub(crate) struct TagFilter {
     pub key: String,
     pub value: String,
     pub is_negative: bool,
@@ -120,7 +119,7 @@ pub struct TagFilter {
     ///  - value if !is_regexp.
     ///  - regexp_prefix if is_regexp.
     pub prefix: String,
-    pub(crate) prefix_match: StringMatchHandler,
+    pub prefix_match: StringMatchHandler,
 
     /// `or` values obtained from regexp suffix if it equals to "foo|bar|..."
     ///
@@ -130,7 +129,7 @@ pub struct TagFilter {
     pub or_suffixes: Vec<String>,
 
     /// Matches suffix.
-    pub(crate) suffix_match: StringMatchHandler,
+    pub suffix_match: StringMatchHandler,
 
     /// Set to true for filters matching empty value.
     pub is_empty_match: bool,
@@ -175,9 +174,9 @@ impl TagFilter {
                 tf.is_regexp = false;
                 tf.is_literal = true;
                 tf.prefix_match = if tf.is_negative {
-                    StringMatchHandler::literal_mismatch(prefix.clone())
+                    StringMatchHandler::literal_mismatch(prefix)
                 } else {
-                    StringMatchHandler::literal(prefix.clone())
+                    StringMatchHandler::literal(prefix)
                 };
             }
         }
@@ -213,7 +212,7 @@ impl TagFilter {
         if !ok {
             return self.is_negative;
         }
-        return !self.is_negative;
+        !self.is_negative
     }
 
     #[inline]
@@ -234,7 +233,7 @@ impl TagFilter {
         if self.is_regexp {
             return "=~";
         }
-        return "=";
+        "="
     }
 }
 
@@ -258,7 +257,7 @@ impl PartialOrd for TagFilter {
         if self.is_negative != other.is_negative {
             return Some(self.is_negative.cmp(&other.is_negative));
         }
-        return Some(self.prefix.cmp(&other.prefix));
+        Some(self.prefix.cmp(&other.prefix))
     }
 }
 
@@ -274,7 +273,7 @@ impl Display for TagFilter {
         };
 
         if self.key.len() == 0 {
-            return write!(f, "__name__{op}{value}");
+            return write!(f, "{METRIC_NAME_LABEL}{op}{value}");
         }
         write!(f, "{}{}{}", self.key, op, value)
     }
@@ -329,7 +328,7 @@ pub fn get_regexp_from_cache(expr: &str) -> Result<Arc<RegexpCacheValue>, String
 fn new_match_func_for_or_suffixes(or_values: Vec<String>) -> (StringMatchHandler, usize) {
     let re_cost = or_values.len() * LITERAL_MATCH_COST;
     let matcher = get_match_func_for_or_suffixes(or_values);
-    return (matcher, re_cost);
+    (matcher, re_cost)
 }
 
 const DEFAULT_MAX_REGEXP_CACHE_SIZE: usize = 2048;
@@ -353,31 +352,29 @@ fn get_prefix_cache_max_size() -> &'static usize {
     })
 }
 
-static REGEX_CACHE: OnceLock<RegexpCache> = OnceLock::new();
-static PREFIX_CACHE: OnceLock<PrefixCache> = OnceLock::new();
+static REGEX_CACHE: LazyLock<RegexpCache> = LazyLock::new(|| {
+    let size = get_regexp_cache_max_size();
+    RegexpCache::new(*size)
+});
+
+static PREFIX_CACHE: LazyLock<PrefixCache> = LazyLock::new(|| {
+    let size = get_prefix_cache_max_size();
+    PrefixCache::new(*size)
+});
 
 // todo: get from env
 
 pub fn get_regexp_cache() -> &'static RegexpCache {
-    REGEX_CACHE.get_or_init(|| {
-        let size = get_regexp_cache_max_size();
-        let cache = RegexpCache::new(*size);
-        cache
-    })
+    &REGEX_CACHE
 }
 
 pub fn get_prefix_cache() -> &'static PrefixCache {
-    PREFIX_CACHE.get_or_init(|| {
-        let size = *get_prefix_cache_max_size();
-        let cache = PrefixCache::new(size);
-        cache
-    })
+    &PREFIX_CACHE
 }
 
 pub fn simplify_regexp(expr: &str) -> Result<(String, String), RegexError> {
     let cache = get_prefix_cache();
     if let Some(ps) = cache.get(expr) {
-        let cached = ps.as_ref();
         // Fast path - the simplified expr is found in the cache.
         return Ok((ps.prefix.clone(), ps.suffix.clone()));
     }

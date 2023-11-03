@@ -89,7 +89,7 @@ mod tests {
     }
 
     fn tv_no_trailing_tag_separator(s: &str) -> String {
-        return s.to_string();
+        s.to_string()
     }
 
     #[test]
@@ -163,7 +163,7 @@ mod tests {
         let expected_prefix = tv_no_trailing_tag_separator("http");
         let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
 
-// Must match any suffix
+        // Must match any suffix
         matches_suffix(&tf, "");
         matches_suffix(&tf, "x");
         matches_suffix(&tf, "http");
@@ -362,7 +362,7 @@ mod tests {
         let expected_prefix = tv_no_trailing_tag_separator("");
         let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
 
-// Mustn't match case-insensitive http
+        // Mustn't match case-insensitive http
         mismatches_suffix(&tf, "http");
         mismatches_suffix(&tf, "HTTP");
         mismatches_suffix(&tf, "hTTp");
@@ -382,7 +382,7 @@ mod tests {
         let expected_prefix = tv_no_trailing_tag_separator("");
         let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
 
-        // Must match case-insenstive http
+        // Must match case-insensitive http
         matches_suffix(&tf, "http");
         matches_suffix(&tf, "HTTP");
         matches_suffix(&tf, "hTTp://foobar.com");

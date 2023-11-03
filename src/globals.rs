@@ -1,79 +1,67 @@
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-use metricsql_engine::prelude::{Context as QueryContext};
-use rayon::ThreadPool;
-use redis_module::RedisGILGuard;
-use crate::index::TimeSeriesIndex;
+use crate::index::{TimeSeriesIndex, TimeSeriesIndexMap};
 use crate::provider::TsdbDataProvider;
+use metricsql_runtime::prelude::Context as QueryContext;
+use papaya::Guard;
+use valkey_module::{raw, Context, RedisModule_GetSelectedDb};
+use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, LazyLock};
 
-static TIMESERIES_INDEX: OnceLock<TimeSeriesIndex> = OnceLock::new();
-static QUERY_CONTEXT: OnceLock<QueryContext> = OnceLock::new();
-
-const DEFAULT_EXECUTION_THREADS: usize = 4;
-
-pub struct GlobalCtx {
-    pool: Mutex<Option<ThreadPool>>,
-    /// Thread pool which used to run management tasks that should not be
-    /// starved by user tasks (which run on [`GlobalCtx::pool`]).
-    management_pool: RedisGILGuard<Option<ThreadPool>>,
-}
-
-static mut GLOBALS: Option<GlobalCtx> = None;
-
-fn get_globals() -> &'static GlobalCtx {
-    unsafe { GLOBALS.as_ref().unwrap() }
-}
-
-fn get_globals_mut() -> &'static mut GlobalCtx {
-    unsafe { GLOBALS.as_mut().unwrap() }
-}
-
-pub(crate) fn get_thread_pool() -> &'static mut ThreadPool {
-    let mut pool = get_globals().pool.lock().unwrap();
-    pool.get_or_insert_with(|| {
-        // todo: get thread count from env
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(DEFAULT_EXECUTION_THREADS)
-            .thread_name(|idx| format!("promql-pool-{}", idx))
-            .build()
-            .unwrap()
-    })
-}
-
-
-/// Executes the passed job object in a dedicated thread allocated
-/// from the global module thread pool.
-pub(crate) fn execute_on_pool<F: FnOnce() + Send + 'static>(job: F) {
-    get_thread_pool()
-        .execute(move || {
-            job();
-        });
-}
-
+pub(crate) static TIMESERIES_INDEX: LazyLock<TimeSeriesIndexMap> = LazyLock::new(|| TimeSeriesIndexMap::new());
+static QUERY_CONTEXT: LazyLock<QueryContext> = LazyLock::new(create_query_context);
 
 pub fn get_query_context() -> &'static QueryContext {
-    QUERY_CONTEXT.get_or_init(create_query_context)
+    &QUERY_CONTEXT
 }
 
 fn create_query_context() -> QueryContext {
     // todo: read from config
     let provider = Arc::new(TsdbDataProvider{});
     let ctx = QueryContext::new();
-    ctx.with_provider(provider)
+    ctx.with_metric_storage(provider)
 }
 
-pub(crate) fn set_query_context(ctx: QueryContext) {
-    match QUERY_CONTEXT.set(ctx) {
-        Ok(_) => {}
-        Err(_) => {
-            // how to do this in redis context ?
-            panic!("set query context failed");
-        }
-    }
+pub unsafe fn get_current_db(ctx: *mut raw::RedisModuleCtx) -> u32 {
+    let db = RedisModule_GetSelectedDb.unwrap()(ctx);
+    db as u32
 }
 
+// todo: in on_load, we need to set this to the last id + 1
+static TIMESERIES_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-// todo: segregate by database
-// see RedisModule_GetSelectedDb
-pub fn get_timeseries_index() -> &'static TimeSeriesIndex {
-    TIMESERIES_INDEX.get_or_init(|| TimeSeriesIndex::new())
+pub fn next_timeseries_id() -> u64 {
+    TIMESERIES_ID_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+}
+
+/// https://docs.rs/papaya/latest/papaya/#advanced-lifetimes
+fn get_timeseries_index<'guard>(ctx: &Context, guard: &'guard impl Guard) -> &'guard TimeSeriesIndex {
+    let db = unsafe { get_current_db(ctx.ctx) };
+    get_timeseries_index_for_db(db, guard)
+}
+
+#[inline]
+pub fn get_timeseries_index_for_db(db: u32, guard: &impl Guard) -> &TimeSeriesIndex {
+    TIMESERIES_INDEX.get_or_insert_with(db, || TimeSeriesIndex::new(), guard)
+}
+
+pub fn with_timeseries_index<F, R>(ctx: &Context, f: F) -> R
+where
+    F: FnOnce(&TimeSeriesIndex) -> R,
+{
+    let db = unsafe { get_current_db(ctx.ctx) };
+    let guard = TIMESERIES_INDEX.guard();
+    let index = get_timeseries_index_for_db(db, &guard);
+    let res = f(index);
+    drop(guard);
+    res
+}
+
+pub fn with_db_timeseries_index<F, R>(db: u32, f: F) -> R
+where
+    F: FnOnce(&TimeSeriesIndex) -> R,
+{
+    let guard = TIMESERIES_INDEX.guard();
+    let index = get_timeseries_index_for_db(db, &guard);
+    let res = f(index);
+    drop(guard);
+    res
 }

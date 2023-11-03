@@ -1,11 +1,11 @@
 use crate::error::TsdbResult;
 use crate::rules::alerts::{Alert, Metric};
 use crate::ts::Timestamp;
-use redis_module::Context;
+use valkey_module::Context;
 
 pub struct CommandContext {
     pub(crate) timestamp: Timestamp,
-    pub(crate) redis_module_context: Context, // settings
+    pub(crate) valkey_module_context: Context, // settings
 }
 
 pub trait CommandMessage: Send + Sync + std::fmt::Debug {

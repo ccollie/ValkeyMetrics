@@ -1,10 +1,11 @@
 use crate::common::types::Timestamp;
 use crate::storage::time_series::TimeSeries;
-use metricsql_engine::{MetricName, QueryResult, Tag, METRIC_NAME_LABEL};
-use redis_module::redisvalue::RedisValueKey;
-use redis_module::RedisValue;
+use metricsql_runtime::{MetricName, QueryResult, Tag, METRIC_NAME_LABEL};
+use valkey_module::ValkeyValue;
 use std::collections::HashMap;
 use std::fmt::Display;
+use valkey_module::native_types::ValkeyType;
+use valkey_module::redisvalue::ValkeyValueKey;
 use crate::storage::Label;
 
 pub static META_KEY_LABEL: &str = "__meta:key__";
@@ -35,37 +36,37 @@ impl Display for ResultType {
 pub(crate) fn metric_name_to_redis_value(
     metric_name: &MetricName,
     key: Option<&str>,
-) -> RedisValue {
-    let mut map: HashMap<RedisValueKey, RedisValue> =
+) -> ValkeyValue {
+    let mut map: HashMap<ValkeyValueKey, ValkeyValue> =
         HashMap::with_capacity(metric_name.tags.len() + 1);
     if !metric_name.metric_group.is_empty() {
         map.insert(
-            RedisValueKey::String(METRIC_NAME_LABEL.to_string()),
+            ValkeyValueKey::String(METRIC_NAME_LABEL.to_string()),
             metric_name.metric_group.clone().into(),
         );
     }
     if let Some(key) = key {
-        map.insert(RedisValueKey::from(META_KEY_LABEL), RedisValue::from(key));
+        map.insert(ValkeyValueKey::from(META_KEY_LABEL), ValkeyValue::from(key));
     }
     for Tag { key, value } in metric_name.tags.iter() {
-        map.insert(RedisValueKey::String(key.into()), value.into());
+        map.insert(ValkeyValueKey::String(key.into()), value.into());
     }
 
-    RedisValue::Map(map)
+    ValkeyValue::Map(map)
 }
 
-pub(super) fn sample_to_result(timestamp: Timestamp, value: f64) -> RedisValue {
-    let epoch = RedisValue::Integer(timestamp);
-    let value = RedisValue::SimpleString(value.to_string());
+pub(super) fn sample_to_result(timestamp: Timestamp, value: f64) -> ValkeyValue {
+    let epoch = ValkeyValue::Integer(timestamp);
+    let value = ValkeyValue::SimpleString(value.to_string());
     vec![epoch, value].into()
 }
 
-pub(super) fn samples_to_result(timestamps: &[i64], values: &[f64]) -> RedisValue {
+pub(super) fn samples_to_result(timestamps: &[i64], values: &[f64]) -> ValkeyValue {
     timestamps
         .iter()
         .zip(values.iter())
         .map(|(ts, val)| sample_to_result(*ts, *val))
-        .collect::<Vec<RedisValue>>()
+        .collect::<Vec<ValkeyValue>>()
         .into()
 }
 
@@ -105,19 +106,19 @@ pub(super) fn samples_to_result(timestamps: &[i64], values: &[f64]) -> RedisValu
 ///     }
 /// }
 /// ```
-pub fn to_matrix_result(vals: Vec<QueryResult>) -> RedisValue {
-    let map: Vec<RedisValue> = vals
+pub fn to_matrix_result(vals: Vec<QueryResult>) -> ValkeyValue {
+    let map: Vec<ValkeyValue> = vals
         .into_iter()
         .map(|val| {
             let metric_name = metric_name_to_redis_value(&val.metric, None);
             let samples = samples_to_result(&val.timestamps, &val.values);
-            let map: HashMap<RedisValueKey, RedisValue> = vec![
-                (RedisValueKey::String("metric".to_string()), metric_name),
-                (RedisValueKey::String("values".to_string()), samples),
+            let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
+                (ValkeyValueKey::String("metric".to_string()), metric_name),
+                (ValkeyValueKey::String("values".to_string()), samples),
             ]
             .into_iter()
             .collect();
-            RedisValue::Map(map)
+            ValkeyValue::Map(map)
         })
         .into_iter()
         .collect();
@@ -153,73 +154,73 @@ pub fn to_matrix_result(vals: Vec<QueryResult>) -> RedisValue {
 ///     }
 /// }
 /// ```
-pub fn to_instant_vector_result(metric: &MetricName, ts: Timestamp, value: f64) -> RedisValue {
+pub fn to_instant_vector_result(metric: &MetricName, ts: Timestamp, value: f64) -> ValkeyValue {
     let metric_name = metric_name_to_redis_value(metric, None);
     let sample = sample_to_result(ts, value);
-    let map: HashMap<RedisValueKey, RedisValue> = vec![
-        (RedisValueKey::String("metric".to_string()), metric_name),
-        (RedisValueKey::String("value".to_string()), sample),
+    let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
+        (ValkeyValueKey::String("metric".to_string()), metric_name),
+        (ValkeyValueKey::String("value".to_string()), sample),
     ]
     .into_iter()
     .collect();
 
-    RedisValue::Map(map)
+    ValkeyValue::Map(map)
 }
 
-fn to_single_vector_result(metric: &MetricName, ts: Timestamp, value: f64) -> RedisValue {
+fn to_single_vector_result(metric: &MetricName, ts: Timestamp, value: f64) -> ValkeyValue {
     let metric_name = metric_name_to_redis_value(metric, None);
     let sample = sample_to_result(ts, value);
-    let map: HashMap<RedisValueKey, RedisValue> = vec![
-        (RedisValueKey::String("metric".to_string()), metric_name),
-        (RedisValueKey::String("value".to_string()), sample),
+    let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
+        (ValkeyValueKey::String("metric".to_string()), metric_name),
+        (ValkeyValueKey::String("value".to_string()), sample),
     ]
     .into_iter()
     .collect();
 
-    RedisValue::Map(map)
+    ValkeyValue::Map(map)
 }
 
-pub fn to_success_result(data: RedisValue, response_type: ResultType) -> RedisValue {
-    let data_map: HashMap<RedisValueKey, RedisValue> = vec![
+pub fn to_success_result(data: ValkeyValue, response_type: ResultType) -> ValkeyValue {
+    let data_map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
         (
-            RedisValueKey::String("resultType".to_string()),
-            RedisValue::SimpleStringStatic(response_type.as_str()),
+            ValkeyValueKey::String("resultType".to_string()),
+            ValkeyValue::SimpleStringStatic(response_type.as_str()),
         ),
-        (RedisValueKey::String("result".to_string()), data),
+        (ValkeyValueKey::String("result".to_string()), data),
     ]
     .into_iter()
     .collect();
 
-    let map: HashMap<RedisValueKey, RedisValue> = vec![
+    let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
         (
-            RedisValueKey::String("status".to_string()),
-            RedisValue::SimpleStringStatic("success"),
+            ValkeyValueKey::String("status".to_string()),
+            ValkeyValue::SimpleStringStatic("success"),
         ),
         (
-            RedisValueKey::String("data".to_string()),
-            RedisValue::Map(data_map),
+            ValkeyValueKey::String("data".to_string()),
+            ValkeyValue::Map(data_map),
         ),
     ]
     .into_iter()
     .collect();
 
-    RedisValue::Map(map)
+    ValkeyValue::Map(map)
 }
 
-pub fn std_duration_to_redis_value(duration: &std::time::Duration) -> RedisValue {
-    return RedisValue::Integer(duration.as_secs() as i64 * 1000 + duration.subsec_millis() as i64);
+pub fn std_duration_to_redis_value(duration: &std::time::Duration) -> ValkeyValue {
+    ValkeyValue::Integer(duration.as_secs() as i64 * 1000 + duration.subsec_millis() as i64)
 }
-pub fn string_hash_map_to_redis_value(map: &HashMap<String, String>) -> RedisValue {
-    RedisValue::from(map.clone())
+pub fn string_hash_map_to_redis_value(map: &HashMap<String, String>) -> ValkeyValue {
+    ValkeyValue::from(map.clone())
 }
-pub(super) fn get_ts_metric_selector(ts: &TimeSeries) -> RedisValue {
-    let mut map: HashMap<RedisValueKey, RedisValue> = HashMap::with_capacity(ts.labels.len() + 1);
+pub(super) fn get_ts_metric_selector(ts: &TimeSeries) -> ValkeyValue {
+    let mut map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::with_capacity(ts.labels.len() + 1);
     map.insert(
-        RedisValueKey::String(METRIC_NAME_LABEL.into()),
-        RedisValue::from(&ts.metric_name),
+        ValkeyValueKey::String(METRIC_NAME_LABEL.into()),
+        ValkeyValue::from(&ts.metric_name),
     );
     for Label { name, value } in ts.labels.iter() {
-        map.insert(RedisValueKey::String(name.into()), RedisValue::from(value));
+        map.insert(ValkeyValueKey::String(name.into()), ValkeyValue::from(value));
     }
-    RedisValue::Map(map)
+    ValkeyValue::Map(map)
 }

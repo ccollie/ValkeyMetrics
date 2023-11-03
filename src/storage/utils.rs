@@ -16,7 +16,7 @@ macro_rules! modulo_signed_ext_impl {
 }
 modulo_signed_ext_impl! { i8 i16 i32 i64 i128 }
 
-/// Retyrns the index of the first timestamp that is greater than or equal to `start_ts`.
+/// Returns the index of the first timestamp that is greater than or equal to `start_ts`.
 pub(crate) fn get_timestamp_index(timestamps: &[i64], start_ts: Timestamp) -> Option<usize> {
     if timestamps.is_empty() {
         return None;
@@ -70,19 +70,19 @@ pub(crate) fn get_timestamp_index_bounds(timestamps: &[i64], start_ts: Timestamp
     Some((start_idx, end_idx))
 }
 
-pub fn trim_data<'a>(timestamps: &'a [i64], values: &'a [f64], start_ts: Timestamp, end_ts: Timestamp) -> (&'a [i64], &'a [f64]) {
+pub(crate) fn trim_to_date_range<'a>(timestamps: &'a [i64], values: &'a [f64], start_ts: Timestamp, end_ts: Timestamp) -> Option<(&'a [i64], &'a [f64])> {
     if let Some((start_idx, end_idx)) = get_timestamp_index_bounds(timestamps, start_ts, end_ts) {
         let stamps = &timestamps[0..];
         let timestamps = &stamps[start_idx..end_idx];
         let values = &values[start_idx..end_idx];
-        (timestamps, values)
+        Some((timestamps, values))
     } else {
-        return (&[], &[]);
+        None
     }
 }
 
 // todo: needs test
-
+// todo: this looks slow : need to optimize
 pub fn trim_vec_data<'a>(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start_ts: Timestamp, end_ts: Timestamp) {
     if timestamps.is_empty() {
         return;
@@ -111,6 +111,59 @@ pub fn trim_vec_data<'a>(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start
     } else {
         return;
     }
+}
+
+
+// returns the number of matches
+pub(crate) fn filter_samples_by_ts<'a>(
+    timestamps: &mut Vec<i64>,
+    values: &mut Vec<f64>,
+    by_ts_args: &'a [Timestamp]
+) -> (usize, &'a [Timestamp]) {
+    let mut count = 0;
+
+    if by_ts_args.is_empty() {
+        return (0, by_ts_args);
+    }
+
+    let last_ts = timestamps[timestamps.len() - 1];
+    let first_ts = timestamps[0];
+
+    let filters_len = by_ts_args.len();
+    let last_ts_filter = by_ts_args[filters_len - 1];
+
+    if first_ts > last_ts_filter {
+        return (0, &by_ts_args[filters_len - 1..]);
+    }
+
+    if last_ts < by_ts_args[0] {
+        return (0, by_ts_args);
+    }
+
+    let mut ts_filter_index = by_ts_args.binary_search(&first_ts).unwrap_or_else(|i| i);
+
+    let mut i = 0;
+    while i < timestamps.len() && ts_filter_index < filters_len {
+        let stamps = &timestamps[i..];
+        let filter_ts = by_ts_args[ts_filter_index];
+        if stamps[stamps.len() - 1] > filter_ts {
+            break;
+        }
+        match stamps.binary_search(&filter_ts) {
+            Ok(idx) => {
+                i += idx;
+                timestamps[count] = timestamps[idx];
+                values[count] = values[idx];
+                count += 1;
+            },
+            Err(idx) => {
+                i += idx;
+            }
+        }
+        ts_filter_index += 1;
+    }
+
+    (count, &by_ts_args[ts_filter_index..])
 }
 
 #[cfg(test)]

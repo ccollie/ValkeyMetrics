@@ -6,40 +6,44 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ahash = { version = "0.8.6", features = ["serde"] }
-binary-merge = "0.1.2"
+ahash = { version = "0.8", features = ["serde"] }
+binary-merge = "0.1"
 bincode = { version = "2.0.0-rc.3", features = ["alloc", "serde"] }
-chrono = { version = "0.4.31", features = ["serde"] }
-dynamic-lru-cache = "0.2.1"
-get-size = {  version =  "0.1", features = ["derive"] }
-enquote = "1.1.0"
+chrono = { version = "0.4", features = ["serde"] }
+dynamic-lru-cache = "0.2"
+enquote = "1.1"
+get-size = { version = "^0.1", features = ["derive"] }
 gtmpl = "0.7.1"
-gtmpl_derive = "0.5.0"
-gtmpl_value = "0.5.1"
-htmlescape = "0.3.1"
-lazy_static = { version = "1.4.0", features = [] }
-linkme = "0.3.17"
-lru_time_cache = "0.11.11"
-metricsql_common = { git = "https://github.com/ccollie/metricsql", branch = "main" }
-metricsql_encoding = { git = "https://github.com/ccollie/metricsql", branch = "main" }
-metricsql_engine = { git = "https://github.com/ccollie/metricsql", branch = "main" }
-metricsql_parser = { git = "https://github.com/ccollie/metricsql", branch = "main" }
-q_compress = "0.11.7"
-redis-module = "2.0.7"
-redis-module-macros = "2.0.7"
+gtmpl_derive = "0.5"
+gtmpl_value = "0.5"
+htmlescape = "0.3"
+linkme = "0.3"
+lru_time_cache = "0.11"
+metricsql_common = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
+metricsql_encoding = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
+metricsql_runtime = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
+metricsql_parser = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
+papaya = "0.1"
+pco = "0.3"
 scopeguard = "1.2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_yaml = { version = "0.9.27", features = [] }
+serde_yaml = { version = "0.9", features = [] }
 thiserror = "1"
-rayon = "1.8.0"
-regex = "1.10.2"
-regex-syntax = { version = "0.8.2", features = [] }
-roaring = { version = "0.10.2", features = ["serde"]}
-url = { version = "2.4.1", features = ["serde"] }
-xxhash-rust = { version = "0.8.7", features = ["xxh3"] }
+rayon = "1.10"
+regex = "1.10"
+regex-syntax = { version = "0.8", features = [] }
+roaring = { version = "0.10", features = ["serde"]}
+timer = "0.2"
+tinyvec = "1.8"
+tsz = "0.1.4"
+url = { version = "2.5", features = ["serde"] }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
 rand = "0.8.5"
-rand_distr = "0.4.3"
-
+rand_distr = "0.4"
+tracing = "0.1"
+valkey-module = "0.1"
+valkey-module-macros = "0.1"
+async-trait = "0.1"
 [lib]
 crate-type=["rlib", "cdylib"]

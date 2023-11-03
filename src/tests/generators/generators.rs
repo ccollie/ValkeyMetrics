@@ -160,7 +160,7 @@ impl Iterator for MackeyGlassGenerator {
         }
         let v = self.buf[self.index];
         self.index += 1;
-        return Some(self.range.start + (self.range.end - self.range.start) * v);
+        Some(self.range.start + (self.range.end - self.range.start) * v)
     }
 }
 
@@ -181,7 +181,7 @@ mod tests {
             start: 0.0,
             end: 1.0,
         };
-        let mut iter = super::RandomGenerator::new(None, &r).unwrap();
+        let iter = super::RandomGenerator::new(None, &r).unwrap();
         validate_range(iter, &r);
     }
 
@@ -191,7 +191,7 @@ mod tests {
             start: 1.0,
             end: 99.0,
         };
-        let mut iter = super::StdNormalGenerator::new(None, &r).unwrap();
+        let iter = super::StdNormalGenerator::new(None, &r).unwrap();
         validate_range(iter, &r);
     }
 
@@ -201,7 +201,7 @@ mod tests {
             start: 1.0,
             end: 99.0,
         };
-        let mut iter = super::MackeyGlassGenerator::new(17, None, &r);
+        let iter = super::MackeyGlassGenerator::new(17, None, &r);
         validate_range(iter, &r);
     }
 }

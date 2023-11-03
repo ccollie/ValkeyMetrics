@@ -1,83 +1,64 @@
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU64, Ordering};
 use lru_time_cache::LruCache;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
-#[derive(Clone, Default, Debug)]
-pub(crate) struct PrefixSuffix {
-    pub(crate) prefix: String,
-    pub(crate) suffix: String
-}
-impl PrefixSuffix {
-    pub fn new(prefix: String, suffix: String) -> Self {
-        Self {
-            prefix,
-            suffix
-        }
-    }
+const DEFAULT_MAX_SIZE_BYTES: usize = 1024 * 1024 * 1024;
+const DEFAULT_CACHE_SIZE: usize = 100;
 
-    pub fn size_bytes(&self) -> usize {
-        &self.prefix.len() + &self.suffix.len() + std::mem::size_of::<Self>()
-    }
+#[derive(Clone, Debug)]
+pub struct PrefixSuffix {
+    pub prefix: String,
+    pub suffix: String,
 }
 
 pub struct PrefixCache {
     requests: AtomicU64,
     misses: AtomicU64,
+    inner: Mutex<LruCache<String, Arc<PrefixSuffix>>>,
     max_size_bytes: usize,
-    inner: Mutex<Inner>,
-}
-
-struct Inner {
-    size_bytes: usize,
-    cache: LruCache<String, Arc<PrefixSuffix>>,
 }
 
 impl PrefixCache {
     pub fn new(max_size_bytes: usize) -> Self {
-        let inner = Inner {
-            size_bytes: 0,
-            cache: LruCache::with_capacity(100), // todo!!!!!!
-        };
         Self {
             requests: AtomicU64::new(0),
             misses: AtomicU64::new(0),
-            inner: Mutex::new(inner),
-            max_size_bytes,
+            inner: Mutex::new(LruCache::with_capacity(DEFAULT_CACHE_SIZE)),
+            max_size_bytes
         }
     }
 
-    pub(crate) fn get(&self, key: &str) -> Option<Arc<PrefixSuffix>> {
+    pub fn get(&self, key: &str) -> Option<Arc<PrefixSuffix>> {
         let mut inner = self.inner.lock().unwrap();
-        let item = inner.cache.get(key);
+        let item = inner.get(key);
         if item.is_some() {
             self.requests.fetch_add(1, Ordering::Relaxed);
+            Some(item?.clone())
         } else {
             self.misses.fetch_add(1, Ordering::Relaxed);
+            None
         }
-        item.cloned()
     }
 
-    pub(crate) fn put(&self, key: &str, value: Arc<PrefixSuffix>) {
-        let mut inner = self.inner.lock().unwrap();
-        let size = value.size_bytes();
-        if inner.size_bytes + size > self.max_size_bytes {
-            // todo
-        }
-        inner.size_bytes += size;
-        inner.cache.insert(key.to_string(), value);
+    pub fn put(&self, key: &str, value: Arc<PrefixSuffix>) {
+        self.inner.lock().unwrap().insert(key.to_string(), value);
     }
 
     /// returns the number of cached regexps for tag filters.
     pub fn len(&self) -> usize {
-        self.inner.lock().unwrap().cache.len()
+        self.inner.lock().unwrap().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.inner.lock().unwrap().cache.is_empty()
+        self.inner.lock().unwrap().is_empty()
     }
 
     pub fn clear(&self) {
-        self.inner.lock().unwrap().cache.clear();
+        self.inner.lock().unwrap().clear();
+    }
+
+    pub fn remove(&self, key: &str) -> Option<Arc<PrefixSuffix>> {
+        self.inner.lock().unwrap().remove(key)
     }
 
     pub fn misses(&self) -> u64 {
@@ -86,10 +67,6 @@ impl PrefixCache {
 
     pub fn requests(&self) -> u64 {
         self.requests.load(Ordering::Relaxed)
-    }
-
-    pub fn size_bytes(&self) -> usize {
-        self.inner.lock().unwrap().size_bytes
     }
 
     pub fn max_size_bytes(&self) -> usize {

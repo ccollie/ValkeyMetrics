@@ -1,59 +1,82 @@
-use crate::storage::time_series::TimeSeries;
-use metricsql_engine::provider::MetricDataProvider;
-use metricsql_engine::{
-    Deadline, MetricName, QueryResult, QueryResults, RuntimeResult, SearchQuery,
-};
-use rayon::iter::IntoParallelRefIterator;
-use rayon::iter::ParallelIterator;
-use redis_module::Context;
 use crate::common::types::Timestamp;
-use crate::globals::get_timeseries_index;
+use crate::globals::with_timeseries_index;
 use crate::index::TimeSeriesIndex;
+use crate::module::VALKEY_PROMQL_SERIES_TYPE;
+use crate::storage::time_series::TimeSeries;
 use crate::storage::Label;
+use async_trait::async_trait;
+use metricsql_runtime::{Deadline, MetricName, MetricStorage, QueryResult, QueryResults, RuntimeError, RuntimeResult, SearchQuery};
+use valkey_module::{Context, ValkeyString};
 
 pub struct TsdbDataProvider {}
 
 impl TsdbDataProvider {
+
+    fn get_series(&self, ctx: &Context, key: &ValkeyString, start_ts: Timestamp, end_ts: Timestamp) -> RuntimeResult<Option<QueryResult>> {
+        let valkey_key = ctx.open_key(&key);
+        match valkey_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE) {
+            Ok(Some(series)) => {
+                if series.overlaps(start_ts, end_ts) {
+                    let mut timestamps: Vec<Timestamp> = Vec::new();
+                    let mut values: Vec<f64> = Vec::new();
+                    return match series.select_raw(
+                        start_ts,
+                        end_ts,
+                        &mut timestamps,
+                        &mut values,
+                    ) {
+                        Ok(_) => {
+                            // what do wee do in case of error ?
+                            let metric = to_metric_name(&series);
+                            Ok(Some(QueryResult::new(metric, timestamps, values)))
+                        }
+                        Err(e) => {
+                            ctx.log_warning(&format!("PROMQL: Error: {:?}", e));
+                            // TODO!: we need a specific error for storage backends
+                            Err(RuntimeError::General("Error".to_string()))
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                ctx.log_warning(&format!("PROMQL: Error: {:?}", e));
+            }
+            _ => {}
+        }
+        Ok(None)
+    }
+
     fn get_series_data(
         &self,
         ctx: &Context,
         index: &TimeSeriesIndex,
-        search_query: &SearchQuery,
-    ) -> Vec<QueryResult> {
-        index
-            .series_by_matchers(
-                ctx,
-                &search_query.matchers,
-                search_query.start,
-                search_query.end,
-            )
-            .par_iter()
-            .map(|ts| {
-                let mut timestamps: Vec<Timestamp> = Vec::new();
-                let mut values: Vec<f64> = Vec::new();
-                let res = ts.select_raw(
-                    search_query.start,
-                    search_query.end,
-                    &mut timestamps,
-                    &mut values,
-                );
-                // what do wee do in case of error ?
-                let metric = to_metric_name(ts);
-                QueryResult::new(metric, timestamps, values)
-            })
-            .collect()
+        search_query: SearchQuery,
+    ) -> RuntimeResult<Vec<QueryResult>> {
+        let map = index.series_keys_by_matchers(ctx, &[search_query.matchers]);
+        let mut results: Vec<QueryResult> = Vec::with_capacity(map.len());
+        let start_ts = search_query.start;
+        let end_ts = search_query.end;
+
+        // use rayon ?
+        for key in map.iter() {
+            if let Some(result) = self.get_series(ctx, key, start_ts, end_ts)? {
+                results.push(result);
+            }
+        }
+        Ok(results)
     }
 }
 
-impl MetricDataProvider for TsdbDataProvider {
-    fn search(&self, sq: &SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
+#[async_trait]
+impl MetricStorage for TsdbDataProvider {
+    async fn search(&self, sq: SearchQuery, _deadline: Deadline) -> RuntimeResult<QueryResults> {
         // see: https://github.com/RedisLabsModules/redismodule-rs/blob/master/examples/call.rs#L144
-        let ctx_guard = redis_module::MODULE_CONTEXT.lock();
-        let index = get_timeseries_index();
-
-        let data = self.get_series_data(&ctx_guard, index, sq);
-        let result = QueryResults::new(data);
-        Ok(result)
+        let ctx_guard = valkey_module::MODULE_CONTEXT.lock();
+        with_timeseries_index(&ctx_guard, |index| {
+            let data = self.get_series_data(&ctx_guard, &index, sq)?;
+            let result = QueryResults::new(data);
+            Ok(result)
+        })
     }
 }
 
