@@ -8,11 +8,12 @@ use crate::storage::time_series::TimeSeries;
 use std::os::raw::{c_int, c_void};
 use std::ptr::null_mut;
 use valkey_module::raw;
+use crate::index::TimeSeriesIndex;
 // see https://github.com/redis/redis/blob/unstable/tests/modules
 
 pub static REDIS_PROMQL_SERIES_VERSION: i32 = 1;
 pub static VALKEY_PROMQL_SERIES_TYPE: ValkeyType = ValkeyType::new(
-    "RedPromTS",
+    "vk_promTS",
     REDIS_PROMQL_SERIES_VERSION,
     RedisModuleTypeMethods {
         version: valkey_module::TYPE_METHOD_VERSION,
@@ -83,9 +84,9 @@ unsafe extern "C" fn copy(
     with_timeseries_index(&guard, |index| {
         let sm = &*(value as *mut TimeSeries);
         let mut new_series = sm.clone();
-        new_series.id = index.next_id();
+        new_series.id = TimeSeriesIndex::next_id();
         let key = ValkeyString::from_redis_module_string(guard.ctx, tokey);
-        index.index_time_series(&mut new_series, &key);
+        index.index_time_series(&new_series, &key);
         Box::into_raw(Box::new(new_series)).cast::<c_void>()
     })
 }

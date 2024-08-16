@@ -18,7 +18,6 @@ const CMD_ARG_TIME: &str = "TIME";
 const CMD_ARG_STEP: &str = "STEP";
 const CMD_ARG_ROUNDING: &str = "ROUNDING";
 
-/// const CMD_ARG_CACHE: &str = "CACHE";
 
 ///
 /// PROM.QUERY_RANGE <query>
@@ -41,11 +40,11 @@ pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
         match arg {
             arg if arg.eq_ignore_ascii_case(CMD_ARG_START) => {
                 let next = args.next_str()?;
-                start_value = Some(parse_timestamp_arg(&next, "START")?);
+                start_value = Some(parse_timestamp_arg(next, "START")?);
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_END) => {
                 let next = args.next_str()?;
-                end_value = Some(parse_timestamp_arg(&next, "END")?);
+                end_value = Some(parse_timestamp_arg(next, "END")?);
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_STEP) => {
                 let next = args.next_arg()?;
@@ -94,7 +93,7 @@ pub fn prom_query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         match arg {
             arg if arg.eq_ignore_ascii_case(CMD_ARG_TIME) => {
                 let next = args.next_str()?;
-                time_value = Some(parse_timestamp_arg(&next, "TIME")?);
+                time_value = Some(parse_timestamp_arg(next, "TIME")?);
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_ROUNDING) => {
                 round_digits = args.next_u64()?.max(100) as u8;

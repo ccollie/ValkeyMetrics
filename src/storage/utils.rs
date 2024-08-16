@@ -83,7 +83,7 @@ pub(crate) fn trim_to_date_range<'a>(timestamps: &'a [i64], values: &'a [f64], s
 
 // todo: needs test
 // todo: this looks slow : need to optimize
-pub fn trim_vec_data<'a>(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start_ts: Timestamp, end_ts: Timestamp) {
+pub fn trim_vec_data(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start_ts: Timestamp, end_ts: Timestamp) {
     if timestamps.is_empty() {
         return;
     }
@@ -108,8 +108,6 @@ pub fn trim_vec_data<'a>(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start
             idx += 1;
             keep
         });
-    } else {
-        return;
     }
 }
 

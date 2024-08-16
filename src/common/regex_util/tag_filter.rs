@@ -153,16 +153,20 @@ impl TagFilter {
         is_negative: bool,
         is_regexp: bool,
     ) -> Result<TagFilter, String> {
-        let mut tf = TagFilter::default();
-        tf.key = key.to_string();
-        tf.value = value.to_string();
-        tf.is_negative = is_negative;
-        tf.is_regexp = is_regexp;
-        tf.match_cost = 0;
-
-        tf.is_empty_match = false;
-
-        tf.prefix = key.to_string();
+        let mut tf = TagFilter {
+            key: key.to_string(),
+            value: value.to_string(),
+            is_negative,
+            is_regexp,
+            is_literal: false,
+            match_cost: 0,
+            prefix: key.to_string(),
+            prefix_match: StringMatchHandler::literal("".to_string()),
+            or_suffixes: Vec::new(),
+            suffix_match: StringMatchHandler::literal("".to_string()),
+            is_empty_match: false,
+            graphite_reverse_suffix: "".to_string(),
+        };
 
         let prefix = value.to_string();
         if tf.is_regexp {
@@ -186,7 +190,7 @@ impl TagFilter {
             // Add empty or_suffix in order to trigger fast path for or_suffixes during the search for
             // matching metricIDs.
             tf.or_suffixes.push("".to_string());
-            tf.is_empty_match = prefix.len() == 0;
+            tf.is_empty_match = prefix.is_empty();
             tf.match_cost = FULL_MATCH_COST;
             return Ok(tf);
         }
@@ -194,7 +198,7 @@ impl TagFilter {
         tf.or_suffixes = rcv.or_values.clone();
         tf.suffix_match = rcv.re_match.clone();
         tf.match_cost = rcv.re_cost;
-        tf.is_empty_match = prefix.len() == 0 && tf.suffix_match.matches("");
+        tf.is_empty_match = prefix.is_empty() && tf.suffix_match.matches("");
         if !tf.is_negative && key.is_empty() && rcv.as_ref().literal_suffix.contains('.') {
             // Reverse suffix is needed only for non-negative regexp filters on __name__ that contains dots.
             tf.graphite_reverse_suffix = rcv.literal_suffix.chars().rev().collect::<String>();
@@ -218,7 +222,7 @@ impl TagFilter {
     #[inline]
     pub fn match_suffix(&self, b: &str) -> bool {
         if !self.is_regexp {
-            return b.len() == 0;
+            return b.is_empty();
         }
         self.suffix_match.matches(b)
     }
@@ -272,7 +276,7 @@ impl Display for TagFilter {
             &self.value
         };
 
-        if self.key.len() == 0 {
+        if self.key.is_empty() {
             return write!(f, "{METRIC_NAME_LABEL}{op}{value}");
         }
         write!(f, "{}{}{}", self.key, op, value)
@@ -338,8 +342,7 @@ fn get_regexp_cache_max_size() -> &'static usize {
     static REGEXP_CACHE_MAX_SIZE: OnceLock<usize> = OnceLock::new();
     REGEXP_CACHE_MAX_SIZE.get_or_init(|| {
         // todo: read value from env
-        let size = DEFAULT_MAX_REGEXP_CACHE_SIZE;
-        size
+        DEFAULT_MAX_REGEXP_CACHE_SIZE
     })
 }
 
@@ -347,8 +350,7 @@ fn get_prefix_cache_max_size() -> &'static usize {
     static REGEXP_CACHE_MAX_SIZE: OnceLock<usize> = OnceLock::new();
     REGEXP_CACHE_MAX_SIZE.get_or_init(|| {
         // todo: read value from env
-        let size = DEFAULT_MAX_PREFIX_CACHE_SIZE;
-        size
+        DEFAULT_MAX_PREFIX_CACHE_SIZE
     })
 }
 

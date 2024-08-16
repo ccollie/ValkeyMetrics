@@ -13,7 +13,7 @@ pub struct TsdbDataProvider {}
 impl TsdbDataProvider {
 
     fn get_series(&self, ctx: &Context, key: &ValkeyString, start_ts: Timestamp, end_ts: Timestamp) -> RuntimeResult<Option<QueryResult>> {
-        let valkey_key = ctx.open_key(&key);
+        let valkey_key = ctx.open_key(key);
         match valkey_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE) {
             Ok(Some(series)) => {
                 if series.overlaps(start_ts, end_ts) {
@@ -27,7 +27,7 @@ impl TsdbDataProvider {
                     ) {
                         Ok(_) => {
                             // what do wee do in case of error ?
-                            let metric = to_metric_name(&series);
+                            let metric = to_metric_name(series);
                             Ok(Some(QueryResult::new(metric, timestamps, values)))
                         }
                         Err(e) => {
@@ -73,7 +73,7 @@ impl MetricStorage for TsdbDataProvider {
         // see: https://github.com/RedisLabsModules/redismodule-rs/blob/master/examples/call.rs#L144
         let ctx_guard = valkey_module::MODULE_CONTEXT.lock();
         with_timeseries_index(&ctx_guard, |index| {
-            let data = self.get_series_data(&ctx_guard, &index, sq)?;
+            let data = self.get_series_data(&ctx_guard, index, sq)?;
             let result = QueryResults::new(data);
             Ok(result)
         })

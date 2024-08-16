@@ -75,7 +75,7 @@ pub(crate) fn label_values(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
 }
 
 fn format_string_array_result(arr: &[String]) -> ValkeyValue {
-    let converted = arr.into_iter().map(|v| ValkeyValue::from(v)).collect();
+    let converted = arr.iter().map(ValkeyValue::from).collect();
     format_array_result(converted)
 }
 
@@ -111,7 +111,7 @@ where
             match redis_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE) {
                 Ok(Some(series)) => {
                     if series.overlaps(args.start, args.end) {
-                        acc = f(acc, &series)
+                        acc = f(acc, series)
                     }
                 }
                 Err(e) => {
@@ -124,7 +124,7 @@ where
     })
 }
 
-struct MetadataFunctionArgs {
+pub(crate) struct MetadataFunctionArgs {
     label_name: Option<String>,
     start: Timestamp,
     end: Timestamp,
@@ -151,15 +151,15 @@ fn parse_metadata_command_args(
         match arg {
             arg if arg.eq_ignore_ascii_case(CMD_ARG_START) => {
                 let next = args.next_str()?;
-                start_value = Some(parse_timestamp_arg(&next, "START")?);
+                start_value = Some(parse_timestamp_arg(next, "START")?);
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_END) => {
                 let next = args.next_str()?;
-                end_value = Some(parse_timestamp_arg(&next, "END")?);
+                end_value = Some(parse_timestamp_arg(next, "END")?);
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_MATCH) => {
                 while let Ok(matcher) = args.next_str() {
-                    if let Ok(selector) = parse_series_selector(&matcher) {
+                    if let Ok(selector) = parse_series_selector(matcher) {
                         matchers.push(selector);
                     } else {
                         return Err(ValkeyError::Str("ERR invalid MATCH series selector"));

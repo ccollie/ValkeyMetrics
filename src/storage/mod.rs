@@ -17,12 +17,13 @@ mod slice;
 pub mod time_series;
 mod uncompressed_chunk;
 mod utils;
-mod series_data;
+pub(crate) mod series_data;
 mod defrag;
 mod serialization;
 mod compressed_segment;
 mod types;
 mod timestamps_filter_iterator;
+mod tsz_buffered_read;
 
 use crate::error::{TsdbError, TsdbResult};
 pub(super) use chunk::*;

@@ -189,7 +189,7 @@ impl CompressedChunk {
         let mut handle_empty = |state: &mut State| -> TsdbResult<R> {
             let mut timestamps = vec![];
             let mut values = vec![];
-            return f(state, &mut timestamps, &mut values);
+            f(state, &mut timestamps, &mut values)
         };
 
         if self.is_empty() {
@@ -379,7 +379,7 @@ impl Chunk for CompressedChunk {
         let (left, right) = slice.split_at(mid);
         self.compress(left.timestamps, left.values)?;
 
-        result.compress(&right.timestamps, &right.values)?;
+        result.compress(right.timestamps, right.values)?;
 
         Ok(result)
     }

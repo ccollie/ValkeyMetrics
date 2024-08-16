@@ -4,7 +4,6 @@
 
 use valkey_module::{ValkeyError, ValkeyString};
 
-type Time = i64;
 type Value = f64;
 
 pub trait AggOp {

@@ -38,7 +38,7 @@ pub(crate) fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         match value {
             Ok(value) => values.push(value),
             Err(err) => values.push(
-                ValkeyValue::SimpleString(format!("ERR TSDB: {}", err.to_string())),
+                ValkeyValue::SimpleString(format!("ERR TSDB: {}", err)),
             ),
         }
     }

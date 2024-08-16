@@ -175,8 +175,7 @@ impl TimeSeriesChunk {
         }
         let remaining = total - used;
         let bytes_per_sample = self.bytes_per_sample();
-        let res = remaining / bytes_per_sample;
-        res
+        remaining / bytes_per_sample
     }
 
     pub fn clear(&mut self) {
@@ -218,11 +217,11 @@ impl TimeSeriesChunk {
         }
     }
 
-    pub fn iter_range<'a>(
-        &'a self,
+    pub fn iter_range(
+        &self,
         start: Timestamp,
         end: Timestamp,
-    ) -> impl IntoIterator<Item = Sample> + 'a {
+    ) -> impl IntoIterator<Item = Sample> + '_ {
         SampleIterator::new(self, start, end)
     }
 
@@ -291,9 +290,9 @@ impl TimeSeriesChunk {
         self.merge_slice(slice, retention_threshold, duplicate_policy,  &mut duplicates)
     }
 
-    pub fn merge_slice<'a>(
+    pub fn merge_slice(
         &mut self,
-        samples: SeriesSlice<'a>,
+        samples: SeriesSlice,
         min_timestamp: Timestamp,
         duplicate_policy: DuplicatePolicy,
         duplicates: &mut AHashSet<Timestamp>,
@@ -309,9 +308,9 @@ impl TimeSeriesChunk {
         Ok(res)
     }
 
-    fn merge_slice_internal<'a>(
+    fn merge_slice_internal(
         &self,
-        samples: SeriesSlice<'a>,
+        samples: SeriesSlice,
         min_timestamp: Timestamp,
         duplicate_policy: DuplicatePolicy,
         duplicates: &mut AHashSet<Timestamp>,
@@ -495,9 +494,8 @@ impl<'a> Iterator for SampleIterator<'a> {
             if first > self.end {
                 return None;
             }
-            if let Err(_) =
-                self.chunk
-                    .get_range(self.start, self.end, &mut self.timestamps, &mut self.values)
+            if self.chunk
+                .get_range(self.start, self.end, &mut self.timestamps, &mut self.values).is_err()
             {
                 return None;
             }

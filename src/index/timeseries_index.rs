@@ -21,7 +21,15 @@ pub type TimeSeriesIndexMap = HashMap<u32, TimeSeriesIndex>;
 pub type LabelsBitmap = BTreeMap<String, RoaringTreemap>;
 
 
-#[derive(Default)]
+// todo: in on_load, we need to set this to the last id + 1
+static TIMESERIES_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+pub fn next_timeseries_id() -> u64 {
+    TIMESERIES_ID_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+}
+
+
+#[derive(Default, Debug)]
 struct IndexInner {
     /// Map from timeseries id to timeseries key.
     id_to_key: IntMap<u64, String>, // todo: have a feature to use something like compact_str
@@ -71,14 +79,13 @@ impl IndexInner {
                 &mut self.label_to_ts,
                 &mut self.label_kv_to_ts,
                 ts.id,
-                &name,
-                &value,
+                name,
+                value,
             );
         }
     }
 
     fn reindex_timeseries(&mut self, ts: &TimeSeries, key: &ValkeyString) {
-        // todo: may cause race ?
         self.remove_series_by_id(ts.id, &ts.metric_name, &ts.labels);
         self.index_time_series(ts, key);
     }
@@ -153,7 +160,7 @@ impl IndexInner {
 
     /// Returns a list of all series matching `matchers` while having samples in the range
     /// [`start`, `end`]
-    fn series_ids_by_matchers<'ctx>(&self, matchers: &[Matchers]) -> RoaringTreemap {
+    fn series_ids_by_matchers(&self, matchers: &[Matchers]) -> RoaringTreemap {
         if matchers.is_empty() {
             return Default::default();
         }
@@ -172,7 +179,7 @@ impl IndexInner {
 
     pub fn is_key_indexed(&self, key: &str) -> bool {
         let key = format!("{}={}", METRIC_NAME_LABEL, key);
-        self.label_kv_to_ts.get(&key).is_some()
+        self.label_kv_to_ts.contains_key(&key)
     }
 }
 
@@ -208,9 +215,8 @@ impl TimeSeriesIndex {
         inner.id_to_key.len()
     }
 
-    pub(crate) fn next_id(&self) -> u64 {
-        let inner = self.inner.read().unwrap();
-        inner.series_sequence.fetch_add(1, Ordering::SeqCst)
+    pub(crate) fn next_id() -> u64 {
+        TIMESERIES_ID_SEQUENCE.fetch_add(1, Ordering::SeqCst)
     }
 
     pub(crate) fn index_time_series(&self, ts: &TimeSeries, key: &ValkeyString) {
@@ -244,14 +250,10 @@ impl TimeSeriesIndex {
     pub(crate) fn remove_series_by_key(&self, ctx: &Context, key: &ValkeyString) -> bool {
         let mut inner = self.inner.write().unwrap();
         let valkey_key = ctx.open_key(key);
-        match valkey_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE) {
-            Ok(Some(ts)) => {
-                inner.remove_series(ts);
-                return true;
-            }
-            _ => {
 
-            }
+        if let Ok(Some(ts)) = valkey_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE) {
+            inner.remove_series(ts);
+            return true;
         }
         false
     }
@@ -300,19 +302,19 @@ impl TimeSeriesIndex {
                 } else {
                     None
                 }
-            }).into_iter().collect()
+            }).collect()
     }
 
     /// Returns a list of all series matching `matchers` while having samples in the range
     /// [`start`, `end`]
-    pub(crate) fn series_ids_by_matchers<'ctx>(&self, matchers: &[Matchers]) -> RoaringTreemap {
+    pub(crate) fn series_ids_by_matchers(&self, matchers: &[Matchers]) -> RoaringTreemap {
         let inner = self.inner.read().unwrap();
         inner.series_ids_by_matchers(matchers)
     }
 
     /// Returns a list of all series matching `matchers` while having samples in the range
     /// [`start`, `end`]
-    pub(crate) fn series_keys_by_matchers<'a>(&'a self, ctx: &Context, matchers: &[Matchers]) -> Vec<ValkeyString> {
+    pub(crate) fn series_keys_by_matchers(&self, ctx: &Context, matchers: &[Matchers]) -> Vec<ValkeyString> {
         let inner = self.inner.read().unwrap();
         let bitmap = inner.series_ids_by_matchers(matchers);
         let mut result: Vec<ValkeyString> = Vec::with_capacity(bitmap.len() as usize);
@@ -342,7 +344,7 @@ fn get_label_value_bitmap(
         .range(prefix..suffix)
         .flat_map(|(key, map)| {
             if let Some((_, value)) = key.split_once('=') {
-                return if predicate(&value) {
+                return if predicate(value) {
                     Some(map)
                 } else {
                     None
@@ -363,13 +365,13 @@ fn index_series_by_label_internal(
 ) {
     let ts_by_label = label_to_ts
         .entry(label.to_owned())
-        .or_insert_with(|| RoaringTreemap::new());
+        .or_insert_with(RoaringTreemap::new);
 
     ts_by_label.insert(ts_id);
 
     let ts_by_label_value = label_kv_to_ts
         .entry(format!("{}={}", label, value))
-        .or_insert_with(|| RoaringTreemap::new());
+        .or_insert_with(RoaringTreemap::new);
 
     ts_by_label_value.insert(ts_id);
 }
@@ -405,9 +407,9 @@ fn find_ids_by_label_filter(
     }
 }
 
-fn find_ids_by_multiple_filters<'a>(
-    label_kv_to_ts: &'a LabelsBitmap,
-    filters: &Vec<LabelFilter>,
+fn find_ids_by_multiple_filters(
+    label_kv_to_ts: &LabelsBitmap,
+    filters: &[LabelFilter],
     bitmaps: &mut Vec<RoaringTreemap>,
     key_buf: &mut String, // used to minimize allocations
 ) {

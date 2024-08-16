@@ -1,7 +1,6 @@
+use crate::storage::series_data::SeriesData;
 use crate::common::current_time_millis;
 use crate::common::types::Timestamp;
-use std::ops::Range;
-use std::time::Duration;
 use crate::tests::generators::generators::{
     DerivativeGenerator,
     MackeyGlassGenerator,
@@ -9,7 +8,8 @@ use crate::tests::generators::generators::{
     StdNormalGenerator,
     UniformGenerator
 };
-use crate::storage::{SeriesData};
+use std::ops::Range;
+use std::time::Duration;
 
 #[derive(Debug, Copy, Clone, Default)]
 pub enum RandAlgo {

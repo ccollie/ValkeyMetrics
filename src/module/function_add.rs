@@ -62,7 +62,7 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_CHUNK_SIZE) => {
                 let next = args.next_str()?;
-                if let Ok(val) = parse_number_with_unit(&next) {
+                if let Ok(val) = parse_number_with_unit(next) {
                     options.chunk_size(val as usize);
                 } else {
                     return Err(ValkeyError::Str("ERR invalid CHUNK_SIZE value"));

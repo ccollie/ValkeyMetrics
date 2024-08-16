@@ -60,14 +60,14 @@ impl AggrIterator {
         }
     }
 
-    pub fn calculate(&mut self, mut iterator: impl Iterator<Item=Sample>) -> Vec<Sample> {
+    pub fn calculate(&mut self, iterator: impl Iterator<Item=Sample>) -> Vec<Sample> {
         let time_delta = self.time_delta;
         let mut bucket_right_ts = self.last_timestamp + time_delta;
         self.normalize_bucket_start();
         let mut buckets: Vec<Sample> = Default::default();
         let count = self.count.unwrap_or(usize::MAX - 1);
 
-        while let Some(sample) = iterator.next() {
+        for sample in iterator {
             let timestamp = sample.timestamp;
             let value = sample.value;
 
@@ -89,12 +89,7 @@ impl AggrIterator {
                     let first_bucket = bucket_right_ts;
                     let last_bucket = (self.last_timestamp - time_delta).max(0);
 
-                    let has_empty_buckets = if first_bucket >= self.last_timestamp {
-                        false
-                    } else {
-                        true
-                    };
-
+                    let has_empty_buckets = first_bucket < self.last_timestamp;
                     if has_empty_buckets {
                         self.fill_empty_buckets(&mut buckets, first_bucket, last_bucket, count);
                         if buckets.len() >= count {

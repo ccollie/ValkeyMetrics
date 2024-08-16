@@ -1,12 +1,11 @@
 use crate::common::types::Timestamp;
 use crate::storage::time_series::TimeSeries;
+use crate::storage::Label;
 use metricsql_runtime::{MetricName, QueryResult, Tag, METRIC_NAME_LABEL};
-use valkey_module::ValkeyValue;
 use std::collections::HashMap;
 use std::fmt::Display;
-use valkey_module::native_types::ValkeyType;
 use valkey_module::redisvalue::ValkeyValueKey;
-use crate::storage::Label;
+use valkey_module::ValkeyValue;
 
 pub static META_KEY_LABEL: &str = "__meta:key__";
 
@@ -33,7 +32,7 @@ impl Display for ResultType {
     }
 }
 
-pub(crate) fn metric_name_to_redis_value(
+pub(crate) fn metric_name_to_valkey_value(
     metric_name: &MetricName,
     key: Option<&str>,
 ) -> ValkeyValue {
@@ -110,7 +109,7 @@ pub fn to_matrix_result(vals: Vec<QueryResult>) -> ValkeyValue {
     let map: Vec<ValkeyValue> = vals
         .into_iter()
         .map(|val| {
-            let metric_name = metric_name_to_redis_value(&val.metric, None);
+            let metric_name = metric_name_to_valkey_value(&val.metric, None);
             let samples = samples_to_result(&val.timestamps, &val.values);
             let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
                 (ValkeyValueKey::String("metric".to_string()), metric_name),
@@ -155,7 +154,7 @@ pub fn to_matrix_result(vals: Vec<QueryResult>) -> ValkeyValue {
 /// }
 /// ```
 pub fn to_instant_vector_result(metric: &MetricName, ts: Timestamp, value: f64) -> ValkeyValue {
-    let metric_name = metric_name_to_redis_value(metric, None);
+    let metric_name = metric_name_to_valkey_value(metric, None);
     let sample = sample_to_result(ts, value);
     let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
         (ValkeyValueKey::String("metric".to_string()), metric_name),
@@ -168,7 +167,7 @@ pub fn to_instant_vector_result(metric: &MetricName, ts: Timestamp, value: f64) 
 }
 
 fn to_single_vector_result(metric: &MetricName, ts: Timestamp, value: f64) -> ValkeyValue {
-    let metric_name = metric_name_to_redis_value(metric, None);
+    let metric_name = metric_name_to_valkey_value(metric, None);
     let sample = sample_to_result(ts, value);
     let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
         (ValkeyValueKey::String("metric".to_string()), metric_name),

@@ -26,10 +26,11 @@ const BASE_COMPRESSION_RATE: f64 = 0.35;
 const OVERFLOW_THRESHOLD: f64 = 0.2;
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 #[derive(GetSize)]
 pub enum ValueEncoding {
+    #[default]
     Pco = 0x01,
     Gorilla = 0x02,
 }
@@ -74,16 +75,11 @@ impl TryFrom<u8> for ValueEncoding {
     }
 }
 
-impl Default for ValueEncoding {
-    fn default() -> Self {
-        ValueEncoding::Pco
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[derive(GetSize)]
 pub enum TimestampEncoding {
     Basic = 0x01,
+    #[default]
     Pco = 0x02,
 }
 
@@ -93,12 +89,6 @@ impl TimestampEncoding {
             TimestampEncoding::Basic => "basic",
             TimestampEncoding::Pco => "pco",
         }
-    }
-}
-
-impl Default for TimestampEncoding {
-    fn default() -> Self {
-        TimestampEncoding::Basic
     }
 }
 
@@ -151,23 +141,12 @@ impl TryFrom<&str> for CompressionOptimization {
 }
 
 
-#[derive(GetSize, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(GetSize, Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompressionOptions {
     pub value_encoding: ValueEncoding,
     pub timestamp_encoding: TimestampEncoding,
     pub optimization: CompressionOptimization,
     pub delta_encoding_order: Option<usize>,
-}
-
-impl Default for CompressionOptions {
-    fn default() -> Self {
-        CompressionOptions {
-            value_encoding: ValueEncoding::default(),
-            timestamp_encoding: TimestampEncoding::default(),
-            optimization: CompressionOptimization::default(),
-            delta_encoding_order: None,
-        }
-    }
 }
 
 // todo: make this configurable
@@ -241,9 +220,9 @@ pub(super) fn write_data_segment(
     write_usize(dest, page_size);
 
     // 4
-    write_timestamp_data(dest, timestamps, &config)?;
+    write_timestamp_data(dest, timestamps, config)?;
     // 5
-    write_value_data(dest, values, &config)?;
+    write_value_data(dest, values, config)?;
 
     // 2
     // patch in the data size
@@ -321,8 +300,8 @@ pub fn find_data_page<'a>(compressed: &'a mut &[u8], timestamp: i64) -> TsdbResu
 }
 
 
-pub(super) fn read_data_segment<'a>(
-    compressed: &mut &'a [u8],
+pub(super) fn read_data_segment(
+    compressed: &mut &[u8],
     timestamps: &mut Vec<i64>,
     values: &mut Vec<f64>,
 ) -> TsdbResult<usize> {
@@ -389,8 +368,8 @@ fn write_timestamp_data(
     Ok(bytes_written)
 }
 
-fn read_timestamp_page<'a>(
-    compressed: &mut &'a [u8],
+fn read_timestamp_page(
+    compressed: &mut &[u8],
     dst: &mut Vec<i64>,
 ) -> TsdbResult<usize> {
     let size = read_usize(compressed, "timestamp data size")?;
@@ -402,8 +381,8 @@ fn read_timestamp_page<'a>(
     Ok(count)
 }
 
-pub(super) fn read_values_page<'a>(
-    compressed: &mut &'a [u8],
+pub(super) fn read_values_page(
+    compressed: &mut &[u8],
     dst: &mut Vec<f64>,
 ) -> TsdbResult<usize> {
     let size= read_usize(compressed, "value data size")?;
@@ -464,7 +443,7 @@ pub(crate) fn compress_data(
 
 pub(super) fn read_timestamp(compressed: &mut &[u8]) -> TsdbResult<i64> {
     let (value, remaining) = unmarshal_var_i64(compressed)
-        .map_err(|e| TsdbError::CannotDeserialize(format!("timestamp: {}", e.to_string())))?;
+        .map_err(|e| TsdbError::CannotDeserialize(format!("timestamp: {}", e)))?;
     *compressed = remaining;
     Ok(value)
 }
@@ -486,7 +465,7 @@ pub(super) fn write_usize_in_place(vec: &mut Vec<u8>, index: usize, value: usize
     vec[index..end].copy_from_slice(&bytes);
 }
 
-pub(super) fn read_usize<'a>(input: &mut &'a [u8], field: &str) -> TsdbResult<usize> {
+pub(super) fn read_usize(input: &mut &[u8], field: &str) -> TsdbResult<usize> {
     let (int_bytes, rest) = input.split_at(size_of::<usize>());
     let buf = int_bytes
         .try_into()
@@ -647,6 +626,7 @@ pub fn gorilla_compress(dst: &mut Vec<u8>, timestamps: &[Timestamp], values: &[f
         encoder.encode(DataPoint::new(*ts as u64, *value));
     }
     let res = encoder.close();
+    dst.append(&mut res.to_vec());
     Ok(())
 }
 

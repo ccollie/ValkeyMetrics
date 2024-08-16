@@ -1,6 +1,7 @@
 use crate::arg_parse::{parse_chunk_size, parse_duration_arg};
 use crate::error::TsdbResult;
-use crate::globals::{with_timeseries_index};
+use crate::globals::with_timeseries_index;
+use crate::index::TimeSeriesIndex;
 use crate::module::VALKEY_PROMQL_SERIES_TYPE;
 use crate::storage::time_series::TimeSeries;
 use crate::storage::{DuplicatePolicy, TimeSeriesOptions};
@@ -104,24 +105,24 @@ pub(crate) fn create_series(
 ) -> TsdbResult<TimeSeries> {
     let mut ts = TimeSeries::with_options(options)?;
     with_timeseries_index(ctx, |index| {
-        ts.id = index.next_id();
-        index.index_time_series(&mut ts, key);
+        ts.id = TimeSeriesIndex::next_id();
+        index.index_time_series(&ts, key);
         Ok(ts)
     })
 }
 
 pub(crate) fn create_series_ex(ctx: &Context, key: &ValkeyString, options: TimeSeriesOptions) -> ValkeyResult<()> {
-    let _key = ValkeyKeyWritable::open(ctx.ctx, &key);
+    let _key = ValkeyKeyWritable::open(ctx.ctx, key);
     // check if this refers to an existing series
     if !_key.is_empty() {
         return Err(ValkeyError::Str("TSDB: the key already exists"));
     }
 
-    let ts = create_series(&key, options, ctx)?;
+    let ts = create_series(key, options, ctx)?;
     _key.set_value(&VALKEY_PROMQL_SERIES_TYPE, ts)?;
 
     ctx.replicate_verbatim();
-    ctx.notify_keyspace_event(NotifyEvent::MODULE, "PROM.CREATE-SERIES", &key);
+    ctx.notify_keyspace_event(NotifyEvent::MODULE, "PROM.CREATE-SERIES", key);
     ctx.log_verbose("series created");
 
     Ok(())

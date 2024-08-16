@@ -250,7 +250,7 @@ impl CompressedSegment {
         f(state, &timestamps, &values)
     }
 
-    pub fn remove_range<'a>(
+    pub fn remove_range(
         &mut self,
         start_ts: i64,
         end_ts: i64,
@@ -420,9 +420,9 @@ impl CompressedSegment {
 
             let mut ts_vec = &mut timestamp_buf;
             let mut value_vec = &mut value_buf;
-            self.get_all(&mut ts_vec, &mut value_vec)?;
+            self.get_all(ts_vec, value_vec)?;
 
-            let slice = SeriesSlice::new(&ts_vec, &value_vec);
+            let slice = SeriesSlice::new(ts_vec, value_vec);
             let (left, right) = slice.split_at(mid);
 
             let mut left_buf = Vec::new();
@@ -441,7 +441,7 @@ impl CompressedSegment {
                 min_time: right.first_timestamp(),
                 max_time: right.last_timestamp(),
                 max_size: self.max_size,
-                page_size: self.page_size.clone(),
+                page_size: self.page_size,
                 options: self.options.clone(),
                 count: right.len(),
             };

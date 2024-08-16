@@ -88,14 +88,12 @@ impl UncompressedChunk {
             let ts = timestamps[idx];
             let value = self.values[idx];
             self.values[idx] = policy.value_on_duplicate(ts, value, sample.value)?;
+        } else if idx < timestamps.len() {
+            self.timestamps.insert(idx, ts);
+            self.values.insert(idx, sample.value);
         } else {
-            if idx < timestamps.len() {
-                self.timestamps.insert(idx, ts);
-                self.values.insert(idx, sample.value);
-            } else {
-                self.timestamps.push(ts);
-                self.values.push(sample.value);
-            }
+            self.timestamps.push(ts);
+            self.values.push(sample.value);
         }
         Ok(())
     }
@@ -115,7 +113,7 @@ impl UncompressedChunk {
             let timestamps = &self.timestamps[start_idx..end_idx];
             let values = &self.values[start_idx..end_idx];
 
-            return f(state, &timestamps, &values)
+            return f(state, timestamps, values)
         }
 
         let timestamps = vec![];
@@ -124,7 +122,7 @@ impl UncompressedChunk {
     }
 
     pub fn bytes_per_sample(&self) -> usize {
-        return SAMPLE_SIZE;
+        SAMPLE_SIZE
     }
 
     fn find_timestamp_index(&self, ts: Timestamp) -> (usize, bool) {
@@ -222,7 +220,7 @@ impl Chunk for UncompressedChunk {
         timestamps.reserve(len);
         values.reserve(len);
         timestamps.extend_from_slice(src_timestamps);
-        values.extend_from_slice(&src_values);
+        values.extend_from_slice(src_values);
 
         Ok(())
     }
@@ -248,7 +246,7 @@ impl Chunk for UncompressedChunk {
             }
         }
 
-        return Ok(self.len() - count);
+        Ok(self.len() - count)
     }
 
     fn split(&mut self) -> TsdbResult<Self>

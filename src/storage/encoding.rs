@@ -13,10 +13,10 @@ pub fn read_usize<'a>(slice: &'a [u8], context: &str) -> TsdbResult<(&'a [u8], u
         .get(0..4)
         .ok_or_else(|| TsdbError::CannotDeserialize(context.to_string()))?;
 
-    let bytes: [u8; std::mem::size_of::<u32>()] = to_decode.try_into()
+    let bytes: [u8; size_of::<u32>()] = to_decode.try_into()
         .map_err(|_| TsdbError::CannotDeserialize(context.to_string()))?;
 
-    let byte_size = u32::from_be_bytes(bytes); // TODO: remove this unwrap
+    let byte_size = u32::from_be_bytes(bytes);
     Ok((&slice[4..], byte_size as usize))
 }
 

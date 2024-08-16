@@ -18,9 +18,14 @@ use std::time::Duration;
 pub struct TimeSeries {
     /// internal id used in indexing
     pub id: u64,
-    pub metric_name: String,
 
+    /// Name of the metric
+    /// For example, given  http_requests_total{method="POST", status="500"}
+    /// the metric name is http_requests_total, and the labels are method="POST" and status="500"
+    /// Metric names must match the regex [a-zA-Z_:][a-zA-Z0-9_:]*
+    pub metric_name: String,
     pub labels: Vec<Label>,
+
     pub retention: Duration,
     pub dedupe_interval: Option<Duration>,
     pub duplicate_policy: DuplicatePolicy,
@@ -337,21 +342,21 @@ impl TimeSeries {
         Ok(())
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = Sample> + 'a {
+    pub fn iter(&self) -> impl Iterator<Item = Sample> + '_ {
         SampleIterator::new(self, self.first_timestamp, self.last_timestamp)
     }
 
-    pub fn iter_range<'a>(
-        &'a self,
+    pub fn iter_range(
+        &self,
         start: Timestamp,
         end: Timestamp,
-    ) -> impl Iterator<Item = Sample> + 'a {
+    ) -> impl Iterator<Item = Sample> + '_ {
         SampleIterator::new(self, start, end)
     }
 
     pub fn timestamp_filter_iter<'a>(
         &'a self,
-        timestamp_filters: &'a Vec<Timestamp>,
+        timestamp_filters: &'a [Timestamp],
     ) -> impl Iterator<Item = Sample> + 'a {
         TimestampsFilterIterator::new(self, timestamp_filters)
     }
@@ -603,10 +608,8 @@ impl<'a> SampleIterator<'a> {
 impl<'a> Iterator for SampleIterator<'a> {
     type Item = Sample;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.sample_index >= self.timestamps.len() || self.first_iter {
-            if !self.next_chunk() {
-                return None;
-            }
+        if (self.sample_index >= self.timestamps.len() || self.first_iter) && !self.next_chunk() {
+            return None;
         }
         let timestamp = self.timestamps[self.sample_index];
         let value = self.values[self.sample_index];
@@ -686,8 +689,6 @@ mod tests {
 
     #[test]
     fn test_last_chunk_overflow() {
-        let mut series = TimeSeries::new();
-        let start_ts = 10000;
         todo!();
 
     }

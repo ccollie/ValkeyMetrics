@@ -119,7 +119,7 @@ fn parse_timestamp_filter(args: &mut Skip<IntoIter<ValkeyString>>) -> ValkeyResu
         if is_range_command_keyword(arg) {
             break;
         }
-        if let Ok(timestamp) = parse_timestamp(&arg) {
+        if let Ok(timestamp) = parse_timestamp(arg) {
             values.push(timestamp);
         } else  {
             return Err(ValkeyError::Str("TSDB: cannot parse timestamp"));
@@ -178,7 +178,7 @@ pub fn parse_aggregation_args(args: &mut Skip<IntoIter<ValkeyString>>) -> Valkey
     Ok(aggr)
 }
 
-fn get_arg_keyword_position(args: &Vec<ValkeyString>, arg: &str, requires_param: bool) -> ValkeyResult<Option<usize>> {
+fn get_arg_keyword_position(args: &[ValkeyString], arg: &str, requires_param: bool) -> ValkeyResult<Option<usize>> {
     let needle = arg.as_bytes();
     if let Some(pos) = args.iter().position(|probe| probe.as_slice() == needle) {
         if requires_param && pos + 1 >= args.len() {

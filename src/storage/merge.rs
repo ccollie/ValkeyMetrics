@@ -94,10 +94,10 @@ impl<'a> MergeState for SeriesMergeState<'a> {
     type A = i64;
     type B = i64;
     fn a_slice(&self) -> &[Self::A] {
-        &self.a.timestamp_slice()
+        self.a.timestamp_slice()
     }
     fn b_slice(&self) -> &[Self::B] {
-        &self.b.timestamp_slice()
+        self.b.timestamp_slice()
     }
 }
 

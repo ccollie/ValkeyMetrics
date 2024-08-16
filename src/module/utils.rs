@@ -10,8 +10,8 @@ use crate::module::arg_parse::{parse_timestamp_range_value, TimestampRangeValue}
 pub(crate) fn valkey_value_as_str(value: &ValkeyValue) -> ValkeyResult<Cow<str>> {
     match value {
         ValkeyValue::SimpleStringStatic(s) => Ok(Cow::Borrowed(s)),
-        ValkeyValue::SimpleString(s) => Ok(Cow::Borrowed(&s.as_str())),
-        ValkeyValue::BulkString(s) => Ok(Cow::Borrowed(&s.as_str())),
+        ValkeyValue::SimpleString(s) => Ok(Cow::Borrowed(s.as_str())),
+        ValkeyValue::BulkString(s) => Ok(Cow::Borrowed(s.as_str())),
         ValkeyValue::BulkValkeyString(s) => {
             let val = if let Ok(s) = s.try_as_str() {
                 Cow::Borrowed(s)
@@ -31,8 +31,8 @@ pub(crate) fn valkey_value_as_str(value: &ValkeyValue) -> ValkeyResult<Cow<str>>
 pub(crate) fn valkey_value_as_string(value: &ValkeyValue) -> ValkeyResult<Cow<String>> {
     match value {
         ValkeyValue::SimpleStringStatic(s) => Ok(Cow::Owned(s.to_string())),
-        ValkeyValue::SimpleString(s) => Ok(Cow::Borrowed(&s)),
-        ValkeyValue::BulkString(s) => Ok(Cow::Borrowed(&s)),
+        ValkeyValue::SimpleString(s) => Ok(Cow::Borrowed(s)),
+        ValkeyValue::BulkString(s) => Ok(Cow::Borrowed(s)),
         ValkeyValue::BulkValkeyString(s) => Ok(Cow::Owned(s.to_string())),
         ValkeyValue::StringBuffer(s) => {
             let value = String::from_utf8_lossy(s);

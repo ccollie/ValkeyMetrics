@@ -32,7 +32,7 @@ impl<'a> SeriesSlice<'a> {
     }
 
     pub fn split_at_timestamp(&self, ts: Timestamp) -> (Self, Self) {
-        let idx = get_timestamp_index(self.timestamps, ts).unwrap_or_else(|| self.timestamps.len());
+        let idx = get_timestamp_index(self.timestamps, ts).unwrap_or(self.timestamps.len());
         self.split_at(idx)
     }
 
