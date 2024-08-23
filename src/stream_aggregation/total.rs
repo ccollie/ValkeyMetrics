@@ -1,13 +1,9 @@
+use crate::stream_aggregation::stream_aggr::{AggrState, FlushCtx};
+use crate::stream_aggregation::{OutputKey, PushSample, AGGR_STATE_SIZE};
 use dashmap::DashMap;
-use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
-use crate::stream_aggregation::PushSample;
-use crate::stream_aggregation::stream_aggr::FlushCtx;
+use std::sync::{Arc, Mutex};
 
-const AGGR_STATE_SIZE: usize = 8; // Assuming aggrStateSize is 8 based on the Go code
-
-type OutputKey = String;
 
 pub struct TotalAggrState {
     m: DashMap<OutputKey, Arc<Mutex<TotalStateValue>>>,
@@ -34,7 +30,7 @@ struct TotalLastValueState {
 }
 
 impl TotalAggrState {
-    fn new(reset_total_on_flush: bool, keep_first_sample: bool) -> Self {
+    pub fn new(reset_total_on_flush: bool, keep_first_sample: bool) -> Self {
         Self {
             m: DashMap::new(),
             reset_total_on_flush,
@@ -42,7 +38,22 @@ impl TotalAggrState {
         }
     }
 
-    fn push_samples(&self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
+    fn get_suffix(&self) -> &'static str {
+        if self.reset_total_on_flush {
+            if self.keep_first_sample {
+                return "increase";
+            }
+            return "increase_prometheus";
+        }
+        if self.keep_first_sample {
+            return "total";
+        }
+        "total_prometheus"
+    }
+}
+
+impl AggrState for TotalAggrState {
+    fn push_samples(&mut self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
         for s in samples {
             let (input_key, output_key) = get_input_output_key(&s.key);
 
@@ -87,38 +98,21 @@ impl TotalAggrState {
         }
     }
 
-    fn get_suffix(&self) -> &'static str {
-        if self.reset_total_on_flush {
-            if self.keep_first_sample {
-                return "increase";
-            }
-            return "increase_prometheus";
-        }
-        if self.keep_first_sample {
-            return "total";
-        }
-        "total_prometheus"
-    }
-
-    fn flush_state(&self, ctx: &FlushCtx) {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs() as i64;
-
+    fn flush_state(&mut self, ctx: &mut FlushCtx) {
         let suffix = self.get_suffix();
 
         for entry in self.m.iter() {
             let mut sv = entry.value().lock().unwrap();
 
-            if now > sv.delete_deadline {
+            let deleted = ctx.flush_timestamp > sv.delete_deadline;
+            if deleted {
                 sv.deleted = true;
                 self.m.remove(&entry.key());
                 continue;
             }
 
             let total = sv.shared.total + sv.state[ctx.idx];
-            sv.shared.last_values.retain(|_, v| now <= v.delete_deadline);
+            sv.shared.last_values.retain(|_, v| ctx.flush_timestamp <= v.delete_deadline);
             sv.state[ctx.idx] = 0.0;
 
             if !self.reset_total_on_flush {

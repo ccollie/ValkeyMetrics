@@ -1,10 +1,9 @@
+use crate::stream_aggregation::stream_aggr::{AggrState, FlushCtx};
+use crate::stream_aggregation::{OutputKey, PushSample, AGGR_STATE_SIZE};
 use dashmap::DashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
-use crate::stream_aggregation::{OutputKey, PushSample, AGGR_STATE_SIZE};
-use crate::stream_aggregation::stream_aggr::FlushCtx;
 
-struct RateAggrState {
+pub struct RateAggrState {
     m: DashMap<OutputKey, Arc<Mutex<RateStateValue>>>,
     is_avg: bool,
 }
@@ -30,14 +29,24 @@ struct RateLastValueState {
 }
 
 impl RateAggrState {
-    fn new(is_avg: bool) -> Self {
+    pub fn new(is_avg: bool) -> Self {
         Self {
             m: DashMap::new(),
             is_avg,
         }
     }
 
-    fn push_samples(&self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
+    fn get_suffix(&self) -> String {
+        if self.is_avg {
+            "rate_avg".to_string()
+        } else {
+            "rate_sum".to_string()
+        }
+    }
+}
+
+impl AggrState for RateAggrState {
+    fn push_samples(&mut self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
         for s in samples {
             let (input_key, output_key) = get_input_output_key(&s.key);
 
@@ -67,54 +76,43 @@ impl RateAggrState {
                     delete_deadline,
                 });
 
-                let mut lv = state.last_values[idx];
-                if lv.timestamp > 0 {
-                    if s.timestamp < lv.timestamp {
-                        continue;
+                if let Some(lv) = state.last_values.get_mut(idx) {
+                    if lv.timestamp > 0 {
+                        if s.timestamp < lv.timestamp {
+                            continue;
+                        }
+                        if state.prev_timestamp == 0 {
+                            state.prev_timestamp = lv.timestamp;
+                            state.prev_value = lv.value;
+                        }
+                        if s.value >= lv.value {
+                            lv.total += s.value - lv.value;
+                        } else {
+                            lv.total += s.value;
+                        }
+                    } else if state.prev_timestamp > 0 {
+                        lv.first_value = s.value;
                     }
-                    if state.prev_timestamp == 0 {
-                        state.prev_timestamp = lv.timestamp;
-                        state.prev_value = lv.value;
-                    }
-                    if s.value >= lv.value {
-                        lv.total += s.value - lv.value;
-                    } else {
-                        lv.total += s.value;
-                    }
-                } else if state.prev_timestamp > 0 {
-                    lv.first_value = s.value;
+                    lv.value = s.value;
+                    lv.timestamp = s.timestamp;
+                    state.last_values[idx] = lv;
+                    state.delete_deadline = delete_deadline;
+                    sv.state.insert(input_key.clone(), state.clone());
+                    sv.delete_deadline = delete_deadline;
+                    break;
                 }
-                lv.value = s.value;
-                lv.timestamp = s.timestamp;
-                state.last_values[idx] = lv;
-                state.delete_deadline = delete_deadline;
-                sv.state.insert(input_key.clone(), state.clone());
-                sv.delete_deadline = delete_deadline;
-                break;
             }
         }
     }
 
-    fn get_suffix(&self) -> String {
-        if self.is_avg {
-            "rate_avg".to_string()
-        } else {
-            "rate_sum".to_string()
-        }
-    }
-
-    fn flush_state(&self, ctx: &FlushCtx) {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs() as i64;
-
+    fn flush_state(&mut self, ctx: &mut FlushCtx) {
         let suffix = self.get_suffix();
 
         for entry in self.m.iter() {
             let mut sv = entry.value().lock().unwrap();
 
-            if now > sv.delete_deadline {
+            let deleted = ctx.flush_timestamp > sv.delete_deadline;
+            if deleted {
                 sv.deleted = true;
                 self.m.remove(&entry.key());
                 continue;
@@ -123,14 +121,18 @@ impl RateAggrState {
             let mut rate = 0.0;
             let mut count_series = 0;
 
-            for state_entry in sv.state.iter() {
-                let mut state = state_entry.value().clone();
-                if now > state.delete_deadline {
+            for mut state_entry in sv.state.iter_mut() {
+                let mut state = state_entry.value_mut();
+                if ctx.flush_timestamp > state.delete_deadline {
                     sv.state.remove(&state_entry.key());
                     continue;
                 }
 
-                let v1 = state.last_values[ctx.idx];
+                let v1 = state.last_values.get_mut(ctx.idx);
+                if v1.is_none() {
+                    continue;
+                }
+                let v1 = v1.unwrap();
                 let rate_interval = v1.timestamp - state.prev_timestamp;
                 if rate_interval > 0 && state.prev_timestamp > 0 {
                     if v1.first_value >= state.prev_value {

@@ -17,8 +17,11 @@ mod sum_samples;
 mod stddev;
 mod histogram_bucket;
 mod dedup_tests;
+mod fast_histogram;
+mod labels_compressor;
 
 use std::fmt::Display;
+use std::str::FromStr;
 
 const AGGR_STATE_SIZE: usize = 8; // Assuming aggrStateSize is 8 based on the Go code
 
@@ -32,6 +35,11 @@ pub(crate) struct PushSample {
     pub timestamp: i64,
 }
 
+pub struct InternedLabel {
+    pub(crate) key: String,
+    pub(crate) value: String,
+}
+
 #[derive(Debug)]
 pub enum AggregationOutput {
     Avg,
@@ -43,7 +51,7 @@ pub enum AggregationOutput {
     Last,
     Max,
     Min,
-    Quantiles(Vec<f64>),
+    Quantiles,
     RateAvg,
     RateSum,
     Stddev,
@@ -54,36 +62,61 @@ pub enum AggregationOutput {
     UniqueSamples,
 }
 
+impl AggregationOutput {
+    pub fn name(&self) -> &'static str {
+        match self {
+            AggregationOutput::Avg => "avg",
+            AggregationOutput::CountSamples => "count_samples",
+            AggregationOutput::CountSeries => "count_series",
+            AggregationOutput::HistogramBucket => "histogram_bucket",
+            AggregationOutput::Increase => "increase",
+            AggregationOutput::IncreasePrometheus => "increase_prometheus",
+            AggregationOutput::Last => "last",
+            AggregationOutput::Max => "max",
+            AggregationOutput::Min => "min",
+            AggregationOutput::Quantiles => "quantiles",
+            AggregationOutput::RateAvg => "rate_avg",
+            AggregationOutput::RateSum => "rate_sum",
+            AggregationOutput::Stddev => "stddev",
+            AggregationOutput::Stdvar => "stdvar",
+            AggregationOutput::SumSamples => "sum_samples",
+            AggregationOutput::Total => "total",
+            AggregationOutput::TotalPrometheus => "total_prometheus",
+            AggregationOutput::UniqueSamples => "unique_samples",
+        }
+    }
+}
+
 impl Display for AggregationOutput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AggregationOutput::Avg => write!(f, "avg"),
-            AggregationOutput::CountSamples => write!(f, "count_samples"),
-            AggregationOutput::CountSeries => write!(f, "count_series"),
-            AggregationOutput::HistogramBucket => write!(f, "histogram_bucket"),
-            AggregationOutput::Increase => write!(f, "increase"),
-            AggregationOutput::IncreasePrometheus => write!(f, "increase_prometheus"),
-            AggregationOutput::Last => write!(f, "last"),
-            AggregationOutput::Max => write!(f, "max"),
-            AggregationOutput::Min => write!(f, "min"),
-            AggregationOutput::Quantiles(phis) => {
-                write!(f, "quantiles(")?;
-                for (i, phi) in phis.iter().enumerate() {
-                    write!(f, "{}", phi)?;
-                    if i < phis.len() - 1 {
-                        write!(f, ", ")?;
-                    }
-                }
-                write!(f, ")")
-            }
-            AggregationOutput::RateAvg => write!(f, "rate_avg"),
-            AggregationOutput::RateSum => write!(f, "rate_sum"),
-            AggregationOutput::Stddev => write!(f, "stddev"),
-            AggregationOutput::Stdvar => write!(f, "stdvar"),
-            AggregationOutput::SumSamples => write!(f, "sum_samples"),
-            AggregationOutput::Total => write!(f, "total"),
-            AggregationOutput::TotalPrometheus => write!(f, "total_prometheus"),
-            AggregationOutput::UniqueSamples => write!(f, "unique_samples"),
+        write!(f, "{}", self.name())
+    }
+}
+
+impl FromStr for AggregationOutput {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "avg" => Ok(AggregationOutput::Avg),
+            "count_samples" => Ok(AggregationOutput::CountSamples),
+            "count_series" => Ok(AggregationOutput::CountSeries),
+            "histogram_bucket" => Ok(AggregationOutput::HistogramBucket),
+            "increase" => Ok(AggregationOutput::Increase),
+            "increase_prometheus" => Ok(AggregationOutput::IncreasePrometheus),
+            "last" => Ok(AggregationOutput::Last),
+            "max" => Ok(AggregationOutput::Max),
+            "min" => Ok(AggregationOutput::Min),
+            "quantiles" => Ok(AggregationOutput::Quantiles),
+            "rate_avg" => Ok(AggregationOutput::RateAvg),
+            "rate_sum" => Ok(AggregationOutput::RateSum),
+            "stddev" => Ok(AggregationOutput::Stddev),
+            "stdvar" => Ok(AggregationOutput::Stdvar),
+            "sum_samples" => Ok(AggregationOutput::SumSamples),
+            "total" => Ok(AggregationOutput::Total),
+            "total_prometheus" => Ok(AggregationOutput::TotalPrometheus),
+            "unique_samples" => Ok(AggregationOutput::UniqueSamples),
+            _ => Err(format!("Unknown aggregation output: {}", s)),
         }
     }
 }

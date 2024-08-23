@@ -7,6 +7,7 @@ use tokio::time::interval;
 use prometheus::{Histogram, Counter, register_histogram, register_counter};
 use log::warn;
 use metricsql_parser::label::Labels;
+use metricsql_runtime::Label;
 use xxhash_rust::xxh3::xxh3_64;
 use crate::stream_aggregation::{PushSample, AGGR_STATE_SIZE};
 
@@ -15,9 +16,8 @@ pub struct Deduplicator {
     drop_labels: Vec<String>,
     dedup_interval: i64,
     stop_tx: Option<oneshot::Sender<()>>,
-    metrics_set: Arc<Mutex<MetricsSet>>,
     dedup_flush_duration: Histogram,
-    dedup_flush_timeouts: Counter,
+    dedup_flush_timeouts: AtomicU64,
 }
 
 impl Deduplicator {
@@ -25,12 +25,7 @@ impl Deduplicator {
         let da = DedupAggr::new();
         let dedup_interval_ms = dedup_interval.as_millis() as i64;
         let (stop_tx, stop_rx) = oneshot::channel();
-        let metrics_set = Arc::new(Mutex::new(MetricsSet::new()));
 
-        let dedup_flush_duration = register_histogram!(format!("vm_streamaggr_dedup_flush_duration_seconds{{name=\"dedup\",url=\"{}\"}}", alias)).unwrap();
-        let dedup_flush_timeouts = register_counter!(format!("vm_streamaggr_dedup_flush_timeouts_total{{name=\"dedup\",url=\"{}\"}}", alias)).unwrap();
-
-        let metrics_set_clone = metrics_set.clone();
         tokio::spawn(async move {
             let mut interval = interval(dedup_interval);
             loop {
@@ -53,7 +48,6 @@ impl Deduplicator {
             drop_labels,
             dedup_interval: dedup_interval_ms,
             stop_tx: Some(stop_tx),
-            metrics_set: metrics_set_clone,
             dedup_flush_duration,
             dedup_flush_timeouts,
         }
@@ -175,25 +169,7 @@ struct TimeSeries {
     samples: Vec<Sample>,
 }
 
-struct Label {
-    name: String,
-    value: String,
-}
-
-struct Sample {
-    value: f64,
-    timestamp: i64,
-}
-
 type PushFunc = Arc<dyn Fn(Vec<TimeSeries>) + Send + Sync>;
-
-struct MetricsSet;
-
-impl MetricsSet {
-    fn new() -> Self {
-        Self
-    }
-}
 
 struct DedupAggr {
     shards: Vec<DedupAggrShard>,
@@ -252,7 +228,6 @@ impl DedupAggr {
 
 struct DedupAggrShard {
     state: [Option<Arc<Mutex<DedupAggrState>>>; AGGR_STATE_SIZE],
-    _padding: [u8; 128 - std::mem::size_of::<[Option<Arc<Mutex<DedupAggrState>>>; AGGR_STATE_SIZE>] % 128],
 }
 
 struct DedupAggrState {

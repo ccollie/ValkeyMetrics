@@ -1,6 +1,5 @@
 use dashmap::DashMap;
 use metricsql_runtime::Label;
-use prometheus::{proto::{Label, Sample, TimeSeries}, Encoder};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
@@ -203,95 +202,92 @@ mod encoding {
 
 #[cfg(test)]
 mod tests {
-    func TestLabelsCompressorSerial() {
-        let lc: LabelsCompressor
+    use metricsql_runtime::Label;
+    use crate::common::label_compressor::LabelsCompressor;
+
+    fn test_labels_compressor_serial() {
+        let mut lc: LabelsCompressor = LabelsCompressor::new();
 
         fn f(labels: &[Label]) {
-            let sExpected = labelsToString(labels)
+            let s_expected = labels_to_string(labels);
             let data = lc.compress(nil, labels);
-            let labelsResult = lc.decompress(nil, data)
-            let sResult = labelsToString(labelsResult)
-            if sExpected != sResult {
-                t.Fatalf("unexpected result; got %s; want %s", sResult, sExpected)
+            let labels_result = lc.decompress(nil, data);
+            let sResult = labels_to_string(labels_result);
+            if s_expected != sResult {
+                t.Fatalf("unexpected result; got %s; want %s", sResult, s_expected)
             }
 
-        if len(labels) > 0 {
-            if n := lc.SizeBytes(); n == 0 {
-                t.Fatalf("Unexpected zero SizeBytes()")
+            if labels.len() > 0 {
+                if lc.SizeBytes() == 0 {
+                    t.Fatalf("Unexpected zero SizeBytes()")
+                }
+                if lc.ItemsCount() == 0 {
+                    t.Fatalf("Unexpected zero ItemsCount()")
+                }
             }
-            if n := lc.ItemsCount(); n == 0 {
-                t.Fatalf("Unexpected zero ItemsCount()")
-            }
+        }
+
+    // empty labels
+    f(&[]);
+
+    // non-empty labels
+    f(&[Label{
+                name: "instance".into(),
+                value: "12345.4342.342.3".into(),
+                },
+                Label{
+                    name:  "job".into(),
+                    value: "kube-pod-12323".into(),
+                }
+            ]);
+
+        f(&[Label{
+                name:  "instance".into(),
+                value: "12345.4342.342.3".into(),
+            },
+            Label{
+                name:  "job".into(),
+                value: "kube-pod-123124".into(),
+            },
+            Label{
+                name:  "pod".into(),
+                value: "foo-bar-baz".into(),
+            }]);
+    }
+
+    fn test_labels_compressor_concurrent() {
+        let concurrency = 5;
+        let mut lc: LabelsCompressor = LabelsCompressor::new();
+
+        for i in 0 .. concurrency {
+            go func() {
+                let series = new_test_series(100, 20);
+                for (i, labels) in series.iter().enumerate() {
+                    let sExpected = labels_to_string(labels);
+                    let data = lc.compress(nil, labels);
+                    let labels_result = lc.Decompress(nil, data);
+                    let sResult = labels_to_string(labels_result);
+                    if sExpected != sResult {
+                        panic(fmt.Errorf("unexpected result on iteration %d; got %s; want %s", i, sResult, sExpected))
+                    }
+                }
+            }()
+        }
+
+        if lc.size_bytes() == 0 {
+            t.Fatalf("Unexpected zero SizeBytes()")
+        }
+        if lc.items_count() == 0 {
+            t.Fatalf("Unexpected zero ItemsCount()")
         }
     }
 
-    // empty labels
-    f([]);
-
-    // non-empty labels
-    f([]prompbmarshal.Label{
-{
-Name:  "instance",
-Value: "12345.4342.342.3",
-},
-{
-Name:  "job",
-Value: "kube-pod-12323",
-},
-})
-f([]prompbmarshal.Label{
-{
-Name:  "instance",
-Value: "12345.4342.342.3",
-},
-{
-Name:  "job",
-Value: "kube-pod-12323",
-},
-{
-Name:  "pod",
-Value: "foo-bar-baz",
-},
-})
-}
-
-    func TestLabelsCompressorConcurrent(t *testing.T) {
-const concurrency = 5
-var lc LabelsCompressor
-
-var wg sync.WaitGroup
-for i := 0; i < concurrency; i++ {
-wg.Add(1)
-go func() {
-defer wg.Done()
-series := newTestSeries(100, 20)
-for i, labels := range series {
-sExpected := labelsToString(labels)
-data := lc.Compress(nil, labels)
-labelsResult := lc.Decompress(nil, data)
-sResult := labelsToString(labelsResult)
-if sExpected != sResult {
-panic(fmt.Errorf("unexpected result on iteration %d; got %s; want %s", i, sResult, sExpected))
-}
-}
-}()
-}
-wg.Wait()
-
-if n := lc.SizeBytes(); n == 0 {
-t.Fatalf("Unexpected zero SizeBytes()")
-}
-if n := lc.ItemsCount(); n == 0 {
-t.Fatalf("Unexpected zero ItemsCount()")
-}
-}
-
-    func labelsToString(labels []prompbmarshal.Label) string {
-    l := Labels{
-    Labels: labels,
-}
-return l.String()
-}
+    fn labels_to_string(labels: &[Label]) -> String {
+        let l = Labels{
+            Labels: labels,
+        };
+        l.to_string()
+    }
 
     fn new_test_series(series_count: usize, labels_per_series: usize) -> Vec<Vec<Label>> {
         let mut series: Vec<Vec<Label>> = Vec::with_capacity(series_count);
@@ -299,8 +295,8 @@ return l.String()
             let mut labels: Vec<Label> = Vec::with_capacity(labels_per_series);
             for j in 0 ..labels_per_series {
                 labels.push(Label{
-                    name:  fmt.Sprintf("label_%d", j),
-                    value: fmt.Sprintf("value_%d_%d", i, j),
+                    name:  format!("label_{j}"),
+                    value: format!("value_{i}_{j}"),
                 })
             }
             series.push(labels);

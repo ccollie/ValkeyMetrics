@@ -41,31 +41,37 @@ pub enum RelabelAction {
     Uppercase,
 }
 
-impl Display for RelabelAction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl RelabelAction {
+    pub fn as_str(&self) -> &'static str {
         use RelabelAction::*;
         match self {
-            Graphite => write!(f, "graphite"),
-            Replace => write!(f, "replace"),
-            ReplaceAll => write!(f, "replace_all"),
-            KeepIfEqual => write!(f, "keep_if_equal"),
-            DropIfEqual => write!(f, "drop_if_equal"),
-            KeepEqual => write!(f, "keepequal"),
-            DropEqual => write!(f, "dropequal"),
-            Keep => write!(f, "keep"),
-            Drop => write!(f, "drop"),
-            DropIfContains => write!(f, "drop_if_contains"),
-            DropMetrics => write!(f, "drop_metrics"),
-            HashMod => write!(f, "hashmod"),
-            KeepMetrics => write!(f, "keep_metrics"),
-            Uppercase => write!(f, "uppercase"),
-            Lowercase => write!(f, "lowercase"),
-            LabelMap => write!(f, "labelmap"),
-            LabelMapAll => write!(f, "labelmap_all"),
-            LabelDrop => write!(f, "labeldrop"),
-            LabelKeep => write!(f, "labelkeep"),
-            KeepIfContains => write!(f, "keep_if_contains"),
+            Graphite => "graphite",
+            Replace => "replace",
+            ReplaceAll => "replace_all",
+            KeepIfEqual => "keep_if_equal",
+            DropIfEqual => "drop_if_equal",
+            KeepEqual => "keepequal",
+            DropEqual => "dropequal",
+            Keep => "keep",
+            Drop => "drop",
+            DropIfContains => "drop_if_contains",
+            DropMetrics => "drop_metrics",
+            HashMod => "hashmod",
+            KeepMetrics => "keep_metrics",
+            Uppercase => "uppercase",
+            Lowercase => "lowercase",
+            LabelMap => "labelmap",
+            LabelMapAll => "labelmap_all",
+            LabelDrop => "labeldrop",
+            LabelKeep => "labelkeep",
+            KeepIfContains => "keep_if_contains",
         }
+    }
+}
+
+impl Display for RelabelAction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
     }
 }
 

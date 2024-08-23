@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fmt::Display;
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 
 use dynamic_lru_cache::DynamicCache;
 use enquote::enquote;
@@ -333,7 +333,8 @@ impl ParsedRelabelConfig {
     /// s is returned as is if it doesn't match '^regex$'.
     pub(crate) fn replace_full_string_fast(&self, s: &str) -> String {
         // todo: use a COW here
-        let (prefix, complete) = self.regex_original.LiteralPrefix();
+        let complete = self.regex.is_complete();
+        let prefix = &self.regex.prefix;
         let replacement = &self.replacement;
         if complete && !self.has_capture_group_in_replacement {
             if s == prefix {
@@ -403,7 +404,8 @@ impl ParsedRelabelConfig {
 
     /// replaces all the regex matches with the replacement in s.
     pub(crate) fn replace_string_submatches_fast(&self, s: &str) -> String {
-        let (prefix, complete) = self.regex_original.LiteralPrefix();
+        let complete = self.regex.is_complete();
+        let prefix = &self.regex.prefix;
         if complete && !self.has_capture_group_in_replacement && !s.contains(prefix) {
             // Fast path - zero regex matches in s.
             return s.to_string();
@@ -422,7 +424,7 @@ impl ParsedRelabelConfig {
         if let Some(captures) = self.regex_anchored.captures(source) {
             let mut s = String::with_capacity(template.len() + 16);
             captures.expand(template, &mut s);
-            s
+            return s
         }
         source.to_string()
     }
@@ -555,30 +557,15 @@ pub(crate) fn fill_label_references(dst: &mut String, replacement: &str, labels:
     }
 }
 
-static UNSUPPORTED_METRIC_NAME_CHARS_REGEX: OnceLock<Regex> = OnceLock::new();
-static UNSUPPORTED_LABEL_NAME_REGEX: OnceLock<Regex> = OnceLock::new();
-
-/// unsupported_label_name_chars_regex returns regex for unsupported chars in label names.
-fn unsupported_label_name_chars_regex() -> Regex {
-    UNSUPPORTED_LABEL_NAME_REGEX.call_once(|| {
-        Regex::new(r"[^a-zA-Z0-9_]").unwrap()
-    })
-}
-
-fn unsupported_metric_name_chars_regex() -> Regex {
-    UNSUPPORTED_METRIC_NAME_CHARS_REGEX.call_once(|| {
-        Regex::new(r"[^a-zA-Z0-9_:]").unwrap()
-    })
-}
+static UNSUPPORTED_METRIC_NAME_CHARS_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^a-zA-Z0-9_]").unwrap());
+static UNSUPPORTED_LABEL_NAME_REGEX: LazyLock<Regex> = LazyLock::new(||Regex::new(r"[^a-zA-Z0-9_:]").unwrap());
 
 pub fn is_valid_metric_name(name: &str) -> bool {
-    let re = unsupported_metric_name_chars_regex();
-    !re.is_match(name)
+    !UNSUPPORTED_METRIC_NAME_CHARS_REGEX.is_match(name)
 }
 
 pub fn is_valid_label_name(name: &str) -> bool {
-    let re = unsupported_label_name_chars_regex();
-    !re.is_match(name)
+    !UNSUPPORTED_LABEL_NAME_REGEX.is_match(name)
 }
 
 static LABEL_NAME_SANITIZER: OnceLock<FastStringTransformer> = OnceLock::new();
@@ -587,7 +574,7 @@ fn get_metric_name_sanitizer() -> &'static FastStringTransformer {
     static METRIC_NAME_SANITIZER: OnceLock<FastStringTransformer> = OnceLock::new();
     METRIC_NAME_SANITIZER.get_or_init(|| {
         FastStringTransformer::new(|s: &str| -> String {
-            return unsupported_metric_name_chars_regex().replace_all(s, "_").to_string();
+            return UNSUPPORTED_METRIC_NAME_CHARS_REGEX.replace_all(s, "_").to_string();
         })
     })
 }
@@ -595,7 +582,7 @@ fn get_metric_name_sanitizer() -> &'static FastStringTransformer {
 fn label_name_sanitizer() -> &'static FastStringTransformer {
     LABEL_NAME_SANITIZER.get_or_init(|| {
         FastStringTransformer::new(|s: &str| -> String {
-            return unsupported_label_name_chars_regex().replace_all(s, "_").to_string();
+            return UNSUPPORTED_LABEL_NAME_REGEX.replace_all(s, "_").to_string();
         })
     })
 }

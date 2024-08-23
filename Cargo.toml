@@ -20,10 +20,10 @@ htmlescape = "0.3"
 lazy_static = { version = "1.5", features = [] }
 linkme = "0.3"
 lru_time_cache = "0.11"
-metricsql_common = { git = "https://github.com/ccollie/metricsql", branch = "main" }
-metricsql_encoding = { git = "https://github.com/ccollie/metricsql", branch = "main" }
-metricsql_runtime = { git = "https://github.com/ccollie/metricsql", branch = "main" }
-metricsql_parser = { git = "https://github.com/ccollie/metricsql", branch = "main" }
+metricsql_common = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
+metricsql_encoding = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
+metricsql_runtime = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
+metricsql_parser = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
 papaya = "0.1"
 pco = "0.3"
 redis-module = "2.0"

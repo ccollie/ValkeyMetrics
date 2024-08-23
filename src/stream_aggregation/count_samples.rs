@@ -1,13 +1,11 @@
+use crate::stream_aggregation::stream_aggr::{AggrState, FlushCtx};
+use crate::stream_aggregation::{OutputKey, PushSample, AGGR_STATE_SIZE};
 use dashmap::DashMap;
-use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 use papaya::HashMap;
+use std::sync::{Arc, Mutex};
 
-const AGGR_STATE_SIZE: usize = 8; // Assuming aggrStateSize is 8 based on the Go code
 
-type OutputKey = String;
-
-struct CountSamplesAggrState {
+pub(crate) struct CountSamplesAggrState {
     map: HashMap<OutputKey, Arc<Mutex<CountSamplesStateValue>>>,
     m: DashMap<OutputKey, Arc<Mutex<CountSamplesStateValue>>>,
 }
@@ -19,14 +17,17 @@ struct CountSamplesStateValue {
 }
 
 impl CountSamplesAggrState {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             map: HashMap::new(),
             m: DashMap::new()
         }
     }
 
-    fn push_samples(&self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
+}
+
+impl AggrState for CountSamplesAggrState {
+    fn push_samples(&mut self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
         for s in samples {
             let output_key = get_output_key(&s.key);
 
@@ -51,16 +52,12 @@ impl CountSamplesAggrState {
         }
     }
 
-    fn flush_state(&self, ctx: &FlushCtx) {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs() as i64;
-
+    fn flush_state(&mut self, ctx: &mut FlushCtx) {
         for entry in self.m.iter() {
             let mut sv = entry.value().lock().unwrap();
 
-            if now > sv.delete_deadline {
+            let deleted = ctx.flush_timestamp > sv.delete_deadline;
+            if deleted {
                 sv.deleted = true;
                 self.m.remove(&entry.key());
                 continue;
@@ -74,14 +71,4 @@ impl CountSamplesAggrState {
             }
         }
     }
-}
-
-struct FlushCtx {
-    flush_timestamp: i64,
-    idx: usize,
-    append_series: fn(&str, &str, f64),
-}
-
-fn get_output_key(key: &str) -> OutputKey {
-    key.to_string()
 }

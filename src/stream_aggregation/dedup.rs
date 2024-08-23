@@ -1,3 +1,4 @@
+use std::mem::size_of;
 use crate::stream_aggregation::{PushSample, AGGR_STATE_SIZE};
 use dashmap::DashMap;
 use std::sync::{atomic::{AtomicI32, AtomicU64, Ordering}, Arc, Mutex};
@@ -11,8 +12,7 @@ pub struct DedupAggr {
 }
 
 struct DedupAggrShard {
-    state: [Option<Arc<Mutex<DedupAggrState>>>; AGGR_STATE_SIZE],
-    _padding: [u8; 128 - size_of::<[Option<Arc<Mutex<DedupAggrState>>>; AGGR_STATE_SIZE>] % 128],
+    state: [DedupAggrState; AGGR_STATE_SIZE],
 }
 
 pub struct DedupAggrState {
@@ -31,7 +31,6 @@ impl DedupAggr {
     fn new() -> Self {
         let shards = vec![DedupAggrShard {
             state: [None; AGGR_STATE_SIZE],
-            _padding: [0; 128 - size_of::<[Option<Arc<Mutex<DedupAggrState>>>; AGGR_STATE_SIZE>]() % 128],
         }; DEDUP_AGGR_SHARDS_COUNT];
         Self {
             shards,
@@ -40,7 +39,7 @@ impl DedupAggr {
     }
 
     fn size_bytes(&self) -> u64 {
-        let mut n = std::mem::size_of::<DedupAggr>() as u64;
+        let mut n = size_of::<DedupAggr>() as u64;
         let current_idx = self.current_idx.load(Ordering::Relaxed);
         for shard in &self.shards {
             if let Some(state) = &shard.state[current_idx as usize] {
@@ -96,7 +95,8 @@ impl DedupAggr {
             });
         }
         wg.wait().await;
-        self.current_idx.store((self.current_idx.load(Ordering::Relaxed) + 1) % AGGR_STATE_SIZE as i32, Ordering::Relaxed);
+        let current_idx = self.current_idx.load(Ordering::Relaxed);
+        self.current_idx.store((current_idx + 1) % AGGR_STATE_SIZE as i32, Ordering::Relaxed);
     }
 }
 
@@ -119,7 +119,7 @@ fn get_dedup_flush_ctx() -> DedupFlushCtx {
     })
 }
 
-fn put_dedup_flush_ctx(ctx: DedupFlushCtx) {
+fn put_dedup_flush_ctx(mut ctx: DedupFlushCtx) {
     ctx.reset();
     DEDUP_FLUSH_CTX_POOL.lock().unwrap().push(ctx);
 }
