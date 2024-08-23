@@ -41,7 +41,7 @@ pub static VALKEY_PROMQL_SERIES_TYPE: ValkeyType = ValkeyType::new(
 unsafe extern "C" fn rdb_save(rdb: *mut raw::RedisModuleIO, value: *mut c_void) {
     let v = &*value.cast::<TimeSeries>();
     // todo: bincode/postcard
-    raw::save_string(rdb, &serde_json::to_string(&v).unwrap());
+    todo!("bincode::serialize(&v)")
 }
 
 unsafe extern "C" fn rdb_load(rdb: *mut raw::RedisModuleIO, _encver: c_int) -> *mut c_void {
@@ -85,8 +85,10 @@ unsafe extern "C" fn copy(
         let sm = &*(value as *mut TimeSeries);
         let mut new_series = sm.clone();
         new_series.id = TimeSeriesIndex::next_id();
+        // todo: simplify this
         let key = ValkeyString::from_redis_module_string(guard.ctx, tokey);
-        index.index_time_series(&new_series, &key);
+        let tmp = key.to_string();
+        index.index_time_series(&new_series, &tmp);
         Box::into_raw(Box::new(new_series)).cast::<c_void>()
     })
 }
@@ -120,5 +122,6 @@ unsafe extern "C" fn defrag(
 
 pub(crate) fn new_from_valkey_string(c: ValkeyString) -> Result<TimeSeries, serde_json::Error> {
     // let mut val = bincode::deserialize::<TimeSeries>(&c.to_string().as_bytes());
-    serde_json::from_str(&c.to_string())
+    // serde_json::from_str(&c.to_string())
+    todo!("bincode::deserialize::<TimeSeries>(&c.to_string().as_bytes())")
 }

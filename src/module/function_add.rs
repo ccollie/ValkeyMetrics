@@ -35,6 +35,7 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         series.add(timestamp, value, None)?;
         Ok(ValkeyValue::Integer(timestamp))
     });
+
     if let Ok(result) = existing_result {
         args.done()?;
         return Ok(result);

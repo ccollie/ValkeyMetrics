@@ -1,3 +1,4 @@
+#![feature(lazy_cell)]
 extern crate get_size;
 extern crate valkey_module_macros;
 extern crate tinyvec;
@@ -18,7 +19,7 @@ mod storage;
 
 #[cfg(test)]
 mod tests;
-
+mod gorilla;
 
 use crate::globals::{with_timeseries_index};
 use module::*;

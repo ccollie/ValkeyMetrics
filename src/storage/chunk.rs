@@ -1,6 +1,6 @@
 use crate::common::types::{PooledTimestampVec, PooledValuesVec, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
-use crate::storage::compressed_chunk::CompressedChunk;
+use crate::storage::pco_chunk::PcoChunk;
 use crate::storage::merge::merge;
 use crate::storage::uncompressed_chunk::UncompressedChunk;
 use crate::storage::utils::get_timestamp_index;
@@ -10,22 +10,26 @@ use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use get_size::GetSize;
+use crate::storage::gorilla_chunk::GorillaChunk;
 
 pub const MIN_CHUNK_SIZE: usize = 48;
 pub const MAX_CHUNK_SIZE: usize = 1048576;
+pub const OVERFLOW_THRESHOLD: f64 = 0.2;
+
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[derive(GetSize)]
 #[non_exhaustive]
 pub enum ChunkCompression {
-    Uncompressed = 0,
+    Uncompressed = 1,
     #[default]
-    Compressed = 1,
+    Gorilla = 2,
+    Pco = 4,
 }
 
 impl ChunkCompression {
     pub fn is_compressed(&self) -> bool {
-        matches!(self, ChunkCompression::Compressed)
+        !self.is_uncompressed()
     }
 
     pub fn is_uncompressed(&self) -> bool {
@@ -35,7 +39,8 @@ impl ChunkCompression {
     pub fn name(&self) -> &'static str {
         match self {
             ChunkCompression::Uncompressed => "uncompressed",
-            ChunkCompression::Compressed => "compressed",
+            ChunkCompression::Gorilla => "gorilla",
+            ChunkCompression::Pco => "pco",
         }
     }
 }
@@ -50,8 +55,9 @@ impl TryFrom<u8> for ChunkCompression {
     type Error = TsdbError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(ChunkCompression::Uncompressed),
-            1 => Ok(ChunkCompression::Compressed),
+            1 => Ok(ChunkCompression::Uncompressed),
+            2 => Ok(ChunkCompression::Gorilla),
+            4 => Ok(ChunkCompression::Pco),
             _ => Err(TsdbError::InvalidCompression(value.to_string())),
         }
     }
@@ -62,7 +68,8 @@ impl TryFrom<&str> for ChunkCompression {
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         match s {
             s if s.eq_ignore_ascii_case("uncompressed") => Ok(ChunkCompression::Uncompressed),
-            s if s.eq_ignore_ascii_case("compressed") => Ok(ChunkCompression::Compressed),
+            s if s.eq_ignore_ascii_case("gorilla") => Ok(ChunkCompression::Gorilla),
+            s if s.eq_ignore_ascii_case("pco") => Ok(ChunkCompression::Pco),
             _ => Err(TsdbError::InvalidCompression(s.to_string())),
         }
     }
@@ -76,7 +83,6 @@ pub trait Chunk: Sized {
     fn size(&self) -> usize;
     fn remove_range(&mut self, start_ts: Timestamp, end_ts: Timestamp) -> TsdbResult<usize>;
     fn add_sample(&mut self, sample: &Sample) -> TsdbResult<()>;
-
     fn get_range(
         &self,
         start: Timestamp,
@@ -96,11 +102,12 @@ pub trait Chunk: Sized {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 #[derive(GetSize)]
 pub enum TimeSeriesChunk {
     Uncompressed(UncompressedChunk),
-    Compressed(CompressedChunk),
+    Gorilla(GorillaChunk),
+    Pco(PcoChunk),
 }
 
 impl TimeSeriesChunk {
@@ -117,9 +124,13 @@ impl TimeSeriesChunk {
                     UncompressedChunk::new(chunk_size, timestamps.to_vec(), values.to_vec());
                 Ok(Uncompressed(chunk))
             }
-            ChunkCompression::Compressed => {
-                let chunk = CompressedChunk::with_values(chunk_size, timestamps, values)?;
-                Ok(Compressed(chunk))
+            ChunkCompression::Gorilla => {
+                let chunk = GorillaChunk::with_values(chunk_size, timestamps, values)?;
+                Ok(Gorilla(chunk))
+            }
+            ChunkCompression::Pco => {
+                let chunk = PcoChunk::with_values(chunk_size, timestamps, values)?;
+                Ok(Pco(chunk))
             }
         }
     }
@@ -132,7 +143,8 @@ impl TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.is_empty(),
-            Compressed(chunk) => chunk.is_empty(),
+            Gorilla(chunk) => chunk.is_empty(),
+            Pco(chunk) => chunk.is_empty(),
         }
     }
 
@@ -140,7 +152,8 @@ impl TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.max_size,
-            Compressed(chunk) => chunk.max_size,
+            Gorilla(chunk) => chunk.max_size,
+            Pco(chunk) => chunk.max_size,
         }
     }
 
@@ -148,7 +161,8 @@ impl TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.is_full(),
-            Compressed(chunk) => chunk.is_full(),
+            Gorilla(chunk) => chunk.is_full(),
+            Pco(chunk) => chunk.is_full(),
         }
     }
 
@@ -156,7 +170,8 @@ impl TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.bytes_per_sample(),
-            Compressed(chunk) => chunk.bytes_per_sample(),
+            Gorilla(chunk) => chunk.bytes_per_sample(),
+            Pco(chunk) => chunk.bytes_per_sample(),
         }
     }
 
@@ -182,7 +197,8 @@ impl TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.clear(),
-            Compressed(chunk) => chunk.clear(),
+            Gorilla(chunk) => chunk.clear(),
+            Pco(chunk) => chunk.clear(),
         }
     }
 
@@ -213,7 +229,8 @@ impl TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.process_range(start, end, state, f),
-            Compressed(chunk) => chunk.process_range(start, end, state, f),
+            Gorilla(chunk) => chunk.process_range(start, end, state, f),
+            Pco(chunk) => chunk.process_range(start, end, state, f),
         }
     }
 
@@ -241,7 +258,8 @@ impl TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.set_data(timestamps, values),
-            Compressed(chunk) => chunk.set_data(timestamps, values),
+            Gorilla(chunk) => chunk.set_data(timestamps, values),
+            Pco(chunk) => chunk.set_data(timestamps, values),
         }
     }
 
@@ -365,7 +383,8 @@ impl Chunk for TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(uncompressed) => uncompressed.first_timestamp(),
-            Compressed(chunk) => chunk.first_timestamp(),
+            Gorilla(gorilla) => gorilla.first_timestamp(),
+            Pco(compressed) => compressed.first_timestamp(),
         }
     }
 
@@ -373,7 +392,8 @@ impl Chunk for TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.last_timestamp(),
-            Compressed(chunk) => chunk.last_timestamp(),
+            Gorilla(chunk) => chunk.last_timestamp(),
+            Pco(chunk) => chunk.last_timestamp(),
         }
     }
 
@@ -381,7 +401,8 @@ impl Chunk for TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.num_samples(),
-            Compressed(chunk) => chunk.num_samples(),
+            Gorilla(chunk) => chunk.num_samples(),
+            Pco(chunk) => chunk.num_samples(),
         }
     }
 
@@ -389,7 +410,8 @@ impl Chunk for TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.last_value(),
-            Compressed(chunk) => chunk.last_value(),
+            Gorilla(chunk) => chunk.last_value(),
+            Pco(chunk) => chunk.last_value(),
         }
     }
 
@@ -397,7 +419,8 @@ impl Chunk for TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.size(),
-            Compressed(chunk) => chunk.size(),
+            Gorilla(chunk) => chunk.size(),
+            Pco(chunk) => chunk.size(),
         }
     }
 
@@ -405,7 +428,8 @@ impl Chunk for TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.remove_range(start_ts, end_ts),
-            Compressed(chunk) => chunk.remove_range(start_ts, end_ts),
+            Gorilla(chunk) => chunk.remove_range(start_ts, end_ts),
+            Pco(chunk) => chunk.remove_range(start_ts, end_ts),
         }
     }
 
@@ -413,7 +437,8 @@ impl Chunk for TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.add_sample(sample),
-            Compressed(chunk) => chunk.add_sample(sample),
+            Gorilla(chunk) => chunk.add_sample(sample),
+            Pco(chunk) => chunk.add_sample(sample),
         }
     }
 
@@ -427,7 +452,8 @@ impl Chunk for TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.get_range(start, end, timestamps, values),
-            Compressed(chunk) => chunk.get_range(start, end, timestamps, values),
+            Gorilla(chunk) => chunk.get_range(start, end, timestamps, values),
+            Pco(chunk) => chunk.get_range(start, end, timestamps, values),
         }
     }
 
@@ -439,7 +465,8 @@ impl Chunk for TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.upsert_sample(sample, dp_policy),
-            Compressed(chunk) => chunk.upsert_sample(sample, dp_policy),
+            Gorilla(chunk) => chunk.upsert_sample(sample, dp_policy),
+            Pco(chunk) => chunk.upsert_sample(sample, dp_policy),
         }
     }
 
@@ -450,7 +477,8 @@ impl Chunk for TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => Ok(Uncompressed(chunk.split()?)),
-            Compressed(chunk) => Ok(Compressed(chunk.split()?)),
+            Gorilla(chunk) => Ok(Gorilla(chunk.split()?)),
+            Pco(chunk) => Ok(Pco(chunk.split()?)),
         }
     }
 }

@@ -2,23 +2,26 @@ use crate::common::types::Timestamp;
 use crate::common::METRIC_NAME_LABEL;
 use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::{parse_series_selector, TimestampRangeValue};
-use crate::module::result::get_ts_metric_selector;
+use crate::module::result::{format_array_result, get_ts_metric_selector};
 use crate::module::{normalize_range_args, parse_timestamp_arg, VALKEY_PROMQL_SERIES_TYPE};
 use crate::storage::time_series::TimeSeries;
 use metricsql_parser::label::Matchers;
 use valkey_module::{
     Context as RedisContext, Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue,
 };
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet};
 use valkey_module::redisvalue::ValkeyValueKey;
 // todo: series count
 
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#finding-series-by-label-matchers
 pub(crate) fn series(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let label_args = parse_metadata_command_args(ctx, args, true)?;
+    let limit = label_args.limit.unwrap_or(usize::MAX);
 
     let values = with_matched_series(ctx, Vec::new(), label_args, |mut acc, ts| {
-        acc.push(get_ts_metric_selector(ts));
+        if acc.len() < limit {
+            acc.push(get_ts_metric_selector(ts));
+        }
         acc
     })?;
 
@@ -36,6 +39,8 @@ pub(crate) fn cardinality(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResul
 pub(crate) fn label_names(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     // todo: this does a lot of cloning :-(
     let label_args = parse_metadata_command_args(ctx, args, false)?;
+    let limit = label_args.limit.unwrap_or(usize::MAX);
+
     let mut acc: BTreeSet<String> = BTreeSet::new();
     acc.insert(METRIC_NAME_LABEL.to_string());
 
@@ -48,6 +53,7 @@ pub(crate) fn label_names(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResul
 
     let labels = names
         .iter()
+        .take(limit)
         .map(|v| ValkeyValue::from(v.clone()))
         .collect::<Vec<_>>();
 
@@ -58,6 +64,7 @@ pub(crate) fn label_names(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResul
 // https://prometheus.io/docs/prometheus/latest/querying/api/#querying-label-values
 pub(crate) fn label_values(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let label_args = parse_metadata_command_args(ctx, args, true)?;
+    let limit = label_args.limit.unwrap_or(usize::MAX);
 
     let acc: BTreeSet<String> = BTreeSet::new();
     let names = with_matched_series(ctx, acc, label_args, |mut acc, ts| {
@@ -67,7 +74,9 @@ pub(crate) fn label_values(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
         acc
     })?;
 
-    let label_values = names.iter()
+    let label_values = names
+        .iter()
+        .take(limit)
         .map(|v| ValkeyValue::from(v.clone()))
         .collect::<Vec<_>>();
 
@@ -79,22 +88,6 @@ fn format_string_array_result(arr: &[String]) -> ValkeyValue {
     format_array_result(converted)
 }
 
-fn format_array_result(arr: Vec<ValkeyValue>) -> ValkeyValue {
-    let map: HashMap<ValkeyValueKey, ValkeyValue> = [
-        (
-            ValkeyValueKey::from("status"),
-            ValkeyValue::SimpleStringStatic("success"),
-        ),
-        (
-            ValkeyValueKey::from("data"),
-            ValkeyValue::Array(arr),
-        ),
-    ]
-        .into_iter()
-        .collect();
-
-    ValkeyValue::Map(map)
-}
 
 pub(crate) fn with_matched_series<F, R>(ctx: &Context, mut acc: R, args: MetadataFunctionArgs, mut f: F) -> ValkeyResult<R>
 where
@@ -129,12 +122,14 @@ pub(crate) struct MetadataFunctionArgs {
     start: Timestamp,
     end: Timestamp,
     matchers: Vec<Matchers>,
+    limit: Option<usize>,
 }
 
 static CMD_ARG_START: &str = "START";
 static CMD_ARG_END: &str = "END";
 static CMD_ARG_MATCH: &str = "MATCH";
 static CMD_ARG_LABEL: &str = "LABEL";
+static CMD_ARG_LIMIT: &str = "LIMIT";
 
 fn parse_metadata_command_args(
     _ctx: &RedisContext,
@@ -146,6 +141,7 @@ fn parse_metadata_command_args(
     let mut matchers = Vec::with_capacity(4);
     let mut start_value: Option<TimestampRangeValue> = None;
     let mut end_value: Option<TimestampRangeValue> = None;
+    let mut limit: Option<usize> = None;
 
     while let Ok(arg) = args.next_str() {
         match arg {
@@ -165,6 +161,13 @@ fn parse_metadata_command_args(
                         return Err(ValkeyError::Str("ERR invalid MATCH series selector"));
                     }
                 }
+            }
+            arg if arg.eq_ignore_ascii_case(CMD_ARG_LIMIT) => {
+                let next = args.next_u64()?;
+                if next > usize::MAX as u64 {
+                    return Err(ValkeyError::Str("ERR LIMIT too large"));
+                }
+                limit = Some(next as usize);
             }
             _ => {
                 let msg = format!("ERR invalid argument '{}'", arg);
@@ -186,5 +189,6 @@ fn parse_metadata_command_args(
         start,
         end,
         matchers,
+        limit,
     })
 }

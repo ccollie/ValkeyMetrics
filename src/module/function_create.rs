@@ -16,6 +16,8 @@ const CMD_ARG_CHUNK_SIZE: &str = "CHUNK_SIZE";
 const CMD_ARG_DEDUPE_INTERVAL: &str = "DEDUPE_INTERVAL";
 const CMD_ARG_LABELS: &str = "LABELS";
 const CMD_ARG_METRIC_NAME: &str = "METRIC_NAME";
+const CMD_ARG_SIGNIFICANT_DIGITS: &str = "SIGNIFICANT_DIGITS";
+const MAX_SIGNIFICANT_DIGITS: u8 = 16;
 
 pub fn create(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let (parsed_key, options) = parse_create_options(args)?;
@@ -71,6 +73,14 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
             arg if arg.eq_ignore_ascii_case(CMD_ARG_METRIC_NAME) => {
                 options.metric_name = Some(args.next_string()?);
             }
+            arg if arg.eq_ignore_ascii_case(CMD_ARG_SIGNIFICANT_DIGITS) => {
+                let next = args.next_u64()?;
+                if next > MAX_SIGNIFICANT_DIGITS as u64 {
+                    let msg = "ERR SIGNIFICANT_DIGITS must be between 0 and 16";
+                    return Err(ValkeyError::Str(msg));
+                }
+                options.significant_digits = Some(next as u8);
+            }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_CHUNK_SIZE) => {
                 let next = args.next_str()?;
                 if let Ok(val) = parse_chunk_size(next) {
@@ -106,7 +116,8 @@ pub(crate) fn create_series(
     let mut ts = TimeSeries::with_options(options)?;
     with_timeseries_index(ctx, |index| {
         ts.id = TimeSeriesIndex::next_id();
-        index.index_time_series(&ts, key);
+        let key= key.to_string();
+        index.index_time_series(&ts, &key);
         Ok(ts)
     })
 }

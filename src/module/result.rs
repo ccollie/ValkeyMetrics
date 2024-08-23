@@ -40,7 +40,7 @@ pub(crate) fn metric_name_to_valkey_value(
         HashMap::with_capacity(metric_name.tags.len() + 1);
     if !metric_name.metric_group.is_empty() {
         map.insert(
-            ValkeyValueKey::String(METRIC_NAME_LABEL.to_string()),
+            ValkeyValueKey::from(METRIC_NAME_LABEL),
             metric_name.metric_group.clone().into(),
         );
     }
@@ -48,7 +48,7 @@ pub(crate) fn metric_name_to_valkey_value(
         map.insert(ValkeyValueKey::from(META_KEY_LABEL), ValkeyValue::from(key));
     }
     for Tag { key, value } in metric_name.tags.iter() {
-        map.insert(ValkeyValueKey::String(key.into()), value.into());
+        map.insert(ValkeyValueKey::from(key), value.into());
     }
 
     ValkeyValue::Map(map)
@@ -112,8 +112,8 @@ pub fn to_matrix_result(vals: Vec<QueryResult>) -> ValkeyValue {
             let metric_name = metric_name_to_valkey_value(&val.metric, None);
             let samples = samples_to_result(&val.timestamps, &val.values);
             let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
-                (ValkeyValueKey::String("metric".to_string()), metric_name),
-                (ValkeyValueKey::String("values".to_string()), samples),
+                (ValkeyValueKey::from("metric"), metric_name),
+                (ValkeyValueKey::from("values"), samples),
             ]
             .into_iter()
             .collect();
@@ -157,8 +157,8 @@ pub fn to_instant_vector_result(metric: &MetricName, ts: Timestamp, value: f64) 
     let metric_name = metric_name_to_valkey_value(metric, None);
     let sample = sample_to_result(ts, value);
     let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
-        (ValkeyValueKey::String("metric".to_string()), metric_name),
-        (ValkeyValueKey::String("value".to_string()), sample),
+        (ValkeyValueKey::from("metric"), metric_name),
+        (ValkeyValueKey::from("value"), sample),
     ]
     .into_iter()
     .collect();
@@ -170,8 +170,8 @@ fn to_single_vector_result(metric: &MetricName, ts: Timestamp, value: f64) -> Va
     let metric_name = metric_name_to_valkey_value(metric, None);
     let sample = sample_to_result(ts, value);
     let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
-        (ValkeyValueKey::String("metric".to_string()), metric_name),
-        (ValkeyValueKey::String("value".to_string()), sample),
+        (ValkeyValueKey::from("metric"), metric_name),
+        (ValkeyValueKey::from("value"), sample),
     ]
     .into_iter()
     .collect();
@@ -182,21 +182,18 @@ fn to_single_vector_result(metric: &MetricName, ts: Timestamp, value: f64) -> Va
 pub fn to_success_result(data: ValkeyValue, response_type: ResultType) -> ValkeyValue {
     let data_map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
         (
-            ValkeyValueKey::String("resultType".to_string()),
+            ValkeyValueKey::from("resultType"),
             ValkeyValue::SimpleStringStatic(response_type.as_str()),
         ),
-        (ValkeyValueKey::String("result".to_string()), data),
+        (ValkeyValueKey::from("result"), data),
     ]
     .into_iter()
     .collect();
 
     let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
+        status_element(true),
         (
-            ValkeyValueKey::String("status".to_string()),
-            ValkeyValue::SimpleStringStatic("success"),
-        ),
-        (
-            ValkeyValueKey::String("data".to_string()),
+            ValkeyValueKey::from("data"),
             ValkeyValue::Map(data_map),
         ),
     ]
@@ -204,6 +201,33 @@ pub fn to_success_result(data: ValkeyValue, response_type: ResultType) -> Valkey
     .collect();
 
     ValkeyValue::Map(map)
+}
+
+pub fn format_string_array_result(arr: &[String]) -> ValkeyValue {
+    let converted = arr.iter().map(ValkeyValue::from).collect();
+    format_array_result(converted)
+}
+
+pub fn format_array_result(arr: Vec<ValkeyValue>) -> ValkeyValue {
+    let map: HashMap<ValkeyValueKey, ValkeyValue> = [
+        status_element(true),
+        (
+            ValkeyValueKey::from("data"),
+            ValkeyValue::Array(arr),
+        ),
+    ]
+        .into_iter()
+        .collect();
+
+    ValkeyValue::Map(map)
+}
+
+fn status_element(success: bool) -> (ValkeyValueKey, ValkeyValue) {
+    let status = if success { "success" } else { "error" };
+    (
+        ValkeyValueKey::from("status"),
+        ValkeyValue::SimpleStringStatic(status),
+    )
 }
 
 pub fn std_duration_to_redis_value(duration: &std::time::Duration) -> ValkeyValue {

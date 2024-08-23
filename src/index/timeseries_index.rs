@@ -25,7 +25,7 @@ pub type LabelsBitmap = BTreeMap<String, RoaringTreemap>;
 static TIMESERIES_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub fn next_timeseries_id() -> u64 {
-    TIMESERIES_ID_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    TIMESERIES_ID_SEQUENCE.fetch_add(1, Ordering::SeqCst)
 }
 
 
@@ -59,7 +59,7 @@ impl IndexInner {
         self.series_sequence.store(1, Ordering::Relaxed);
     }
 
-    fn index_time_series(&mut self, ts: &TimeSeries, key: &ValkeyString) {
+    fn index_time_series(&mut self, ts: &TimeSeries, key: &str) {
         debug_assert!(ts.id != 0);
 
         self.id_to_key.insert(ts.id, key.to_string());
@@ -85,7 +85,7 @@ impl IndexInner {
         }
     }
 
-    fn reindex_timeseries(&mut self, ts: &TimeSeries, key: &ValkeyString) {
+    fn reindex_timeseries(&mut self, ts: &TimeSeries, key: &str) {
         self.remove_series_by_id(ts.id, &ts.metric_name, &ts.labels);
         self.index_time_series(ts, key);
     }
@@ -150,12 +150,9 @@ impl IndexInner {
         index_series_by_label_internal(&mut self.label_to_ts, &mut self.label_kv_to_ts, ts_id, label, value)
     }
 
-    pub(super) fn get_ids_by_metric_name(&self, metric: &str) -> RoaringTreemap {
+    pub(super) fn get_ids_by_metric_name(&self, metric: &str) -> Option<&RoaringTreemap> {
         let key = format!("{}={}", METRIC_NAME_LABEL, metric);
-        if let Some(ts_ids) = self.label_kv_to_ts.get(&key) {
-            return ts_ids.clone();
-        }
-        RoaringTreemap::new()
+        self.label_kv_to_ts.get(&key)
     }
 
     /// Returns a list of all series matching `matchers` while having samples in the range
@@ -219,13 +216,13 @@ impl TimeSeriesIndex {
         TIMESERIES_ID_SEQUENCE.fetch_add(1, Ordering::SeqCst)
     }
 
-    pub(crate) fn index_time_series(&self, ts: &TimeSeries, key: &ValkeyString) {
+    pub(crate) fn index_time_series(&self, ts: &TimeSeries, key: &str) {
         debug_assert!(ts.id != 0);
         let mut inner = self.inner.write().unwrap();
         inner.index_time_series(ts, key);
     }
 
-    pub fn reindex_timeseries(&self, ts: &TimeSeries, key: &ValkeyString) {
+    pub fn reindex_timeseries(&self, ts: &TimeSeries, key: &str) {
         let mut inner = self.inner.write().unwrap();
         inner.reindex_timeseries(ts, key);
     }
@@ -258,13 +255,15 @@ impl TimeSeriesIndex {
         false
     }
 
+    // todo: store Arc<RoaringTreeMap> in the index
     pub(super) fn get_ids_by_metric_name(&self, metric: &str) -> RoaringTreemap {
         let inner = self.inner.read().unwrap();
         let key = format!("{}={}", METRIC_NAME_LABEL, metric);
-        if let Some(ts_ids) = inner.label_kv_to_ts.get(&key) {
-            return ts_ids.clone();
+        if let Some(bmp) = inner.label_kv_to_ts.get(&key) {
+            bmp.clone()
+        } else {
+            RoaringTreemap::new()
         }
-        RoaringTreemap::new()
     }
 
     pub(crate) fn rename_series(&self, ctx: &Context, new_key: &ValkeyString) -> bool {

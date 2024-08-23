@@ -13,10 +13,8 @@ chrono = { version = "0.4", features = ["serde"] }
 dynamic-lru-cache = "0.2"
 enquote = "1.1"
 get-size = { version = "^0.1", features = ["derive"] }
-gtmpl = "0.7.1"
-gtmpl_derive = "0.5"
-gtmpl_value = "0.5"
 htmlescape = "0.3"
+integer-encoding = "4.0"
 linkme = "0.3"
 lru_time_cache = "0.11"
 metricsql_common = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
@@ -36,7 +34,6 @@ regex-syntax = { version = "0.8", features = [] }
 roaring = { version = "0.10", features = ["serde"]}
 timer = "0.2"
 tinyvec = "1.8"
-tsz = "0.1.4"
 url = { version = "2.5", features = ["serde"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 rand = "0.8.5"
@@ -46,5 +43,10 @@ valkey-module = "0.1"
 valkey-module-macros = "0.1"
 async-trait = "0.1"
 anyhow = "1.0.86"
+byteorder = "1.5.0"
+
+[dev-dependencies]
+test-case = "3.3.1"
+
 [lib]
 crate-type=["rlib", "cdylib"]

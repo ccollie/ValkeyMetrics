@@ -1,3 +1,4 @@
+use std::mem::size_of;
 use crate::error::{TsdbError, TsdbResult};
 
 pub fn encode_usize(x: usize) -> [u8; 4] {

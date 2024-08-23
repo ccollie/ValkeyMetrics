@@ -75,7 +75,3 @@ pub fn stop_valkey_server(child: &mut ChildGuard) {
 pub fn error_cannot_find_iset_key(key_name: &str) -> String {
     format!("An error was signalled by the server: Interval Set '{key_name}' does not exist!", key_name = key_name)
 }
-
-pub fn error_cannot_find_iset_member(member_name: &str) -> String {
-    format!("An error was signalled by the server: Interval Set member '{member_name}' does not exist!", member_name = member_name)
-}

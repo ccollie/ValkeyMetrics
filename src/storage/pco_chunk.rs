@@ -4,42 +4,45 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
-use crate::storage::{DEFAULT_CHUNK_SIZE_BYTES, DuplicatePolicy, F64_SIZE, I64_SIZE, Sample, SeriesSlice, VEC_BASE_SIZE};
 use crate::storage::chunk::Chunk;
-use crate::storage::serialization::{compress_timestamps, compress_values, COMPRESSION_PARALLELIZATION_THRESHOLD, CompressionOptions, decompress_timestamps, decompress_values};
 use crate::storage::utils::{get_timestamp_index_bounds, trim_vec_data};
+use crate::storage::{DuplicatePolicy, Sample, SeriesSlice, DEFAULT_CHUNK_SIZE_BYTES, F64_SIZE, I64_SIZE, VEC_BASE_SIZE};
+use metricsql_encoding::encoders::pco::{decode as pco_decode, encode as pco_encode, encode_with_options as pco_encode_with_options, CompressorConfig};
+
+/// items above this count will cause value and timestamp encoding/decoding to happen in parallel
+pub(super) const COMPRESSION_PARALLELIZATION_THRESHOLD: usize = 1024;
 
 /// `CompressedBlock` holds information about location and time range of a block of compressed data.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[derive(GetSize)]
-pub struct CompressedChunk {
-    pub min_time: i64,
-    pub max_time: i64,
+pub struct PcoChunk {
+    pub min_time: Timestamp,
+    pub max_time: Timestamp,
     pub max_size: usize,
     pub last_value: f64,
-    pub options: CompressionOptions,
     /// number of compressed samples
     pub count: usize,
     pub timestamps: Vec<u8>,
     pub values: Vec<u8>,
+    buf: Vec<u8>,
 }
 
-impl Default for CompressedChunk {
+impl Default for PcoChunk {
     fn default() -> Self {
         Self {
             min_time: 0,
             max_time: i64::MAX,
             max_size: DEFAULT_CHUNK_SIZE_BYTES,
             last_value: 0.0,
-            options: CompressionOptions::default(),
             count: 0,
             timestamps: Vec::new(),
             values: Vec::new(),
+            buf: vec![],
         }
     }
 }
 
-impl CompressedChunk {
+impl PcoChunk {
     pub fn with_max_size(max_size: usize) -> Self {
         let mut res = Self::default();
         res.max_size = max_size;
@@ -107,8 +110,8 @@ impl CompressedChunk {
 
             // then we compress in parallel
             let _ = rayon::join(
-                || compress_timestamps(&mut t_data, timestamps, &self.options).ok(),
-                || compress_values(&mut v_data, values, &self.options).ok(),
+                || compress_timestamps(&mut t_data, timestamps).ok(),
+                || compress_values(&mut v_data, values).ok(),
             );
             // then we put the buffers back
             self.timestamps = t_data;
@@ -116,8 +119,8 @@ impl CompressedChunk {
         } else {
             self.timestamps.clear();
             self.values.clear();
-            compress_timestamps(&mut self.timestamps, timestamps, &self.options)?;
-            compress_values(&mut self.values, values, &self.options)?;
+            compress_timestamps(&mut self.timestamps, timestamps)?;
+            compress_values(&mut self.values, values)?;
         }
 
         self.timestamps.shrink_to_fit();
@@ -241,7 +244,7 @@ impl CompressedChunk {
     }
 }
 
-impl Chunk for CompressedChunk {
+impl Chunk for PcoChunk {
     fn first_timestamp(&self) -> Timestamp {
         self.min_time
     }
@@ -361,7 +364,6 @@ impl Chunk for CompressedChunk {
     {
         let mut result = Self::default();
         result.max_size = self.max_size;
-        result.options = self.options.clone();
 
         if self.is_empty() {
             return Ok(result);
@@ -385,7 +387,39 @@ impl Chunk for CompressedChunk {
     }
 }
 
+fn compress_values(compressed: &mut Vec<u8>, values: &[f64]) -> TsdbResult<()> {
+    if values.is_empty() {
+        return Ok(());
+    }
+    pco_encode(values, compressed)
+        .map_err(|e| TsdbError::CannotSerialize(format!("values: {}", e)))
+}
 
+fn decompress_values(compressed: &[u8], dst: &mut Vec<f64>) -> TsdbResult<()> {
+    if compressed.is_empty() {
+        return Ok(());
+    }
+    pco_decode(compressed, dst)
+        .map_err(|e| TsdbError::CannotDeserialize(format!("values: {}", e)))
+}
+
+fn compress_timestamps(compressed: &mut Vec<u8>, timestamps: &[Timestamp]) -> TsdbResult<()> {
+    if timestamps.is_empty() {
+        return Ok(());
+    }
+    let mut config = CompressorConfig::default();
+    config.delta_encoding_order = 2;
+    pco_encode_with_options(timestamps, compressed, config)
+        .map_err(|e| TsdbError::CannotSerialize(format!("timestamps: {}", e)))
+}
+
+fn decompress_timestamps(compressed: &[u8], dst: &mut Vec<i64>) -> TsdbResult<()> {
+    if compressed.is_empty() {
+        return Ok(());
+    }
+    pco_decode(compressed, dst)
+        .map_err(|e| TsdbError::CannotDeserialize(format!("timestamps: {}", e)))
+}
 
 #[cfg(test)]
 mod tests {
@@ -394,21 +428,20 @@ mod tests {
     use rand::Rng;
 
     use crate::error::TsdbError;
-    use crate::storage::{DuplicatePolicy, Sample};
     use crate::storage::chunk::Chunk;
-    use crate::storage::compressed_chunk::{CompressedChunk, decompress_timestamps};
-    use crate::storage::serialization::{compress_timestamps, CompressionOptimization, CompressionOptions};
+    use crate::storage::pco_chunk::PcoChunk;
     use crate::storage::series_data::SeriesData;
+    use crate::storage::{DuplicatePolicy, Sample};
     use crate::tests::generators::{create_rng, generate_series_data, generate_timestamps, GeneratorOptions, RandAlgo};
 
-    fn decompress(chunk: &CompressedChunk) -> SeriesData {
+    fn decompress(chunk: &PcoChunk) -> SeriesData {
         let mut timestamps = vec![];
         let mut values = vec![];
         chunk.decompress(&mut timestamps, &mut values).unwrap();
         SeriesData::new_with_data(timestamps, values)
     }
 
-    pub(crate) fn saturate_compressed_chunk(chunk: &mut CompressedChunk) {
+    pub(crate) fn saturate_compressed_chunk(chunk: &mut PcoChunk) {
         let mut rng = create_rng(None).unwrap();
         let mut ts: i64 = 1;
         loop {
@@ -427,72 +460,26 @@ mod tests {
         }
     }
 
-    fn populate_series_data(chunk: &mut CompressedChunk, samples: usize) {
+    fn populate_series_data(chunk: &mut PcoChunk, samples: usize) {
         let mut options = GeneratorOptions::default();
         options.samples = samples;
         let data = generate_series_data(&options).unwrap();
         chunk.set_data(&data.timestamps, &data.values).unwrap();
     }
 
-    fn compare_chunks(chunk1: &CompressedChunk, chunk2: &CompressedChunk) {
+    fn compare_chunks(chunk1: &PcoChunk, chunk2: &PcoChunk) {
         assert_eq!(chunk1.min_time, chunk2.min_time, "min_time");
         assert_eq!(chunk1.max_time, chunk2.max_time);
         assert_eq!(chunk1.max_size, chunk2.max_size);
         assert_eq!(chunk1.last_value, chunk2.last_value);
-        assert_eq!(chunk1.options, chunk2.options);
         assert_eq!(chunk1.count, chunk2.count, "mismatched counts {} vs {}", chunk1.count, chunk2.count);
         assert_eq!(chunk1.timestamps, chunk2.timestamps);
         assert_eq!(chunk1.values, chunk2.values);
     }
 
     #[test]
-    fn test_compress_timestamps() {
-        use CompressionOptimization::*;
-
-        fn run_test(option: &CompressionOptions) {
-            let timestamps: Vec<i64> = generate_timestamps(1000, 1000, Duration::from_secs(5));
-
-            let mut dst: Vec<u8> = Vec::with_capacity(1000);
-            assert!(compress_timestamps(&mut dst, &timestamps, &option).is_ok());
-
-            let mut decompressed: Vec<i64> = Vec::with_capacity(1000);
-            assert!(decompress_timestamps(&dst, &mut decompressed).is_ok());
-
-            assert_eq!(timestamps, decompressed);
-        }
-
-        let mut options = CompressionOptions::default();
-        options.optimization = Speed;
-        run_test(&options);
-
-        options.optimization = Size;
-        run_test(&options);
-    }
-
-    #[test]
-    fn test_compress_timestamps_size_optimization() {
-
-        fn compress(option: CompressionOptimization) -> Vec<u8> {
-            let timestamps: Vec<i64> = generate_timestamps(1000, 1000, Duration::from_secs(5));
-            let mut dst: Vec<u8> = Vec::with_capacity(1000);
-            let options = CompressionOptions {
-                optimization: option,
-                ..Default::default()
-            };
-            assert!(compress_timestamps(&mut dst, &timestamps, &options).is_ok());
-            dst
-        }
-
-        let normal = compress(CompressionOptimization::default());
-        let speed = compress(CompressionOptimization::Speed);
-        let size = compress(CompressionOptimization::Size);
-
-        assert!(size.len() < normal.len());
-        assert!(size.len() < speed.len());
-    }
-        #[test]
     fn test_chunk_compress() {
-        let mut chunk = CompressedChunk::default();
+        let mut chunk = PcoChunk::default();
         let mut options = GeneratorOptions::default();
         options.samples = 1000;
         options.range = 0.0..100.0;
@@ -509,7 +496,7 @@ mod tests {
 
     #[test]
     fn test_compress_decompress() {
-        let mut chunk = CompressedChunk::default();
+        let mut chunk = PcoChunk::default();
         let timestamps = generate_timestamps(1000, 1000, Duration::from_secs(5));
         let values = timestamps.iter().map(|x| *x as f64).collect::<Vec<f64>>();
 
@@ -523,7 +510,7 @@ mod tests {
 
     #[test]
     fn test_clear() {
-        let mut chunk = CompressedChunk::default();
+        let mut chunk = PcoChunk::default();
         let mut options = GeneratorOptions::default();
         options.samples = 500;
         let data = generate_series_data(&options).unwrap();
@@ -544,7 +531,7 @@ mod tests {
             let mut options = GeneratorOptions::default();
             options.samples = 500;
             let data = generate_series_data(&options).unwrap();
-            let mut chunk = CompressedChunk::with_max_size(chunk_size);
+            let mut chunk = PcoChunk::with_max_size(chunk_size);
 
             for mut sample in data.iter() {
                 chunk.upsert_sample(&mut sample, DuplicatePolicy::KeepLast).unwrap();
@@ -555,7 +542,7 @@ mod tests {
 
     #[test]
     fn test_upsert_while_at_capacity() {
-        let mut chunk = CompressedChunk::with_max_size(4096);
+        let mut chunk = PcoChunk::with_max_size(4096);
         saturate_compressed_chunk(&mut chunk);
 
         let timestamp = chunk.last_timestamp();
@@ -577,7 +564,7 @@ mod tests {
 
     #[test]
     fn test_split() {
-        let mut chunk = CompressedChunk::default();
+        let mut chunk = PcoChunk::default();
         let mut options = GeneratorOptions::default();
         options.samples = 500;
         let data = generate_series_data(&options).unwrap();
@@ -604,7 +591,7 @@ mod tests {
 
     #[test]
     fn test_split_odd() {
-        let mut chunk = CompressedChunk::default();
+        let mut chunk = PcoChunk::default();
         let mut options = GeneratorOptions::default();
         options.samples = 51;
         let data = generate_series_data(&options).unwrap();

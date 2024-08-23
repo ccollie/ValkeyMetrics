@@ -1,3 +1,5 @@
+use std::mem::size_of;
+
 pub(crate) const I64_SIZE: usize = size_of::<i64>();
 pub(crate) const F64_SIZE: usize = size_of::<f64>();
 pub(crate) const VEC_BASE_SIZE: usize = 24;

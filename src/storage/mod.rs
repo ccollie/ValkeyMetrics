@@ -3,14 +3,14 @@ use ahash::AHashMap;
 use valkey_module::{ValkeyError, ValkeyString};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
+use std::mem::size_of;
 use std::str::FromStr;
 use std::time::Duration;
 use get_size::GetSize;
 
 mod chunk;
-mod compressed_chunk;
+mod pco_chunk;
 mod constants;
-mod dedup;
 mod encoding;
 mod merge;
 mod slice;
@@ -20,10 +20,9 @@ mod utils;
 pub(crate) mod series_data;
 mod defrag;
 mod serialization;
-mod compressed_segment;
 mod types;
 mod timestamps_filter_iterator;
-mod tsz_buffered_read;
+mod gorilla_chunk;
 
 use crate::error::{TsdbError, TsdbResult};
 pub(super) use chunk::*;
@@ -34,74 +33,7 @@ use crate::aggregators::Aggregator;
 use crate::module::arg_parse::TimestampRangeValue;
 
 pub type Timestamp = metricsql_runtime::prelude::Timestamp;
-
-/// Represents a data point in time series.
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Sample {
-    /// Timestamp from epoch.
-    pub(crate) timestamp: Timestamp,
-
-    /// Value for this data point.
-    pub(crate) value: f64,
-}
-
-impl Sample {
-    /// Create a new DataPoint from given time and value.
-    pub fn new(time: Timestamp, value: f64) -> Self {
-        Sample {
-            timestamp: time,
-            value,
-        }
-    }
-
-    /// Get time.
-    pub fn get_time(&self) -> i64 {
-        self.timestamp
-    }
-
-    /// Get value.
-    pub fn get_value(&self) -> f64 {
-        self.value
-    }
-}
-
-impl Clone for Sample {
-    fn clone(&self) -> Sample {
-        Sample {
-            timestamp: self.get_time(),
-            value: self.get_value(),
-        }
-    }
-}
-
-impl PartialEq for Sample {
-    #[inline]
-    fn eq(&self, other: &Sample) -> bool {
-        // Two data points are equal if their times are equal, and their values are either equal or are NaN.
-        if self.timestamp == other.timestamp {
-            return if self.value.is_nan() {
-                other.value.is_nan()
-            } else {
-                self.value == other.value
-            }
-        }
-        false
-    }
-}
-
-impl Eq for Sample {}
-
-impl Ord for Sample {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.timestamp.cmp(&other.timestamp)
-    }
-}
-
-impl PartialOrd for Sample {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
+pub type Sample = metricsql_runtime::prelude::Sample;
 
 pub const SAMPLE_SIZE: usize = size_of::<Sample>();
 
@@ -280,6 +212,7 @@ pub struct TimeSeriesOptions {
     pub duplicate_policy: Option<DuplicatePolicy>,
     pub dedupe_interval: Option<Duration>,
     pub labels: Option<AHashMap<String, String>>,
+    pub significant_digits: Option<u8>,
 }
 
 impl TimeSeriesOptions {
@@ -292,6 +225,7 @@ impl TimeSeriesOptions {
             duplicate_policy: None,
             dedupe_interval: None,
             labels: Default::default(),
+            significant_digits: None
         }
     }
 

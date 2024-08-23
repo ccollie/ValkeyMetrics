@@ -1,13 +1,19 @@
+use super::prefix_cache::{PrefixCache, PrefixSuffix};
 use super::regexp_cache::{RegexpCache, RegexpCacheValue};
-use regex::{Regex, Error as RegexError};
+use crate::common::METRIC_NAME_LABEL;
+use metricsql_common::regex_util::match_handlers::StringMatchHandler;
+use metricsql_common::regex_util::{
+    get_match_func_for_or_suffixes,
+    get_optimized_re_match_func,
+    regex_utils,
+    OptimizedMatchFunc,
+    FULL_MATCH_COST,
+    LITERAL_MATCH_COST
+};
+use regex::Error as RegexError;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, LazyLock, OnceLock};
-use metricsql_common::bytes_util::FastRegexMatcher;
-use metricsql_common::regex_util::match_handlers::StringMatchHandler;
-use metricsql_common::regex_util::{get_match_func_for_or_suffixes, get_optimized_re_match_func, regex_utils, FULL_MATCH_COST, LITERAL_MATCH_COST};
-use crate::common::METRIC_NAME_LABEL;
-use super::prefix_cache::{PrefixCache, PrefixSuffix};
 
 /// TagFilters represents filters used for filtering tags.
 #[derive(Clone, Default, Debug)]
@@ -124,8 +130,6 @@ pub(crate) struct TagFilter {
     /// `or` values obtained from regexp suffix if it equals to "foo|bar|..."
     ///
     /// the regexp prefix is stored in regexp_prefix.
-    ///
-    /// This array is also populated with matching Graphite metrics if key="__graphite__"
     pub or_suffixes: Vec<String>,
 
     /// Matches suffix.
@@ -133,10 +137,6 @@ pub(crate) struct TagFilter {
 
     /// Set to true for filters matching empty value.
     pub is_empty_match: bool,
-
-    /// Contains reverse suffix for Graphite wildcard.
-    /// I.e. for `{__name__=~"foo\\.[^.]*\\.bar\\.baz"}` the value will be `zab.rab.`
-    pub graphite_reverse_suffix: String,
 }
 
 impl TagFilter {
@@ -165,7 +165,6 @@ impl TagFilter {
             or_suffixes: Vec::new(),
             suffix_match: StringMatchHandler::literal("".to_string()),
             is_empty_match: false,
-            graphite_reverse_suffix: "".to_string(),
         };
 
         let prefix = value.to_string();
@@ -199,10 +198,6 @@ impl TagFilter {
         tf.suffix_match = rcv.re_match.clone();
         tf.match_cost = rcv.re_cost;
         tf.is_empty_match = prefix.is_empty() && tf.suffix_match.matches("");
-        if !tf.is_negative && key.is_empty() && rcv.as_ref().literal_suffix.contains('.') {
-            // Reverse suffix is needed only for non-negative regexp filters on __name__ that contains dots.
-            tf.graphite_reverse_suffix = rcv.literal_suffix.chars().rev().collect::<String>();
-        }
         Ok(tf)
     }
 
@@ -285,20 +280,15 @@ impl Display for TagFilter {
 
 
 pub(super) fn compile_regexp(expr: &str) -> Result<RegexpCacheValue, String> {
-    // Slow path - build the regexp.
-    let expr_str = format!("^({expr})$");
-    let re =
-        Regex::new(&expr_str).map_err(|e| format!("cannot compile regexp {}: {}", expr_str, e))?;
-
     let or_values = regex_utils::get_or_values(expr);
 
     let (re_match, literal_suffix, re_cost) = if !or_values.is_empty() {
         let (match_fn, re_cost) = new_match_func_for_or_suffixes(or_values.clone());
-        (match_fn, "".to_string(), re_cost)
+        (match_fn, None, re_cost)
     } else {
-        let matcher = StringMatchHandler::FastRegex(FastRegexMatcher::new(re));
-        let (re_match, literal_suffix, re_cost) = get_optimized_re_match_func(matcher, expr);
-        (re_match, literal_suffix, re_cost)
+        // Slow path - build the regexp.
+        let OptimizedMatchFunc { match_func, literal_suffix, cost } = get_optimized_re_match_func(expr);
+        (match_func, literal_suffix, cost)
     };
 
     // heuristic for rcv in-memory size

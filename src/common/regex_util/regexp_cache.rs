@@ -11,7 +11,7 @@ pub(crate) struct RegexpCacheValue {
     pub or_values: Vec<String>,
     pub re_match: StringMatchHandler,
     pub re_cost: usize,
-    pub literal_suffix: String,
+    pub literal_suffix: Option<String>,
     pub size_bytes: usize,
 }
 

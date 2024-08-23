@@ -9,19 +9,21 @@ use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use serde::{Deserialize, Serialize};
 use std::collections::BinaryHeap;
+use std::mem::size_of;
 use std::time::Duration;
+use crate::storage::utils::round_to_significant_digits;
 
 /// Represents a time series. The time series consists of time series blocks, each containing BLOCK_SIZE_FOR_TIME_SERIES
 /// data points. All but the last block are compressed.
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq)]
 #[derive(GetSize)]
 pub struct TimeSeries {
-    /// internal id used in indexing
+    /// fixed internal id used in indexing
     pub id: u64,
 
     /// Name of the metric
-    /// For example, given  http_requests_total{method="POST", status="500"}
-    /// the metric name is http_requests_total, and the labels are method="POST" and status="500"
+    /// For example, given `http_requests_total{method="POST", status="500"}`
+    /// the metric name is `http_requests_total`, and the labels are method="POST" and status="500"
     /// Metric names must match the regex [a-zA-Z_:][a-zA-Z0-9_:]*
     pub metric_name: String,
     pub labels: Vec<Label>,
@@ -30,6 +32,7 @@ pub struct TimeSeries {
     pub dedupe_interval: Option<Duration>,
     pub duplicate_policy: DuplicatePolicy,
     pub chunk_compression: ChunkCompression,
+    pub significant_digits: Option<u8>,
     pub chunk_size_bytes: usize,
     pub chunks: Vec<TimeSeriesChunk>,
 
@@ -58,6 +61,7 @@ impl TimeSeries {
             first_timestamp: 0,
             last_timestamp: 0,
             last_value: f64::NAN,
+            significant_digits: None
         }
     }
 
@@ -105,6 +109,16 @@ impl TimeSeries {
         self.labels.iter().find(|label| label.name == name)
     }
 
+    fn adjust_value(&mut self, value: f64) -> f64 {
+        if let Some(significant_digits) = self.significant_digits {
+            // todo: limit digits to a max, for ex.
+            // https://stackoverflow.com/questions/65719216/why-does-rust-only-use-16-significant-digits-for-f64-equality-checks
+            round_to_significant_digits(value, significant_digits as u32)
+        } else {
+            value
+        }
+    }
+
     pub fn add(
         &mut self,
         ts: Timestamp,
@@ -136,6 +150,7 @@ impl TimeSeries {
     }
 
     pub(super) fn add_sample(&mut self, time: Timestamp, value: f64) -> TsdbResult<()> {
+        let value = self.adjust_value(value);
         let sample = Sample {
             timestamp: time,
             value,
@@ -248,7 +263,7 @@ impl TimeSeries {
         self.chunks.first_mut().unwrap()
     }
 
-    pub(crate) fn upsert_sample(
+    pub fn upsert_sample(
         &mut self,
         timestamp: Timestamp,
         value: f64,
@@ -257,6 +272,8 @@ impl TimeSeries {
         let dp_policy = dp_override.unwrap_or(
             self.duplicate_policy
         );
+
+        let value = self.adjust_value(value);
 
         let (size, new_chunk) = {
             let max_size = self.chunk_size_bytes;
@@ -503,6 +520,7 @@ impl Default for TimeSeries {
             first_timestamp: 0,
             last_timestamp: 0,
             last_value: f64::NAN,
+            significant_digits: None
         }
     }
 }
@@ -635,8 +653,8 @@ mod tests {
         let samples = last_block.get_samples(0, 1000).unwrap();
 
         let data_point = samples.get(0).unwrap();
-        assert_eq!(data_point.get_time(), 100);
-        assert_eq!(data_point.get_value(), 200.0);
+        assert_eq!(data_point.timestamp, 100);
+        assert_eq!(data_point.value, 200.0);
         assert_eq!(ts.total_samples, 1);
         assert_eq!(ts.first_timestamp, 100);
         assert_eq!(ts.last_timestamp, 100);

@@ -1,7 +1,5 @@
-use std::boxed::Box;
-
-use tsz::stream::{Error, Read};
-use tsz::Bit;
+use crate::gorilla::stream::{Error, Read};
+use crate::gorilla::Bit;
 
 /// BufferedReader
 ///
@@ -29,7 +27,7 @@ impl<'a> BufferedReader<'a> {
     }
 }
 
-impl Read for BufferedReader {
+impl Read for BufferedReader<'_> {
     fn read_bit(&mut self) -> Result<Bit, Error> {
         if self.pos == 8 {
             self.index += 1;
@@ -96,7 +94,7 @@ impl Read for BufferedReader {
         Ok(bits)
     }
 
-    fn peak_bits(&mut self, num: u32) -> Result<u64, Error> {
+    fn peek_bits(&mut self, num: u32) -> Result<u64, Error> {
         // save the current index and pos so we can reset them after calling `read_bits`
         let index = self.index;
         let pos = self.pos;
@@ -112,9 +110,9 @@ impl Read for BufferedReader {
 
 #[cfg(test)]
 mod tests {
+    use crate::gorilla::stream::{Error, Read};
+    use crate::gorilla::Bit;
     use super::BufferedReader;
-    use tsz::stream::{Error, Read};
-    use tsz::Bit;
 
     #[test]
     fn read_bit() {
@@ -194,20 +192,20 @@ mod tests {
         let bytes = vec![0b01010111, 0b00011101, 0b11110101, 0b00010100];
         let mut b = BufferedReader::new(&bytes);
 
-        assert_eq!(b.peak_bits(1).unwrap(), 0b0);
-        assert_eq!(b.peak_bits(4).unwrap(), 0b0101);
-        assert_eq!(b.peak_bits(8).unwrap(), 0b01010111);
-        assert_eq!(b.peak_bits(20).unwrap(), 0b01010111000111011111);
+        assert_eq!(b.peek_bits(1).unwrap(), 0b0);
+        assert_eq!(b.peek_bits(4).unwrap(), 0b0101);
+        assert_eq!(b.peek_bits(8).unwrap(), 0b01010111);
+        assert_eq!(b.peek_bits(20).unwrap(), 0b01010111000111011111);
 
         // read some individual bits we can test `peak_bits` when the position in the
         // byte we are currently reading is non-zero
         assert_eq!(b.read_bits(12).unwrap(), 0b010101110001);
 
-        assert_eq!(b.peak_bits(1).unwrap(), 0b1);
-        assert_eq!(b.peak_bits(4).unwrap(), 0b1101);
-        assert_eq!(b.peak_bits(8).unwrap(), 0b11011111);
-        assert_eq!(b.peak_bits(20).unwrap(), 0b11011111010100010100);
+        assert_eq!(b.peek_bits(1).unwrap(), 0b1);
+        assert_eq!(b.peek_bits(4).unwrap(), 0b1101);
+        assert_eq!(b.peek_bits(8).unwrap(), 0b11011111);
+        assert_eq!(b.peek_bits(20).unwrap(), 0b11011111010100010100);
 
-        assert_eq!(b.peak_bits(22).err().unwrap(), Error::EOF);
+        assert_eq!(b.peek_bits(22).err().unwrap(), Error::EOF);
     }
 }

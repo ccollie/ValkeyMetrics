@@ -10,13 +10,13 @@ mod tests {
     }
 
     fn index_time_series(index: &mut TimeSeriesIndex, ts: &TimeSeries, name: &str) {
-        let key = create_valkey_string(name);
-        index.index_time_series(ts, &key);
+        index.index_time_series(ts, name);
     }
 
     #[test]
     fn test_index_series() {
         let mut ts = TimeSeries::new();
+        ts.id = 1;
         ts.metric_name = "latency".to_string();
         ts.labels = vec![
             Label {
@@ -40,6 +40,7 @@ mod tests {
     #[test]
     fn test_remove_series() {
         let mut ts = TimeSeries::new();
+        ts.id = 1;
         ts.metric_name = "latency".to_string();
         ts.labels = vec![
             Label {
@@ -77,6 +78,7 @@ mod tests {
         let mut index = TimeSeriesIndex::new();
 
         let mut ts = TimeSeries::new();
+        ts.id = 1;
         ts.metric_name = "latency".to_string();
         ts.labels = vec![
             Label {
