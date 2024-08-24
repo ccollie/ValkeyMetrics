@@ -1,10 +1,11 @@
-use crate::stream_aggregation::stream_aggr::{AggrState, FlushCtx};
+use crate::stream_aggregation::stream_aggr::{get_output_key, AggrState, FlushCtx};
 use crate::stream_aggregation::{OutputKey, PushSample, AGGR_STATE_SIZE};
-use dashmap::DashMap;
+use ahash::RandomState;
+use papaya::HashMap;
 use std::sync::{Arc, Mutex};
 
 pub struct StddevAggrState {
-    m: DashMap<OutputKey, Arc<Mutex<StddevStateValue>>>,
+    m: HashMap<OutputKey, Arc<Mutex<StddevStateValue>>, RandomState>,
 }
 
 struct StddevStateValue {
@@ -21,48 +22,54 @@ struct StddevState {
 
 impl StddevAggrState {
     pub fn new() -> Self {
-        Self { m: DashMap::new() }
+        Self { m: HashMap::with_hasher(RandomState::new()) }
+    }
+
+    fn update_state(sv: &mut StddevStateValue, sample: &PushSample, delete_deadline: i64, idx: usize) {
+        let state = &mut sv.state[idx];
+        state.count += 1.0;
+        let avg = state.avg + (sample.value - state.avg) / state.count;
+        state.q += (sample.value - state.avg) * (sample.value - avg);
+        state.avg = avg;
+        sv.delete_deadline = delete_deadline;
     }
 }
 
 impl AggrState for StddevAggrState {
     fn push_samples(&mut self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
-        for s in samples {
+        for s in samples.iter() {
             let output_key = get_output_key(&s.key);
 
-            loop {
-                let entry = self.m.entry(output_key.clone()).or_insert_with(|| {
-                    Arc::new(Mutex::new(StddevStateValue {
-                        state: [StddevState { count: 0.0, avg: 0.0, q: 0.0 }; AGGR_STATE_SIZE],
-                        deleted: false,
-                        delete_deadline,
-                    }))
-                });
-
+            let mut entry = self.m.pin().get(&output_key);
+            if let Some(entry) = entry {
                 let mut sv = entry.lock().unwrap();
                 if sv.deleted {
                     continue;
                 }
-
-                let state = &mut sv.state[idx];
-                state.count += 1.0;
-                let avg = state.avg + (s.value - state.avg) / state.count;
-                state.q += (s.value - state.avg) * (s.value - avg);
-                state.avg = avg;
-                sv.delete_deadline = delete_deadline;
-                break;
+                Self::update_state(&mut sv, &s, delete_deadline, idx);
+            } else {
+                let mut state = StddevStateValue {
+                    state: [StddevState { count: 0.0, avg: 0.0, q: 0.0 }; AGGR_STATE_SIZE],
+                    deleted: false,
+                    delete_deadline,
+                };
+                Self::update_state(&mut state, &s, delete_deadline, idx);
+                let sv = Arc::new(Mutex::new(state));
+                let map = self.m.pin();
+                map.insert(output_key.to_string(), sv);
             }
         }
     }
 
     fn flush_state(&mut self, ctx: &mut FlushCtx) {
-        for entry in self.m.iter() {
+        let map = self.m.pin();
+        for entry in map.iter() {
             let mut sv = entry.value().lock().unwrap();
 
             let deleted = ctx.flush_timestamp > sv.delete_deadline;
             if deleted {
                 sv.deleted = true;
-                self.m.remove(&entry.key());
+                map.remove(&entry.key());
                 continue;
             }
 

@@ -1,8 +1,8 @@
 use std::mem::size_of;
 use crate::stream_aggregation::{PushSample, AGGR_STATE_SIZE};
-use dashmap::DashMap;
 use std::sync::{atomic::{AtomicI32, AtomicU64, Ordering}, Arc, Mutex};
 use xxhash_rust::xxh3::xxh3_64;
+use super::utils::{create_hashmap, ConcurrentHashMap};
 
 const DEDUP_AGGR_SHARDS_COUNT: usize = 128;
 
@@ -16,7 +16,7 @@ struct DedupAggrShard {
 }
 
 pub struct DedupAggrState {
-    m: DashMap<String, DedupAggrSample>,
+    m: ConcurrentHashMap<String, DedupAggrSample>,
     samples_buf: Vec<DedupAggrSample>,
     size_bytes: AtomicU64,
     items_count: AtomicU64,
@@ -153,7 +153,7 @@ impl DedupAggrShard {
     fn push_samples(&mut self, samples: Vec<PushSample>, dedup_idx: usize) {
         let mut state = self.state[dedup_idx].get_or_insert_with(|| {
             Arc::new(Mutex::new(DedupAggrState {
-                m: DashMap::new(),
+                m: create_hashmap(),
                 samples_buf: Vec::new(),
                 size_bytes: AtomicU64::new(0),
                 items_count: AtomicU64::new(0),

@@ -1,4 +1,4 @@
-use crate::stream_aggregation::stream_aggr::{AggrState, FlushCtx};
+use crate::stream_aggregation::stream_aggr::{get_output_key, AggrState, FlushCtx};
 use crate::stream_aggregation::{OutputKey, PushSample, AGGR_STATE_SIZE};
 use dashmap::DashMap;
 use std::sync::{Arc, Mutex};

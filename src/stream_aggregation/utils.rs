@@ -44,3 +44,9 @@ pub(super) fn sort_and_remove_duplicates(list: &Option<Vec<String>>) -> Vec<Stri
         Vec::new()
     }
 }
+
+pub type ConcurrentHashMap<K, V> = papaya::HashMap<K, V, ahash::RandomState>;
+
+pub fn create_concurrent_hashmap<K, V>() -> ConcurrentHashMap<K, V> {
+    ConcurrentHashMap::default()
+}

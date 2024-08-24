@@ -133,19 +133,28 @@ fn match_label_filters(lfs: &[LabelFilter], labels: &[Label]) -> bool {
 }
 
 fn metric_expr_to_label_filter_list(me: &MetricExpr) -> AlertsResult<Vec<LabelMatchers>> {
-    let mut lfss_new: Vec<LabelMatchers> = Vec::with_capacity(me.label_filters.len());
-    for lfs in me.label_filters.iter() {
-        let mut lfs_new: Vec<LabelFilter> = Vec::with_capacity(lfs.len());
-        for filter in lfs.iter() {
+    let mut lfss_new: Vec<LabelMatchers> = Vec::with_capacity(me.matchers.or_matchers.len() + me.matchers.matchers.len());
+
+    fn make_filter_list(filters: &[BaseLabelFilter]) -> AlertsResult<LabelMatchers> {
+        let mut lfs_new: Vec<LabelFilter> = Vec::with_capacity(filters.len());
+        for filter in filters.iter() {
             let lf = new_label_filter(filter).map_err(|e| {
-                let msg = format!("cannot parse label filter {me}: {:?}", e);
+                let msg  = format!("cannot parse label filter {filter}: {:?}", e);
                 // todo: more specific error
                 AlertsError::Generic(msg)
             })?;
             lfs_new.push(lf);
         }
-        let matchers = LabelMatchers::new(lfs_new);
-        lfss_new.push(matchers)
+        Ok(LabelMatchers(lfs_new))
+    }
+
+    if !me.matchers.matchers.is_empty() {
+        let matchers = make_filter_list(&me.matchers.matchers)?;
+        lfss_new.push(matchers);
+    }
+    for lfs in me.matchers.or_matchers.iter() {
+        let matchers = make_filter_list(lfs)?;
+        lfss_new.push(matchers);
     }
     Ok(lfss_new)
 }

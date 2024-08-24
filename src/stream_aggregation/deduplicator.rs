@@ -100,8 +100,12 @@ impl Deduplicator {
     }
 }
 
-fn drop_series_labels(dst: Vec<Label>, src: Vec<Label>, label_names: &[String]) -> Vec<Label> {
-    src.into_iter().filter(|label| !label_names.contains(&label.name)).collect()
+pub fn drop_series_labels(dst: &mut Vec<Label>, src: &[Label], label_names: &[String]) {
+    for label in src.iter() {
+        if !label_names.contains(&label.name) {
+            dst.push(label.clone());
+        }
+    }
 }
 
 struct DeduplicatorPushCtx {

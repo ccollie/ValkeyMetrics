@@ -1,6 +1,6 @@
 use crate::common::current_time_millis;
 use crate::relabel::{IfExpression, ParsedConfigs};
-use crate::storage::time_series::TimeSeries;
+use super::timeseries::TimeSeries;
 use crate::storage::Sample;
 use crate::stream_aggregation::avg::AvgAggrState;
 use crate::stream_aggregation::count_samples::CountSamplesAggrState;
@@ -20,14 +20,14 @@ use crate::stream_aggregation::unique_samples::UniqueSamplesAggrState;
 use crate::stream_aggregation::utils::{add_metric_suffix, sort_and_remove_duplicates};
 use crate::stream_aggregation::{AggregationOutput, PushSample};
 use ahash::{HashSet, HashSetExt};
-use metricsql_common::prelude::histogram::Histogram;
-use metricsql_common::prelude::AtomicCounter;
-use metricsql_runtime::Label;
+use metricsql_common::prelude::{AtomicCounter, histogram::Histogram};
+use metricsql_runtime::{Label, Labels};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
+use crate::stream_aggregation::deduplicator::drop_series_labels;
 // Placeholder for the Go libraries used in the original code
 
 // Constants
@@ -84,7 +84,7 @@ pub struct StreamingAggregationConfig {
     ///
     /// match also can contain a list of series selectors. Then the incoming samples are aggregated
     /// if they match at least a single series selector.
-    pub r#match: Option<String>,
+    pub r#match: Option<IfExpression>,
 
     /// interval is the interval for the aggregation.
     /// The aggregated stats is sent to remote storage once per interval.
@@ -98,7 +98,7 @@ pub struct StreamingAggregationConfig {
     /// command-line flags are set.
     pub dedup_interval: Option<Duration>,
 
-    /// staleness_interval is an optional interval for resetting the per-series state if no new samples
+    /// an optional interval for resetting the per-series state if no new samples
     /// are received during this interval for the following outputs:
     /// - histogram_bucket
     /// - increase
@@ -110,7 +110,7 @@ pub struct StreamingAggregationConfig {
     /// See https://docs.victoriametrics.com/stream-aggregation/#staleness for more details.
     pub staleness_interval: Option<Duration>,
 
-    /// no_align_flush_to_interval disables aligning of flush times for the aggregated data to multiples of interval.
+    /// disables aligning of flush times for the aggregated data to multiples of interval.
     /// By default, flush times for the aggregated data is aligned to multiples of interval.
     /// For example:
     /// - if `interval: 1m` is set, then flushes happen at the end of every minute,
@@ -130,11 +130,11 @@ pub struct StreamingAggregationConfig {
     /// See https://docs.victoriametrics.com/stream-aggregation/#aggregating-by-labels
     pub by: Option<Vec<String>>,
 
-    /// outputs is the list of unique aggregations to perform on the input data.
+    /// the list of unique aggregations to perform on the input data.
     /// See https://docs.victoriametrics.com/stream-aggregation/#aggregation-outputs
     pub outputs: Vec<AggregationOutput>,
 
-    /// keep_metric_names instructs keeping the original metric names for the aggregated samples.
+    /// instructs keeping the original metric names for the aggregated samples.
     /// This option can't be enabled together with `-streamAggr.keepInput` or `-remoteWrite.streamAggr.keepInput`.
     /// This option can be set only if outputs list contains a single output.
     /// By default, a special suffix is added to original metric names in the aggregated samples.
@@ -161,11 +161,11 @@ pub struct StreamingAggregationConfig {
     /// which are applied to the incoming samples after they pass the match filter
     /// and before being aggregated.
     /// See https://docs.victoriametrics.com/stream-aggregation/#relabeling
-    pub input_relabel_configs: Option<Vec<ParsedConfigs>>,
+    pub input_relabel_configs: Option<ParsedConfigs>,
 
     /// output_relabel_configs is an optional relabeling rules,
     /// which are applied to the aggregated output metrics.
-    pub output_relabel_configs: Option<Vec<ParsedConfigs>>,
+    pub output_relabel_configs: Option<ParsedConfigs>,
 }
 
 
@@ -174,11 +174,10 @@ pub struct Aggregators {
     aggregators: Vec<Arc<Mutex<Aggregator>>>,
     config_data: Vec<u8>,
     file_path: String,
-    metrics: Arc<metrics::Set>,
 }
 
 impl Aggregators {
-    // IsEnabled returns true if Aggregators has at least one configured aggregator
+    /// is_enabled returns true if Aggregators has at least one configured aggregator
     fn is_enabled(&self) -> bool {
         !self.aggregators.is_empty()
     }
@@ -191,7 +190,7 @@ impl Aggregators {
         self.aggregators.clear();
     }
 
-    // Equal returns true if a and b are initialized from identical configs.
+    /// returns true if a and b are initialized from identical configs.
     fn equal(&self, b: &Option<Aggregators>) -> bool {
         match b {
             None => false,
@@ -419,7 +418,7 @@ fn put_flush_ctx(mut ctx: Arc<Mutex<FlushCtx>>) {
 
 pub fn new_aggregator(cfg: &StreamingAggregationConfig,
                       path: &str,
-                      push_func: PushFunc,
+                      push_func: Box<dyn PushFunc>,
                       opts: Option<&Options>,
                       alias: &str,
                       aggr_id: i32) -> Result<Arc<Aggregator>, String> {
@@ -462,9 +461,8 @@ pub fn new_aggregator(cfg: &StreamingAggregationConfig,
     }
 
     let drop_input_labels = cfg.drop_input_labels.unwrap_or(opts.drop_input_labels);
-
-    let input_relabeling = parse_relabel_configs(&cfg.input_relabel_configs)?;
-    let output_relabeling = parse_relabel_configs(&cfg.output_relabel_configs)?;
+    let input_relabeling = cfg.input_relabel_configs.clone();
+    let output_relabeling = cfg.output_relabel_configs.clone();
 
     let by = sort_and_remove_duplicates(&cfg.by);
     let without = sort_and_remove_duplicates(&cfg.without);
@@ -506,7 +504,7 @@ pub fn new_aggregator(cfg: &StreamingAggregationConfig,
     let suffix = format!(":{}_{}_", cfg.interval, if !by.is_empty() { format!("_by_{}", by.join("_")) } else { "".to_string() });
 
     let aggregator = Arc::new(Aggregator {
-        match_str: cfg.r#match.clone(),
+        r#match: cfg.r#match.clone(),
         drop_input_labels,
         input_relabeling,
         output_relabeling,
@@ -523,9 +521,9 @@ pub fn new_aggregator(cfg: &StreamingAggregationConfig,
         suffix,
         stop_ch: Arc::new(Mutex::new(false)),
         flush_after: Vec::new(),
-        flush_duration: Vec::new(),
-        dedup_flush_duration: Vec::new(),
-        samples_lag: Vec::new(),
+        flush_duration: Histogram::new(),
+        dedup_flush_duration: Histogram::new(),
+        samples_lag: Histogram::new(),
         matched_samples: 0,
         flush_timeouts: 0,
         dedup_flush_timeouts: 0,
@@ -535,7 +533,7 @@ pub fn new_aggregator(cfg: &StreamingAggregationConfig,
         wg: Arc::new(Mutex::new(Vec::new())),
     });
 
-    let aggregator_clone = Arc::clone(&aggregator);
+    let mut aggregator_clone = Arc::clone(&aggregator);
     let handle = thread::spawn(move || {
         aggregator_clone.run_flusher(push_func, !opts.no_align_flush_to_interval, !opts.flush_on_shutdown, opts.ignore_first_intervals);
     });
@@ -599,7 +597,112 @@ fn new_aggr_state(output: &str, outputs_seen: &mut HashSet<String>, staleness_in
 }
 
 impl Aggregator {
-    fn run_flusher(&mut self, push_func: PushFunc, align_flush_to_interval: bool, skip_incomplete_flush: bool, ignore_first_intervals: i32) {
+    fn run_flusher1(
+        &mut self,
+        push_func: Box<dyn PushFunc>,
+        align_flush_to_interval: bool,
+        skip_incomplete_flush: bool,
+        ignore_first_intervals: i32,
+    ) {
+        let aligned_sleep = |d: Duration| {
+            if !align_flush_to_interval {
+                return;
+            }
+
+            let now = current_time_millis();
+            let millis = d.as_millis() as u64;
+
+            let sleep_duration = millis - (now % millis);
+            thread::sleep(Duration::from_millis(sleep_duration));
+        };
+
+        let ticker_wait = |t: &mut tokio::time::Interval| -> bool {
+            tokio::select! {
+                _ = self.stop_ch.recv() => {
+                    false
+                }
+                _ = t.tick() => {
+                    true
+                }
+            }
+        };
+
+        let mut ignore_first_intervals = ignore_first_intervals;
+
+        if self.dedup_interval.is_zero() {
+            aligned_sleep(self.interval);
+            let mut t = tokio::time::interval(self.interval);
+
+            if align_flush_to_interval && skip_incomplete_flush {
+                self.flush(None, 0);
+                ignore_first_intervals -= 1;
+            }
+
+            loop {
+                if !ticker_wait(&mut t) {
+                    break;
+                }
+
+                if ignore_first_intervals > 0 {
+                    self.flush(None, 0);
+                    ignore_first_intervals -= 1;
+                } else {
+                    self.flush(Some(&push_func), t.tick().unwrap().as_millis() as i64);
+                }
+
+                if align_flush_to_interval {
+                    t.tick().await;
+                }
+            }
+        } else {
+            aligned_sleep(self.dedup_interval);
+            let mut t = tokio::time::interval(self.dedup_interval);
+
+            let flush_deadline = current_time_millis() + self.interval;
+            let mut is_skipped_first_flush = false;
+            loop {
+                if !ticker_wait(&mut t) {
+                    break;
+                }
+
+                self.dedup_flush();
+
+                let now = current_time_millis();
+                if now > flush_deadline {
+                    if align_flush_to_interval && skip_incomplete_flush && !is_skipped_first_flush {
+                        self.flush(None, 0);
+                        ignore_first_intervals -= 1;
+                        is_skipped_first_flush = true;
+                    } else if ignore_first_intervals > 0 {
+                        self.flush(None, 0);
+                        ignore_first_intervals -= 1;
+                    } else {
+                        self.flush(Some(&push_func), t.tick().unwrap().as_millis() as i64);
+                    }
+
+                    while now > flush_deadline {
+                        flush_deadline += self.interval;
+                    }
+                }
+
+                if align_flush_to_interval {
+                    t.tick().await;
+                }
+            }
+        }
+
+        if !skip_incomplete_flush && ignore_first_intervals <= 0 {
+            self.dedup_flush();
+            self.flush(Some(&push_func), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64);
+        }
+    }
+
+    fn run_flusher(&mut self,
+                   push_func: Box<dyn PushFunc>,
+                   align_flush_to_interval: bool,
+                   skip_incomplete_flush: bool,
+                   ignore_first_intervals: i32
+    ) {
         let mut ignore_first_intervals = ignore_first_intervals;
         let now = current_time_millis();
         let mut flush_time_msec = now;
@@ -712,17 +815,21 @@ impl Aggregator {
         let mut flush_idx = 0;
 
         for (idx, ts) in tss.iter().enumerate() {
-            if !self.match_str.is_empty() && !ts.labels.iter().any(|l| l.name == "match" && l.value == self.match_str) {
-                continue;
+            if let Some(matcher) = &self.r#match {
+                if !matcher.is_match(&ts.labels) {
+                    continue;
+                }
             }
             match_idxs[idx] = 1;
 
             if self.drop_input_labels {
-                labels = drop_series_labels(labels, ts.labels.clone(), self.drop_input_labels);
+                drop_series_labels(&mut labels, &ts.labels, &self.drop_input_labels);
             } else {
                 labels = ts.labels.clone();
             }
-            labels = apply_relabeling(labels, &self.input_relabeling);
+            if let Some(relabeling) = self.input_relabeling {
+                labels = relabeling.apply(labels);
+            }
             if labels.is_empty() {
                 continue;
             }
@@ -738,7 +845,7 @@ impl Aggregator {
             buf = compress_labels(buf, input_labels, output_labels);
             let key = String::from_utf8_lossy(&buf[buf_len..]).to_string();
 
-            for s in &ts.samples {
+            for s in ts.samples.iter() {
                 if s.value.is_nan() {
                     self.ignored_nan_samples += 1;
                     continue;
@@ -764,8 +871,8 @@ impl Aggregator {
 
         for (idx, s) in samples.iter().enumerate() {
             if !s.is_empty() {
-                self.samples_lag.push(max_lag_msec as f64 / 1_000.0);
-                self.matched_samples += s.len() as i64;
+                self.samples_lag.update(max_lag_msec as f64 / 1_000.0);
+                self.matched_samples += s.len() as u64;
                 self.push_samples(s.clone(), delete_deadline, idx);
             }
         }
@@ -790,7 +897,7 @@ fn decompress_labels(dst: Vec<Label>, key: &str) -> Vec<Label> {
     decompress(dst, key.as_bytes())
 }
 
-fn get_output_key(key: &str) -> &str {
+pub(super) fn get_output_key(key: &str) -> &str {
     let bytes = key.as_bytes();
     let (input_key_len, n_size) = uvarint(bytes);
     &key[n_size + input_key_len..]
@@ -806,28 +913,6 @@ pub(super) fn get_input_output_key(key: &str) -> (&str, &str) {
 
 fn get_state_idx(interval: i64, ts: i64) -> usize {
     (ts / interval).abs() as usize % AGGR_STATE_SIZE
-}
-
-fn parse_duration(s: &str) -> Result<Duration, String> {
-    let secs = s.parse::<u64>().map_err(|e| format!("cannot parse duration: {}", e))?;
-    Ok(Duration::from_secs(secs))
-}
-
-fn parse_relabel_configs(configs: &[String]) -> Result<Vec<String>, String> {
-    Ok(configs.to_vec())
-}
-
-
-fn drop_series_labels(dst: Vec<Label>, labels: Vec<Label>, drop_labels: bool) -> Vec<Label> {
-    if drop_labels {
-        labels.into_iter().filter(|l| l.name != "drop").collect()
-    } else {
-        labels
-    }
-}
-
-fn apply_relabeling(labels: Vec<Label>, relabeling: &[String]) -> Vec<Label> {
-    labels
 }
 
 fn get_input_output_labels(input_labels: Vec<Label>, output_labels: Vec<Label>, labels: Vec<Label>, by: &[String], without: &[String]) -> (Vec<Label>, Vec<Label>) {

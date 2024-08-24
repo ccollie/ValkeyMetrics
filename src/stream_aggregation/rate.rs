@@ -1,15 +1,16 @@
-use crate::stream_aggregation::stream_aggr::{AggrState, FlushCtx};
+use crate::stream_aggregation::stream_aggr::{get_input_output_key, AggrState, FlushCtx};
 use crate::stream_aggregation::{OutputKey, PushSample, AGGR_STATE_SIZE};
-use dashmap::DashMap;
 use std::sync::{Arc, Mutex};
+use ahash::{HashMap, HashMapExt, RandomState};
 
+// todo: use ahash::RandomState
 pub struct RateAggrState {
-    m: DashMap<OutputKey, Arc<Mutex<RateStateValue>>>,
+    map: papaya::HashMap<OutputKey, Arc<Mutex<RateStateValue>>, RandomState>,
     is_avg: bool,
 }
 
 struct RateStateValue {
-    state: DashMap<String, RateState>,
+    state: HashMap<String, RateState>,
     deleted: bool,
     delete_deadline: i64,
 }
@@ -21,6 +22,7 @@ struct RateState {
     delete_deadline: i64,
 }
 
+#[derive(Clone)]
 struct RateLastValueState {
     first_value: f64,
     value: f64,
@@ -31,16 +33,16 @@ struct RateLastValueState {
 impl RateAggrState {
     pub fn new(is_avg: bool) -> Self {
         Self {
-            m: DashMap::new(),
+            map: papaya::HashMap::with_hasher(ahash::RandomState::new()),
             is_avg,
         }
     }
 
-    fn get_suffix(&self) -> String {
+    fn get_suffix(&self) -> &'static str {
         if self.is_avg {
-            "rate_avg".to_string()
+            "rate_avg"
         } else {
-            "rate_sum".to_string()
+            "rate_sum"
         }
     }
 }
@@ -51,9 +53,10 @@ impl AggrState for RateAggrState {
             let (input_key, output_key) = get_input_output_key(&s.key);
 
             loop {
-                let entry = self.m.entry(output_key.clone()).or_insert_with(|| {
+                let map = self.map.pin();
+                let mut entry = map.get_or_insert_with(output_key.to_string(), ||{
                     Arc::new(Mutex::new(RateStateValue {
-                        state: DashMap::new(),
+                        state: HashMap::new(),
                         deleted: false,
                         delete_deadline,
                     }))
@@ -64,7 +67,8 @@ impl AggrState for RateAggrState {
                     continue;
                 }
 
-                let mut state = sv.state.entry(input_key.clone()).or_insert_with(|| RateState {
+                // todo: how to eliminate clone
+                let mut state = sv.state.entry(input_key.to_string()).or_insert_with(|| RateState {
                     last_values: [RateLastValueState {
                         first_value: 0.0,
                         value: 0.0,
@@ -97,7 +101,8 @@ impl AggrState for RateAggrState {
                     lv.timestamp = s.timestamp;
                     state.last_values[idx] = lv;
                     state.delete_deadline = delete_deadline;
-                    sv.state.insert(input_key.clone(), state.clone());
+                    // todo: how to eliminate alloc (to_string)
+                    sv.state.insert(input_key.to_string(), state.clone());
                     sv.delete_deadline = delete_deadline;
                     break;
                 }
@@ -108,13 +113,15 @@ impl AggrState for RateAggrState {
     fn flush_state(&mut self, ctx: &mut FlushCtx) {
         let suffix = self.get_suffix();
 
-        for entry in self.m.iter() {
+        let map = self.map.pin();
+        for entry in map.iter() {
             let mut sv = entry.value().lock().unwrap();
 
             let deleted = ctx.flush_timestamp > sv.delete_deadline;
             if deleted {
                 sv.deleted = true;
-                self.m.remove(&entry.key());
+                let guard = self.map.guard();
+                self.map.remove(&entry.key(), &guard);
                 continue;
             }
 
@@ -153,14 +160,14 @@ impl AggrState for RateAggrState {
                     timestamp: 0,
                     total: 0.0,
                 };
-                sv.state.insert(state_entry.key().clone(), state);
+                sv.state.insert(state_entry.key().clone(), state.clone());
             }
 
             if count_series > 0 {
                 if self.is_avg {
                     rate /= count_series as f64;
                 }
-                ctx.append_series(&entry.key(), &suffix, rate);
+                ctx.append_series(&entry.key(), suffix, rate);
             }
         }
     }

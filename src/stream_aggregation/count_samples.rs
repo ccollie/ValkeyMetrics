@@ -1,13 +1,11 @@
-use crate::stream_aggregation::stream_aggr::{AggrState, FlushCtx};
+use crate::stream_aggregation::stream_aggr::{get_output_key, AggrState, FlushCtx};
 use crate::stream_aggregation::{OutputKey, PushSample, AGGR_STATE_SIZE};
-use dashmap::DashMap;
 use papaya::HashMap;
 use std::sync::{Arc, Mutex};
 
 
 pub(crate) struct CountSamplesAggrState {
-    map: HashMap<OutputKey, Arc<Mutex<CountSamplesStateValue>>>,
-    m: DashMap<OutputKey, Arc<Mutex<CountSamplesStateValue>>>,
+    m: HashMap<OutputKey, Arc<Mutex<CountSamplesStateValue>>, ahash::RandomState>,
 }
 
 struct CountSamplesStateValue {
@@ -19,8 +17,7 @@ struct CountSamplesStateValue {
 impl CountSamplesAggrState {
     pub fn new() -> Self {
         Self {
-            map: HashMap::new(),
-            m: DashMap::new()
+            m: HashMap::with_hasher(ahash::RandomState::new()),
         }
     }
 
@@ -28,7 +25,7 @@ impl CountSamplesAggrState {
 
 impl AggrState for CountSamplesAggrState {
     fn push_samples(&mut self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
-        for s in samples {
+        for s in samples.iter() {
             let output_key = get_output_key(&s.key);
 
             loop {
@@ -53,13 +50,14 @@ impl AggrState for CountSamplesAggrState {
     }
 
     fn flush_state(&mut self, ctx: &mut FlushCtx) {
-        for entry in self.m.iter() {
+        let map = self.m.pin();
+        for entry in map.iter() {
             let mut sv = entry.value().lock().unwrap();
 
             let deleted = ctx.flush_timestamp > sv.delete_deadline;
             if deleted {
                 sv.deleted = true;
-                self.m.remove(&entry.key());
+                self.m.remove(entry.key());
                 continue;
             }
 

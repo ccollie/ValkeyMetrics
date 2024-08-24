@@ -1,4 +1,4 @@
-use crate::stream_aggregation::stream_aggr::{AggrState, FlushCtx};
+use crate::stream_aggregation::stream_aggr::{get_output_key, AggrState, FlushCtx};
 use crate::stream_aggregation::{OutputKey, PushSample, AGGR_STATE_SIZE};
 use dashmap::DashMap;
 use std::sync::{Arc, Mutex};
@@ -30,7 +30,7 @@ impl AggrState for MaxAggrState {
             let output_key = get_output_key(&s.key);
 
             loop {
-                let entry = self.m.entry(output_key.clone()).or_insert_with(|| {
+                let entry = self.m.entry(output_key.to_string()).or_insert_with(|| {
                     Arc::new(Mutex::new(MaxStateValue {
                         state: [MaxState { max: 0.0, exists: false }; AGGR_STATE_SIZE],
                         deleted: false,

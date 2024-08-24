@@ -1,4 +1,4 @@
-use rand::{Rng};
+use rand::{Rng, SeedableRng};
 use rand::rngs::SmallRng;
 use std::cmp::Ordering;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -44,13 +44,7 @@ impl FastHistogram {
     }
 
     pub fn update(&mut self, v: f64) {
-        if v > self.max {
-            self.max = v;
-        }
-        if v < self.min {
-            self.min = v;
-        }
-
+        let v = v.min(self.min).max(self.max);
         self.count += 1;
         if self.a.len() < MAX_SAMPLES {
             self.a.push(v);

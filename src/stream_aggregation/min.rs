@@ -1,11 +1,11 @@
-use crate::stream_aggregation::stream_aggr::{AggrState, FlushCtx};
+use crate::stream_aggregation::stream_aggr::{get_output_key, AggrState, FlushCtx};
 use crate::stream_aggregation::{OutputKey, PushSample, AGGR_STATE_SIZE};
-use dashmap::DashMap;
+use papaya::HashMap;
 use std::sync::{Arc, Mutex};
 
 
 pub struct MinAggrState {
-    m: DashMap<OutputKey, Arc<Mutex<MinStateValue>>>,
+    m: HashMap<OutputKey, Arc<Mutex<MinStateValue>>, ahash::RandomState>,
 }
 
 struct MinStateValue {
@@ -21,7 +21,20 @@ struct MinState {
 
 impl MinAggrState {
     pub fn new() -> Self {
-        Self { m: DashMap::new() }
+        Self {
+            m: HashMap::with_hasher(ahash::RandomState::new())
+        }
+    }
+
+    fn update_state(sv: &mut MinStateValue, sample: &PushSample, delete_deadline: i64, idx: usize) {
+        let state = &mut sv.state[idx];
+        if !state.exists {
+            state.min = sample.value;
+            state.exists = true;
+        } else if sample.value < state.min {
+            state.min = sample.value;
+        }
+        sv.delete_deadline = delete_deadline;
     }
 }
 
@@ -30,41 +43,36 @@ impl AggrState for MinAggrState {
         for s in samples {
             let output_key = get_output_key(&s.key);
 
-            loop {
-                let entry = self.m.entry(output_key.clone()).or_insert_with(|| {
-                    Arc::new(Mutex::new(MinStateValue {
-                        state: [MinState { min: 0.0, exists: false }; AGGR_STATE_SIZE],
-                        deleted: false,
-                        delete_deadline,
-                    }))
-                });
-
+            let guard = self.m.guard();
+            let mut entry = self.m.get(&output_key, &guard);
+            if let Some(entry) = entry {
                 let mut sv = entry.lock().unwrap();
                 if sv.deleted {
                     continue;
                 }
-
-                let state = &mut sv.state[idx];
-                if !state.exists {
-                    state.min = s.value;
-                    state.exists = true;
-                } else if s.value < state.min {
-                    state.min = s.value;
-                }
-                sv.delete_deadline = delete_deadline;
-                break;
+                Self::update_state(&mut sv, &s, delete_deadline, idx);
+            } else {
+                let mut state = MinStateValue {
+                    state: [MinState { min: 0.0, exists: false }; AGGR_STATE_SIZE],
+                    deleted: false,
+                    delete_deadline,
+                };
+                Self::update_state(&mut state, &s, delete_deadline, idx);
+                let sv = Arc::new(Mutex::new(state));
+                self.m.insert(output_key.to_string(), sv, &guard);
             }
         }
     }
 
     fn flush_state(&mut self, ctx: &mut FlushCtx) {
-        for entry in self.m.iter() {
+        let mut map = self.m.pin();
+        for entry in map.iter() {
             let mut sv = entry.value().lock().unwrap();
 
             let deleted = ctx.flush_timestamp > sv.delete_deadline;
             if deleted {
                 sv.deleted = true;
-                self.m.remove(&entry.key());
+                map.remove(&entry.key());
                 continue;
             }
 

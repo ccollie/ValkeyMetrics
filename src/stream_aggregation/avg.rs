@@ -1,12 +1,13 @@
-use dashmap::DashMap;
-use std::sync::{Arc, Mutex};
-use bytes::Bytes;
+use super::stream_aggr::{get_output_key, AggrState, FlushCtx};
 use crate::stream_aggregation::{PushSample, AGGR_STATE_SIZE};
-use crate::stream_aggregation::stream_aggr::{AggrState, FlushCtx};
+use ahash::RandomState;
+use bytes::Bytes;
+use papaya::HashMap;
+use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AvgAggrState {
-    m: DashMap<Bytes, Arc<Mutex<AvgStateValue>>>,
+    m: HashMap<Bytes, Arc<Mutex<AvgStateValue>>, RandomState>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -15,7 +16,7 @@ pub struct AvgState {
     count: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct AvgStateValue {
     state: [AvgState; AGGR_STATE_SIZE],
     deleted: bool,
@@ -24,7 +25,14 @@ pub struct AvgStateValue {
 
 impl AvgAggrState {
     pub fn new() -> Self {
-        Self { m: DashMap::new() }
+        Self { m: HashMap::with_hasher(RandomState::new()) }
+    }
+
+    fn update_state(sv: &mut AvgStateValue, sample: &PushSample, delete_deadline: i64, idx: usize) {
+        let state = &mut sv.state[idx];
+        state.sum += sample.value;
+        state.count += 1;
+        sv.delete_deadline = delete_deadline;
     }
 }
 
@@ -34,31 +42,35 @@ impl AggrState for AvgAggrState {
             let output_key = get_output_key(s.key);
 
             loop {
-                let v = self.m.entry(output_key.clone()).or_insert_with(|| {
-                    Arc::new(Mutex::new(AvgStateValue {
-                        state: [AvgState { sum: 0.0, count: 0.0 }; AGGR_STATE_SIZE],
-                        deleted: false,
-                        delete_deadline: 0,
-                    }))
-                });
-
-                let mut sv = v.lock().unwrap();
-                if !sv.deleted {
-                    sv.state[idx].sum += s.value;
-                    sv.state[idx].count += 1.0;
-                    sv.delete_deadline = delete_deadline;
-                    break;
+                let mut entry = self.m.pin().get(&output_key);
+                if let Some(entry) = entry {
+                    let mut sv = entry.lock().unwrap();
+                    if sv.deleted {
+                        // The entry has been deleted by the concurrent call to flush_state
+                        // Try obtaining and updating the entry again.
+                        self.m.pin().remove(&output_key);
+                        continue;
+                    }
+                    Self::update_state(&mut sv, &s, delete_deadline, idx);
                 } else {
-                    // The entry has been deleted by the concurrent call to flush_state
-                    // Try obtaining and updating the entry again.
-                    self.m.remove(&output_key);
+                    let mut state = AvgStateValue {
+                        state: [AvgState { sum: 0.0, count: 0 }; AGGR_STATE_SIZE],
+                        deleted: false,
+                        delete_deadline,
+                    };
+                    Self::update_state(&mut state, &s, delete_deadline, idx);
+                    let sv = Arc::new(Mutex::new(state));
+                    let map = self.m.pin();
+                    map.insert(output_key.to_string(), sv);
                 }
+                break;
             }
         }
     }
 
     fn flush_state(&mut self, ctx: &mut FlushCtx) {
-        for entry in self.m.iter() {
+        let map = self.m.pin();
+        for entry in map.iter() {
             let (k, v) = entry.pair();
             let mut sv = v.lock().unwrap();
 
@@ -68,7 +80,7 @@ impl AggrState for AvgAggrState {
                 // Mark the current entry as deleted
                 sv.deleted = deleted;
                 drop(sv);
-                self.m.remove(k);
+                map.remove(k);
                 continue;
             }
 

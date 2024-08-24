@@ -1,6 +1,5 @@
-use dashmap::DashMap;
 use metricsql_runtime::Label;
-use std::collections::HashMap;
+use papaya::HashMap;
 use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
@@ -8,7 +7,7 @@ use std::sync::{LazyLock, Mutex};
 static LABELS_COMPRESSOR_POOL: LazyLock<Mutex<Vec<LabelsCompressor>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 pub struct LabelsCompressor {
-    label_to_idx: DashMap<Label, u64>,
+    label_to_idx: HashMap<Label, u64>,
     idx_to_label: LabelsMap,
     next_idx: AtomicU64,
     total_size_bytes: AtomicU64,
@@ -39,13 +38,16 @@ impl LabelsCompressor {
 
     fn compress_inner(&self, dst: &mut [u64], labels: Vec<Label>) {
         for (i, label) in labels.iter().enumerate() {
-            let v = self.label_to_idx.entry(label.clone()).or_insert_with(|| {
+            let map = self.label_to_idx.pin();
+            if let Some(v) = map.get(label) {
+                dst[i] = *v;
+                continue;
+            } else {
                 let idx = self.next_idx.fetch_add(1, Ordering::Relaxed);
-                let label_copy = clone_label(label);
-                self.idx_to_label.store(idx, label_copy.clone());
-                idx
-            });
-            dst[i] = *v;
+                map.insert(label.clone(), idx);
+                self.idx_to_label.store(idx, label.clone());
+                dst[i] = idx;
+            }
         }
     }
 
@@ -202,8 +204,8 @@ mod encoding {
 
 #[cfg(test)]
 mod tests {
-    use metricsql_runtime::Label;
     use crate::common::label_compressor::LabelsCompressor;
+    use metricsql_runtime::Label;
 
     fn test_labels_compressor_serial() {
         let mut lc: LabelsCompressor = LabelsCompressor::new();

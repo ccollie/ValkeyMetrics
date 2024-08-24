@@ -19,6 +19,8 @@ mod histogram_bucket;
 mod dedup_tests;
 mod fast_histogram;
 mod labels_compressor;
+mod timeseries;
+mod interner;
 
 use std::fmt::Display;
 use std::str::FromStr;
