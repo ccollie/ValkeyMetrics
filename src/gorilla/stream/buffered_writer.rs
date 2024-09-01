@@ -1,5 +1,6 @@
 use super::Write;
 use std::boxed::Box;
+use std::mem::size_of;
 use get_size::GetSize;
 use serde::{Deserialize, Serialize};
 use crate::gorilla::Bit;
@@ -10,8 +11,8 @@ use crate::gorilla::Bit;
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[derive(GetSize)]
 pub struct BufferedWriter {
-    buf: Vec<u8>,
-    pos: u32, // position in the last byte in the buffer
+    pub(crate) buf: Vec<u8>,
+    pub(crate) pos: u32, // position in the last byte in the buffer
 }
 
 impl BufferedWriter {
@@ -50,6 +51,10 @@ impl BufferedWriter {
 
     pub fn is_empty(&self) -> bool {
         self.buf.is_empty()
+    }
+
+    pub fn usage(&self) -> usize {
+        self.buf.len() + size_of::<u32>()
     }
 }
 

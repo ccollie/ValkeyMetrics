@@ -8,6 +8,7 @@ use crate::storage::chunk::Chunk;
 use crate::storage::utils::{get_timestamp_index_bounds, trim_vec_data};
 use crate::storage::{DuplicatePolicy, Sample, SeriesSlice, DEFAULT_CHUNK_SIZE_BYTES, F64_SIZE, I64_SIZE, VEC_BASE_SIZE};
 use metricsql_encoding::encoders::pco::{decode as pco_decode, encode as pco_encode, encode_with_options as pco_encode_with_options, CompressorConfig};
+use valkey_module::raw;
 
 /// items above this count will cause value and timestamp encoding/decoding to happen in parallel
 pub(super) const COMPRESSION_PARALLELIZATION_THRESHOLD: usize = 1024;
@@ -24,7 +25,6 @@ pub struct PcoChunk {
     pub count: usize,
     pub timestamps: Vec<u8>,
     pub values: Vec<u8>,
-    buf: Vec<u8>,
 }
 
 impl Default for PcoChunk {
@@ -37,7 +37,6 @@ impl Default for PcoChunk {
             count: 0,
             timestamps: Vec::new(),
             values: Vec::new(),
-            buf: vec![],
         }
     }
 }
@@ -384,6 +383,38 @@ impl Chunk for PcoChunk {
         result.compress(right.timestamps, right.values)?;
 
         Ok(result)
+    }
+
+    fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
+        raw::save_signed(rdb, self.min_time);
+        raw::save_signed(rdb, self.max_time);
+        raw::save_unsigned(rdb, self.max_size as u64);
+        raw::save_double(rdb, self.last_value);
+        raw::save_unsigned(rdb, self.count as u64);
+        raw::save_slice(rdb, &self.timestamps);
+        raw::save_slice(rdb, &self.values);
+    }
+
+    fn rdb_load(rdb: *mut raw::RedisModuleIO) -> Result<Self, valkey_module::error::Error> {
+        let min_time = raw::load_signed(rdb)?;
+        let max_time = raw::load_signed(rdb)?;
+        let max_size = raw::load_unsigned(rdb)? as usize;
+        let last_value = raw::load_double(rdb)?;
+        let count = raw::load_unsigned(rdb)? as usize;
+        let ts = raw::load_string_buffer(rdb)?;
+        let vals = raw::load_string_buffer(rdb)?;
+        let timestamps: Vec<u8> = Vec::from(ts.as_ref());
+        let values: Vec<u8> = Vec::from(vals.as_ref());
+
+        Ok(Self {
+            min_time,
+            max_time,
+            max_size,
+            last_value,
+            count,
+            timestamps,
+            values,
+        })
     }
 }
 

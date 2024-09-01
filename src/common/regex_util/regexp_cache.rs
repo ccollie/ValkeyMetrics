@@ -8,10 +8,8 @@ const DEFAULT_CACHE_SIZE: usize = 100;
 
 #[derive(Clone, Debug)]
 pub(crate) struct RegexpCacheValue {
-    pub or_values: Vec<String>,
     pub re_match: StringMatchHandler,
     pub re_cost: usize,
-    pub literal_suffix: Option<String>,
     pub size_bytes: usize,
 }
 

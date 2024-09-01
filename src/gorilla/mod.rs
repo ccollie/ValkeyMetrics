@@ -119,7 +119,7 @@ mod tests {
     use crate::gorilla::DataPoint;
     use crate::storage::Sample;
     use super::encoder::{Encode, StdEncoder};
-    use super::decoder::{Error, StdDecoder};
+    use super::decoder::{Decode, Error, StdDecoder};
     use super::stream::{BufferedReader, BufferedWriter};
 
     // A representative time series.
@@ -179,19 +179,18 @@ mod tests {
                 break;
             }
 
-            match Iterator::next(&mut decoder) {
-                Some(Ok(dp)) => new_datapoints.push(Sample {
+            match decoder.next() {
+                Ok(dp) => new_datapoints.push(Sample {
                     timestamp: dp.get_time() as i64,
                     value: dp.get_value(),
                 }),
-                Some(Err(err)) => {
+                Err(err) => {
                     if err == Error::EndOfStream {
                         done = true;
                     } else {
                         panic!("Received an error from decoder: {:?}", err);
                     }
                 }
-                None => done = true,
             };
         }
 

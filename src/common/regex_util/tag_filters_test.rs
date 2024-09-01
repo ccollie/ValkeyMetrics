@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use crate::common::regex_util::tag_filter::{get_regexp_from_cache, simplify_regexp, TagFilter, TagFilters};
+    use crate::common::regex_util::tag_filter::{get_regexp_from_cache, TagFilter, TagFilters};
 
     #[test]
     fn test_get_regexp_from_cache() {
-        fn f(s: &str, or_values_expected: &[&str], expected_matches: &[&str], expected_mismatches: &[&str], suffix_expected: &str) {
+        fn f(s: &str, expected_matches: &[&str], expected_mismatches: &[&str], suffix_expected: &str) {
             for _ in 0..3 {
                 let rcv = match get_regexp_from_cache(s) {
                     Ok(rcv) => rcv.clone(),
@@ -12,11 +12,6 @@ mod tests {
                         panic!("cannot get regexp from cache for s={s}: {:?}", err);
                     }
                 };
-                assert_eq!(rcv.or_values, or_values_expected,
-                           "unexpected orValues for s={:?}; got {:?}; want {:?}", s, rcv.or_values, or_values_expected);
-                assert_eq!(rcv.literal_suffix, suffix_expected,
-                           "unexpected literalSuffix for s={:?}; got {}; want {suffix_expected}",
-                           s, rcv.literal_suffix);
                 for expected_match in expected_matches.iter() {
                     assert!(rcv.re_match.matches(expected_match), "s={:?} must match {expected_match}", s);
                 }
@@ -26,65 +21,64 @@ mod tests {
             }
         }
 
-        f("", &[""], &[""], &["foo", "x"], "");
-        f("foo", &["foo"], &["foo"], &["", "bar"], "");
-        f("(?s)(foo)?", &[], &["foo", ""], &["s", "bar"], "");
-        f("foo.*", &[], &["foo", "foobar"], &["xfoo", "xfoobar", "", "a"], "");
+        f("",  &[""], &["foo", "x"], "");
+        f("foo", &["foo"], &["", "bar"], "");
+        f("(?s)(foo)?", &["foo", ""], &["s", "bar"], "");
+        f("foo.*", &["foo", "foobar"], &["xfoo", "xfoobar", "", "a"], "");
       //  f("foo(a|b)?", &[], &["fooa", "foob", "foo"], &["xfoo", "xfoobar", "", "fooc", "fooba"], "");
-        f(".*foo", &[], &["foo", "xfoo"], &["foox", "xfoobar", "", "a"], "foo");
+        f(".*foo", &["foo", "xfoo"], &["foox", "xfoobar", "", "a"], "foo");
       //  f("(a|b)?foo", &[], &["foo", "afoo", "bfoo"], &["foox", "xfoobar", "", "a"], "foo");
-        f(".*foo.*", &[], &["foo", "xfoo", "foox", "xfoobar"], &["", "bar", "foxx"], "");
-        f(".*foo.+", &[], &["foo1", "xfoodff", "foox", "xfoobar"], &["", "bar", "foo", "fox"], "");
-        f(".+foo.+", &[], &["xfoo1", "xfoodff", "xfoox", "xfoobar"], &["", "bar", "foo", "foox", "xfoo"], "");
-        f(".+foo.*", &[], &["xfoo", "xfoox", "xfoobar"], &["", "bar", "foo", "fox"], "");
+        f(".*foo.*",  &["foo", "xfoo", "foox", "xfoobar"], &["", "bar", "foxx"], "");
+        f(".*foo.+",  &["foo1", "xfoodff", "foox", "xfoobar"], &["", "bar", "foo", "fox"], "");
+        f(".+foo.+",  &["xfoo1", "xfoodff", "xfoox", "xfoobar"], &["", "bar", "foo", "foox", "xfoo"], "");
+        f(".+foo.*", &["xfoo", "xfoox", "xfoobar"], &["", "bar", "foo", "fox"], "");
      // f(".+foo(a|b)?", &[], &["xfoo", "xfooa", "xafoob"], &["", "bar", "foo", "foob"], "");
      //   f(".*foo(a|b)?", &[], &["foo", "foob", "xafoo", "xfooa"], &["", "bar", "fooba"], "");
     //    f("(a|b)?foo(a|b)?", &[], &["foo", "foob", "afoo", "afooa"], &["", "bar", "fooba", "xfoo"], "");
-        f("((.*)foo(.*))", &[], &["foo", "xfoo", "foox", "xfoobar"], &["", "bar", "foxx"], "");
-        f(".+foo", &[], &["afoo", "bbfoo"], &["foo", "foobar", "afoox", ""], "foo");
-        f("a|b", &["a", "b"], &["a", "b"], &["xa", "bx", "xab", ""], "");
-        f("(a|b)", &["a", "b"], &["a", "b"], &["xa", "bx", "xab", ""], "");
-        f("(a|b)foo(c|d)", &["afooc", "afood", "bfooc", "bfood"], &["afooc", "bfood"], &["foo", "", "afoo", "fooc", "xfood"], "");
-        f("foo.+", &[], &["foox", "foobar"], &["foo", "afoox", "afoo", ""], "");
-        f(".*foo.*bar", &[], &["foobar", "xfoobar", "xfooxbar", "fooxbar"], &["", "foobarx", "afoobarx", "aaa"], "bar");
-        f("foo.*bar", &[], &["foobar", "fooxbar"], &["xfoobar", "", "foobarx", "aaa"], "bar");
-        f("foo.*bar.*", &[], &["foobar", "fooxbar", "foobarx", "fooxbarx"], &["", "afoobarx", "aaa", "afoobar"], "");
-        f("foo.*bar.*baz", &[], &["foobarbaz", "fooxbarxbaz", "foobarxbaz", "fooxbarbaz"], &["", "afoobarx", "aaa", "afoobar", "foobarzaz"], "baz");
-        f(".+foo.+(b|c).+", &[], &["xfooxbar", "xfooxca"], &["", "foo", "foob", "xfooc", "xfoodc"], "");
+        f("((.*)foo(.*))", &["foo", "xfoo", "foox", "xfoobar"], &["", "bar", "foxx"], "");
+        f(".+foo", &["afoo", "bbfoo"], &["foo", "foobar", "afoox", ""], "foo");
+        f("a|b", &["a", "b"], &["xa", "bx", "xab", ""], "");
+        f("(a|b)", &["a", "b"], &["xa", "bx", "xab", ""], "");
+        f("(a|b)foo(c|d)",  &["afooc", "bfood"], &["foo", "", "afoo", "fooc", "xfood"], "");
+        f("foo.+", &["foox", "foobar"], &["foo", "afoox", "afoo", ""], "");
+        f(".*foo.*bar", &["foobar", "xfoobar", "xfooxbar", "fooxbar"], &["", "foobarx", "afoobarx", "aaa"], "bar");
+        f("foo.*bar", &["foobar", "fooxbar"], &["xfoobar", "", "foobarx", "aaa"], "bar");
+        f("foo.*bar.*", &["foobar", "fooxbar", "foobarx", "fooxbarx"], &["", "afoobarx", "aaa", "afoobar"], "");
+        f("foo.*bar.*baz", &["foobarbaz", "fooxbarxbaz", "foobarxbaz", "fooxbarbaz"], &["", "afoobarx", "aaa", "afoobar", "foobarzaz"], "baz");
+        f(".+foo.+(b|c).+",  &["xfooxbar", "xfooxca"], &["", "foo", "foob", "xfooc", "xfoodc"], "");
 
-        f("(?i)foo", &[], &["foo", "Foo", "FOO"], &["xfoo", "foobar", "xFOObar"], "");
-        f("(?i).+foo", &[], &["xfoo", "aaFoo", "bArFOO"], &["foosdf", "xFOObar"], "");
-        f("(?i)(foo|bar)", &[], &["foo", "Foo", "BAR", "bAR"], &["foobar", "xfoo", "xFOObAR"], "");
-        f("(?i)foo.*bar", &[], &["foobar", "FooBAR", "FOOxxbaR"], &["xfoobar", "foobarx", "xFOObarx"], "");
+        f("(?i)foo", &["foo", "Foo", "FOO"], &["xfoo", "foobar", "xFOObar"], "");
+        f("(?i).+foo", &["xfoo", "aaFoo", "bArFOO"], &["foosdf", "xFOObar"], "");
+        f("(?i)(foo|bar)", &["foo", "Foo", "BAR", "bAR"], &["foobar", "xfoo", "xFOObAR"], "");
+        f("(?i)foo.*bar", &["foobar", "FooBAR", "FOOxxbaR"], &["xfoobar", "foobarx", "xFOObarx"], "");
 
-        f(".*", &[], &["", "a", "foo", "foobar"], &[], "");
-        f("foo|.*", &[], &["", "a", "foo", "foobar"], &[], "");
-        f(".+", &[], &["a", "foo"], &[""], "");
-        f("(.+)*(foo)?", &[], &["a", "foo", ""], &[], "");
+        f(".*", &["", "a", "foo", "foobar"], &[], "");
+        f("foo|.*", &["", "a", "foo", "foobar"], &[], "");
+        f(".+", &["a", "foo"], &[""], "");
+        f("(.+)*(foo)?", &["a", "foo", ""], &[], "");
 
         // Graphite-like regexps
-        f(r#"foo\.[^.]*\.bar\.ba(xx|zz)[^.]*\.a"#, &[], &["foo.ss.bar.baxx.a", "foo.s.bar.bazzasd.a"], &["", "foo", "foo.ss.xar.baxx.a"], ".a");
-        f(r#"foo\.[^.]*?\.bar\.baz\.aaa"#, &[], &["foo.aa.bar.baz.aaa"], &["", "foo"], ".bar.baz.aaa");
+        f(r#"foo\.[^.]*\.bar\.ba(xx|zz)[^.]*\.a"#, &["foo.ss.bar.baxx.a", "foo.s.bar.bazzasd.a"], &["", "foo", "foo.ss.xar.baxx.a"], ".a");
+        f(r#"foo\.[^.]*?\.bar\.baz\.aaa"#, &["foo.aa.bar.baz.aaa"], &["", "foo"], ".bar.baz.aaa");
     }
 
     fn mismatches_suffix(tf: &TagFilter, suffix: &str) {
-        let ok = tf.match_suffix(suffix);
+        let ok = tf.matches(suffix);
         if ok != tf.is_negative {
             panic!("{} mustn't match suffix {}", tf, suffix)
         }
     }
 
     fn matches_suffix(tf: &TagFilter, suffix: &str) {
-        let ok = tf.match_suffix(suffix);
+        let ok = tf.matches(suffix);
         if ok == tf.is_negative {
             panic!("{} must match suffix {}", tf, suffix)
         }
     }
 
-    fn init_tf(value: &str, is_negative: bool, is_regexp: bool, expected_prefix: &str) -> TagFilter {
+    fn init_tf(value: &str, is_negative: bool, is_regexp: bool) -> TagFilter {
         let key = "key";
         let tf: TagFilter = TagFilter::new(key, value, is_negative, is_regexp).unwrap();
-        assert_eq!(expected_prefix, tf.prefix, "unexpected tf.prefix; got {}; want {expected_prefix}", tf.prefix);
         tf
     }
 
@@ -98,7 +92,7 @@ mod tests {
         let is_negative = false;
         let is_regexp = false;
         let expected_prefix = tv_no_trailing_tag_separator(value);
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Plain value must match empty suffix only
         matches_suffix(&tf, "");
@@ -112,7 +106,7 @@ mod tests {
         let is_negative = true;
         let is_regexp = false;
         let expected_prefix = tv_no_trailing_tag_separator(value);
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Negative plain value must match all except empty suffix
         mismatches_suffix(&tf, "");
@@ -128,10 +122,9 @@ mod tests {
         let value = "http";
         let is_negative = false;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator(value);
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
-// Must match only empty suffix
+        // Must match only empty suffix
         matches_suffix(&tf, "");
         mismatches_suffix(&tf, "x");
         mismatches_suffix(&tf, "http");
@@ -143,8 +136,7 @@ mod tests {
         let value = "http";
         let is_negative = true;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator(value);
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Must match all except empty suffix
         mismatches_suffix(&tf, "");
@@ -160,8 +152,7 @@ mod tests {
         let value = "http.*";
         let is_negative = false;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator("http");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Must match any suffix
         matches_suffix(&tf, "");
@@ -175,15 +166,12 @@ mod tests {
         let value = "http.*";
         let is_negative = true;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator("http");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
-// Mustn't match any suffix
+        // Mustn't match any suffix
         mismatches_suffix(&tf, "");
         mismatches_suffix(&tf, "x");
         mismatches_suffix(&tf, "xhttp");
-        mismatches_suffix(&tf, "http");
-        mismatches_suffix(&tf, "httpsdf");
         mismatches_suffix(&tf, "foobar");
     }
 
@@ -193,9 +181,9 @@ mod tests {
         let is_negative = false;
         let is_regexp = true;
         let expected_prefix = tv_no_trailing_tag_separator("http");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
-// Must match any suffix with `foo`
+        // Must match any suffix with `foo`
         mismatches_suffix(&tf, "");
         mismatches_suffix(&tf, "x");
         mismatches_suffix(&tf, "http");
@@ -210,8 +198,7 @@ mod tests {
         let value = "http.*foo.*";
         let is_negative = true;
         let is_regexp = true;
-        let expected_prefix = "http";
-        let tf = init_tf(value, is_negative, is_regexp, expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Must match any suffix without `foo`
         matches_suffix(&tf, "");
@@ -232,8 +219,7 @@ mod tests {
         let value = ".*foo.*";
         let is_negative = true;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator("");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Must match anything not matching `.*foo.*`
         matches_suffix(&tf, "");
@@ -250,8 +236,7 @@ mod tests {
         let value = "http.*bar";
         let is_negative = false;
         let is_regexp = true;
-        let expected_prefix = "http";
-        let tf = init_tf(value, is_negative, is_regexp, expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Must match suffix ending on bar
         mismatches_suffix(&tf, "");
@@ -267,8 +252,7 @@ mod tests {
         let value = "http.*bar";
         let is_negative = true;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator("http");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Mustn't match suffix ending on bar
         matches_suffix(&tf, "");
@@ -286,8 +270,7 @@ mod tests {
         let value = ".*bar";
         let is_negative = true;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator("");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Must match all except the regexp from value
         matches_suffix(&tf, "");
@@ -302,9 +285,7 @@ mod tests {
         let value = "http(foo|bar)";
         let is_negative = false;
         let is_regexp = true;
-        let expected_prefix = "http";
-        let tf = init_tf(value, is_negative, is_regexp, expected_prefix);
-        assert_eq!(tf.or_suffixes, &["bar", "foo"], "unexpected or_suffixes; got {:?}; want &[\"bar\", \"foo\"]", tf.or_suffixes);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Must match foo or bar suffix
         mismatches_suffix(&tf, "");
@@ -320,9 +301,7 @@ mod tests {
         let value = "http(foo|bar)";
         let is_negative = true;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator("http");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
-        assert_eq!(tf.or_suffixes, &["bar", "foo"], "unexpected or_suffixes; got {:?}; want &[\"bar\", \"foo\"]", tf.or_suffixes);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Mustn't match foo or bar suffix
         matches_suffix(&tf, "");
@@ -339,8 +318,7 @@ mod tests {
         let value = "(?i)http";
         let is_negative = false;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator("");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Must match case-insenstive http
         matches_suffix(&tf, "http");
@@ -359,8 +337,7 @@ mod tests {
         let value = "(?i)http";
         let is_negative = true;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator("");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Mustn't match case-insensitive http
         mismatches_suffix(&tf, "http");
@@ -379,8 +356,7 @@ mod tests {
         let value = "(?i)http.*";
         let is_negative = false;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator("");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Must match case-insensitive http
         matches_suffix(&tf, "http");
@@ -398,8 +374,7 @@ mod tests {
         let value = "(?i)http.*";
         let is_negative = true;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator("");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
+        let tf = init_tf(value, is_negative, is_regexp);
 
         // Mustn't match case-insensitive http
         mismatches_suffix(&tf, "http");
@@ -417,12 +392,7 @@ mod tests {
         let value = ".+";
         let is_negative = true;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator("");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
-        if tf.or_suffixes.len() != 0 {
-            panic!("unexpected non-zero number of or suffixes: {}; {:?}", tf.or_suffixes.len(), tf.or_suffixes)
-        }
-
+        let tf = init_tf(value, is_negative, is_regexp);
         matches_suffix(&tf, "");
         mismatches_suffix(&tf, "x");
         mismatches_suffix(&tf, "foo");
@@ -433,11 +403,7 @@ mod tests {
         let value = ".+";
         let is_negative = false;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator("");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
-        if tf.or_suffixes.len() != 0 {
-            panic!("unexpected non-zero number of or suffixes: {}; {:?}", tf.or_suffixes.len(), tf.or_suffixes)
-        }
+        let tf = init_tf(value, is_negative, is_regexp);
 
         mismatches_suffix(&tf, "");
         matches_suffix(&tf, "x");
@@ -449,11 +415,7 @@ mod tests {
         let value = ".*";
         let is_negative = true;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator("");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
-        if tf.or_suffixes.len() != 0 {
-            panic!("unexpected non-zero number of or suffixes: {}; {:?}", tf.or_suffixes.len(), tf.or_suffixes)
-        }
+        let tf = init_tf(value, is_negative, is_regexp);
 
         mismatches_suffix(&tf, "");
         mismatches_suffix(&tf, "x");
@@ -465,76 +427,11 @@ mod tests {
         let value = ".*";
         let is_negative = false;
         let is_regexp = true;
-        let expected_prefix = tv_no_trailing_tag_separator("");
-        let tf = init_tf(value, is_negative, is_regexp, &expected_prefix);
-        if tf.or_suffixes.len() != 0 {
-            panic!("unexpected non-zero number of or suffixes: {}; {:?}", tf.or_suffixes.len(), tf.or_suffixes)
-        }
+        let tf = init_tf(value, is_negative, is_regexp);
 
         matches_suffix(&tf, "");
         matches_suffix(&tf, "x");
         matches_suffix(&tf, "foo");
-    }
-
-    #[test]
-    fn test_simplify_regexp() {
-        fn f(s: &str, expected_prefix: &str, expected_suffix: &str) {
-            let (prefix, suffix) = simplify_regexp(s).unwrap();
-            assert_eq!(prefix, expected_prefix, "unexpected prefix for s={:?}; got {prefix}; want {:?}", s, &expected_prefix);
-            assert_eq!(suffix, expected_suffix, "unexpected suffix for s={:?}; got {suffix}; want {:?}", s, expected_suffix);
-            // Get the prefix from cache.
-            let (prefix, suffix) = simplify_regexp(s).unwrap();
-            assert_eq!(prefix, expected_prefix, "unexpected prefix for s={:?}; got {prefix}; want {:?}", s, &expected_prefix);
-            assert_eq!(suffix, expected_suffix, "unexpected suffix for s={:?}; got {suffix}; want {:?}", s, expected_suffix);
-        }
-
-        f("", "", "");
-        f("^", "", "");
-        f("$", "", "");
-        f("^()$", "", "");
-        f("^(?:)$", "", "");
-        f("foobar", "foobar", "");
-        f("foo$|^foobar", "foo", "|bar");
-        f("^(foo$|^foobar)$", "foo", "|bar");
-        f("foobar|foobaz", "fooba", "[rz]");
-        f("(fo|(zar|bazz)|x)", "", "fo|zar|bazz|x");
-        f("(тестЧЧ|тест)", "тест", "ЧЧ|");
-        f("foo(bar|baz|bana)", "fooba", "[rz]|na");
-        f("^foobar|foobaz", "fooba", "[rz]");
-        f("^foobar|^foobaz$", "fooba", "[rz]");
-        f("foobar|foobaz", "fooba", "[rz]");
-        f("(?:^foobar|^foobaz)aa.*", "fooba", "[rz]aa.*");
-        f("foo[bar]+", "foo", "[a-br]+");
-        f("foo[a-z]+", "foo", "[a-z]+");
-        f("foo[bar]*", "foo", "[a-br]*");
-        f("foo[a-z]*", "foo", "[a-z]*");
-        f("foo[x]+", "foo", "x+");
-        f("foo[^x]+", "foo", "[^x]+");
-        f("foo[x]*", "foo", "x*");
-        f("foo[^x]*", "foo", "[^x]*");
-        f("foo[x]*bar", "foo", "x*bar");
-        f("fo\\Bo[x]*bar?", "fo", "\\Box*bar?");
-        f("foo.+bar", "foo", ".+bar");
-        f("a(b|c.*).+", "a", "(?:b|c.*).+");
-        f("ab|ac", "a", "[b-c]");
-        f("(?i)xyz", "", "(?i:XYZ)");
-        f("(?i)foo|bar", "", "(?i:FOO)|(?i:BAR)");
-        f("(?i)up.+x", "", "(?i:UP).+(?i:X)");
-        f("(?smi)xy.*z$", "", "(?i:XY)(?s:.)*(?i:Z)(?m:$)");
-
-        // test invalid regexps
-        f("a(", "a(", "");
-        f("a[", "a[", "");
-        f("a[]", "a[]", "");
-        f("a{", "a{", "");
-        f("a{}", "a{}", "");
-        f("invalid(regexp", "invalid(regexp", "");
-
-        // The transformed regexp mustn't match aba
-        f("a?(^ba|c)", "", "a?(?:\\Aba|c)");
-
-        // The transformed regexp mustn't match barx
-        f("(foo|bar$)x*", "", "(?:foo|bar$)x*")
     }
 
     #[test]

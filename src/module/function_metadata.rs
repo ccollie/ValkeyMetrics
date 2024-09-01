@@ -6,11 +6,10 @@ use crate::module::result::{format_array_result, get_ts_metric_selector};
 use crate::module::{normalize_range_args, parse_timestamp_arg, VALKEY_PROMQL_SERIES_TYPE};
 use crate::storage::time_series::TimeSeries;
 use metricsql_parser::label::Matchers;
+use std::collections::BTreeSet;
 use valkey_module::{
     Context as RedisContext, Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue,
 };
-use std::collections::{BTreeSet};
-use valkey_module::redisvalue::ValkeyValueKey;
 // todo: series count
 
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#finding-series-by-label-matchers

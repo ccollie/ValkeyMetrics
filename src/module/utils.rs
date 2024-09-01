@@ -1,6 +1,6 @@
 use std::borrow::Cow;
-
-use valkey_module::{CallOptionResp, CallOptions, CallOptionsBuilder, CallResult, ValkeyError, ValkeyResult, ValkeyValue};
+use std::ffi::CStr;
+use valkey_module::{CallOptionResp, CallOptions, CallOptionsBuilder, CallResult, RedisModuleString, RedisModule_StringPtrLen, ValkeyError, ValkeyResult, ValkeyValue};
 
 use crate::common::current_time_millis;
 use crate::common::types::Timestamp;
@@ -40,6 +40,16 @@ pub(crate) fn valkey_value_as_string(value: &ValkeyValue) -> ValkeyResult<Cow<St
         },
         _ => Err(ValkeyError::Str("TSDB: cannot convert value to str")),
     }
+}
+
+#[no_mangle]
+/// Perform a lossy conversion of a module string into a `Cow<str>`.
+pub unsafe extern "C" fn string_from_module_string(
+    s: *const RedisModuleString,
+) -> Cow<'static, str> {
+    let mut len = 0;
+    let c_str = RedisModule_StringPtrLen.unwrap()(s, &mut len);
+    CStr::from_ptr(c_str).to_string_lossy()
 }
 
 pub(crate) fn call_valkey_command<'a>(ctx: &valkey_module::Context, cmd: &'a str, args: &'a [String]) -> ValkeyResult {

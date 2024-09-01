@@ -16,7 +16,7 @@ mod merge;
 mod slice;
 pub mod time_series;
 mod uncompressed_chunk;
-mod utils;
+pub(crate) mod utils;
 pub(crate) mod series_data;
 mod defrag;
 mod serialization;
@@ -148,6 +148,17 @@ impl DuplicatePolicy {
         }
     }
 
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            DuplicatePolicy::Block => 0,
+            DuplicatePolicy::KeepFirst => 1,
+            DuplicatePolicy::KeepLast => 2,
+            DuplicatePolicy::Min => 4,
+            DuplicatePolicy::Max => 8,
+            DuplicatePolicy::Sum => 16,
+        }
+    }
+
     pub fn value_on_duplicate(self, ts: Timestamp, old: f64, new: f64) -> TsdbResult<f64> {
         use DuplicatePolicy::*;
         let has_nan = old.is_nan() || new.is_nan();
@@ -193,6 +204,22 @@ impl FromStr for DuplicatePolicy {
 impl From<&str> for DuplicatePolicy {
     fn from(s: &str) -> Self {
         DuplicatePolicy::from_str(s).unwrap()
+    }
+}
+
+impl TryFrom<u8> for DuplicatePolicy {
+    type Error = TsdbError;
+
+    fn try_from(n: u8) -> Result<Self, Self::Error> {
+        match n {
+            0 => Ok(DuplicatePolicy::Block),
+            1 => Ok(DuplicatePolicy::KeepFirst),
+            2 => Ok(DuplicatePolicy::KeepLast),
+            4 => Ok(DuplicatePolicy::Min),
+            8 => Ok(DuplicatePolicy::Max),
+            16 => Ok(DuplicatePolicy::Sum),
+            _ => Err(TsdbError::General(format!("invalid duplicate policy: {n}"))),
+        }
     }
 }
 

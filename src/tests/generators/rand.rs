@@ -10,6 +10,7 @@ use crate::tests::generators::generators::{
 };
 use std::ops::Range;
 use std::time::Duration;
+use crate::storage::utils::round_to_significant_digits;
 
 #[derive(Debug, Copy, Clone, Default)]
 pub enum RandAlgo {
@@ -38,6 +39,8 @@ pub struct GeneratorOptions {
     pub seed: Option<u64>,
     /// Type of random number generator.
     pub typ: RandAlgo,
+    /// Number of significant digits.
+    pub significant_digits: Option<usize>,
 }
 
 impl GeneratorOptions {
@@ -77,6 +80,7 @@ impl Default for GeneratorOptions {
             samples: 100,
             seed: None,
             typ: RandAlgo::StdNorm,
+            significant_digits: None,
         };
         res.fixup();
         res
@@ -116,9 +120,15 @@ pub fn generate_series_data(options: &GeneratorOptions) -> Result<SeriesData, St
 
     let generator = get_generator_impl(options.typ, options.seed, &options.range)?;
 
-    let values = generator.take(options.samples).collect::<Vec<f64>>();
+    let mut values = generator.take(options.samples).collect::<Vec<f64>>();
     let timestamps = generate_timestamps(options.samples, options.start, Duration::from_millis(interval as u64));
 
+    if let Some(significant_digits) = options.significant_digits {
+        for v in values.iter_mut() {
+            let rounded = round_to_significant_digits(*v, significant_digits as u32);
+            *v = rounded;
+        }
+    }
     ts.timestamps = timestamps;
     ts.values = values;
 

@@ -185,6 +185,7 @@ where
         let value_bits = dp.value.to_bits();
 
         if self.first {
+            self.time = dp.time; // cc
             self.write_first(dp.time, value_bits);
             self.first = false;
             self.count += 1;

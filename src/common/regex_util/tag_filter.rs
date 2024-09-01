@@ -1,18 +1,15 @@
-use super::prefix_cache::{PrefixCache, PrefixSuffix};
 use super::regexp_cache::{RegexpCache, RegexpCacheValue};
 use crate::common::METRIC_NAME_LABEL;
 use metricsql_common::regex_util::match_handlers::StringMatchHandler;
 use metricsql_common::regex_util::{
-    get_match_func_for_or_suffixes,
-    get_optimized_re_match_func,
-    regex_utils,
+    get_optimized_re_match_func
+    ,
     OptimizedMatchFunc,
-    FULL_MATCH_COST,
-    LITERAL_MATCH_COST
+    FULL_MATCH_COST
 };
-use regex::Error as RegexError;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
+use std::mem::size_of;
 use std::sync::{Arc, LazyLock, OnceLock};
 
 /// TagFilters represents filters used for filtering tags.
@@ -27,7 +24,7 @@ impl TagFilters {
     }
     pub fn is_match(&self, b: &str) -> bool {
         // todo: should sort first
-        self.0.iter().all(|tf| tf.is_match(b))
+        self.0.iter().all(|tf| tf.matches(b))
     }
     pub fn len(&self) -> usize {
         self.0.len()
@@ -116,24 +113,10 @@ pub(crate) struct TagFilter {
     pub value: String,
     pub is_negative: bool,
     pub is_regexp: bool,
-    pub is_literal: bool,
 
     /// match_cost is a cost for matching a filter against a single string.
     pub match_cost: usize,
-
-    /// Prefix contains
-    ///  - value if !is_regexp.
-    ///  - regexp_prefix if is_regexp.
-    pub prefix: String,
-    pub prefix_match: StringMatchHandler,
-
-    /// `or` values obtained from regexp suffix if it equals to "foo|bar|..."
-    ///
-    /// the regexp prefix is stored in regexp_prefix.
-    pub or_suffixes: Vec<String>,
-
-    /// Matches suffix.
-    pub suffix_match: StringMatchHandler,
+    pub matcher: StringMatchHandler,
 
     /// Set to true for filters matching empty value.
     pub is_empty_match: bool,
@@ -153,73 +136,43 @@ impl TagFilter {
         is_negative: bool,
         is_regexp: bool,
     ) -> Result<TagFilter, String> {
+        if is_regexp && value.is_empty() {
+            return Err("cannot use empty regexp".to_string());
+        }
+        let matcher = if is_regexp {
+            let cached = get_regexp_from_cache(value)?;
+            cached.re_match.clone()
+        } else {
+            StringMatchHandler::match_fn(key.to_string(), |a, b| a == b)
+        };
         let mut tf = TagFilter {
             key: key.to_string(),
             value: value.to_string(),
             is_negative,
             is_regexp,
-            is_literal: false,
             match_cost: 0,
-            prefix: key.to_string(),
-            prefix_match: StringMatchHandler::literal("".to_string()),
-            or_suffixes: Vec::new(),
-            suffix_match: StringMatchHandler::literal("".to_string()),
+            matcher,
             is_empty_match: false,
         };
 
-        let prefix = value.to_string();
-        if tf.is_regexp {
-            let (prefix, expr) = simplify_regexp(value)
-                .map_err(|err| format!("cannot simplify regexp {}: {}", value, err))?;
-
-            if expr.is_empty() {
-                tf.value = prefix.clone();
-                tf.is_regexp = false;
-                tf.is_literal = true;
-                tf.prefix_match = if tf.is_negative {
-                    StringMatchHandler::literal_mismatch(prefix)
-                } else {
-                    StringMatchHandler::literal(prefix)
-                };
-            }
-        }
-        tf.prefix = prefix.to_string();
         if !tf.is_regexp {
-            // tf contains plain value without regexp.
-            // Add empty or_suffix in order to trigger fast path for or_suffixes during the search for
-            // matching metricIDs.
-            tf.or_suffixes.push("".to_string());
-            tf.is_empty_match = prefix.is_empty();
+            //tf.is_empty_match = prefix.is_empty();
             tf.match_cost = FULL_MATCH_COST;
             return Ok(tf);
         }
         let rcv = get_regexp_from_cache(value)?;
-        tf.or_suffixes = rcv.or_values.clone();
-        tf.suffix_match = rcv.re_match.clone();
         tf.match_cost = rcv.re_cost;
-        tf.is_empty_match = prefix.is_empty() && tf.suffix_match.matches("");
+        // tf.is_empty_match = prefix.is_empty() && tf.suffix_match.matches("");
         Ok(tf)
     }
 
-    pub fn is_match(&self, b: &str) -> bool {
-        let good = self.prefix_match.matches(b);
-        if !good || self.is_literal {
-            return good;
+    pub fn matches(&self, b: &str) -> bool {
+        let good = self.matcher.matches(b);
+        if self.is_negative {
+            !good
+        } else {
+            good
         }
-        let prefix = &self.prefix;
-        let ok = self.match_suffix(&b[prefix.len()..]);
-        if !ok {
-            return self.is_negative;
-        }
-        !self.is_negative
-    }
-
-    #[inline]
-    pub fn match_suffix(&self, b: &str) -> bool {
-        if !self.is_regexp {
-            return b.is_empty();
-        }
-        self.suffix_match.matches(b)
     }
 
     pub fn get_op(&self) -> &'static str {
@@ -250,13 +203,10 @@ impl PartialOrd for TagFilter {
         if self.is_regexp != other.is_regexp {
             return Some(self.is_regexp.cmp(&other.is_regexp));
         }
-        if self.or_suffixes.len() != other.or_suffixes.len() {
-            return Some(self.or_suffixes.len().cmp(&other.or_suffixes.len()));
-        }
         if self.is_negative != other.is_negative {
             return Some(self.is_negative.cmp(&other.is_negative));
         }
-        Some(self.prefix.cmp(&other.prefix))
+        Some(Ordering::Equal)
     }
 }
 
@@ -278,28 +228,41 @@ impl Display for TagFilter {
     }
 }
 
+fn matcher_size_bytes(m: &StringMatchHandler) -> usize {
+    let base = size_of::<StringMatchHandler>();
+    let extra = match m {
+        StringMatchHandler::Alternates(alts) => {
+            alts
+                .iter()
+                .map(|x| x.len() * size_of::<char>()).sum()
+        },
+        StringMatchHandler::ContainsAnyOf(x) => {
+            x.literals
+                .iter()
+                .map(|x| x.len() * size_of::<char>()).sum()
+        },
+        StringMatchHandler::And(first, second) => {
+            matcher_size_bytes(first) + matcher_size_bytes(second)
+        }
+        _ => 0,
+    };
+    base + extra
+}
 
 pub(super) fn compile_regexp(expr: &str) -> Result<RegexpCacheValue, String> {
-    let or_values = regex_utils::get_or_values(expr);
-
-    let (re_match, literal_suffix, re_cost) = if !or_values.is_empty() {
-        let (match_fn, re_cost) = new_match_func_for_or_suffixes(or_values.clone());
-        (match_fn, None, re_cost)
-    } else {
-        // Slow path - build the regexp.
-        let OptimizedMatchFunc { match_func, literal_suffix, cost } = get_optimized_re_match_func(expr);
-        (match_func, literal_suffix, cost)
-    };
+    let OptimizedMatchFunc { matcher, cost } =
+        get_optimized_re_match_func(expr)
+            .map_err(|_| {
+                return format!("cannot build regexp from {}", expr);
+            })?;
 
     // heuristic for rcv in-memory size
-    let size_bytes = 8 * expr.len() + literal_suffix.len() + 8 * or_values.len();
+    let size_bytes = matcher_size_bytes(&matcher);
 
     // Put the re_match in the cache.
     Ok(RegexpCacheValue {
-        re_match,
-        re_cost,
-        literal_suffix,
-        or_values,
+        re_match: matcher,
+        re_cost: cost,
         size_bytes,
     })
 }
@@ -317,12 +280,6 @@ pub fn get_regexp_from_cache(expr: &str) -> Result<Arc<RegexpCacheValue>, String
     cache.put(expr, result.clone());
 
     Ok(result)
-}
-
-fn new_match_func_for_or_suffixes(or_values: Vec<String>) -> (StringMatchHandler, usize) {
-    let re_cost = or_values.len() * LITERAL_MATCH_COST;
-    let matcher = get_match_func_for_or_suffixes(or_values);
-    (matcher, re_cost)
 }
 
 const DEFAULT_MAX_REGEXP_CACHE_SIZE: usize = 2048;
@@ -349,39 +306,8 @@ static REGEX_CACHE: LazyLock<RegexpCache> = LazyLock::new(|| {
     RegexpCache::new(*size)
 });
 
-static PREFIX_CACHE: LazyLock<PrefixCache> = LazyLock::new(|| {
-    let size = get_prefix_cache_max_size();
-    PrefixCache::new(*size)
-});
-
 // todo: get from env
 
 pub fn get_regexp_cache() -> &'static RegexpCache {
     &REGEX_CACHE
-}
-
-pub fn get_prefix_cache() -> &'static PrefixCache {
-    &PREFIX_CACHE
-}
-
-pub fn simplify_regexp(expr: &str) -> Result<(String, String), RegexError> {
-    let cache = get_prefix_cache();
-    if let Some(ps) = cache.get(expr) {
-        // Fast path - the simplified expr is found in the cache.
-        return Ok((ps.prefix.clone(), ps.suffix.clone()));
-    }
-
-    // Slow path - simplify the expr.
-
-    // Make a copy of expr before using it,
-    let (prefix, suffix) = regex_utils::simplify(expr)?;
-
-    // Put the prefix and the suffix to the cache.
-    let ps = PrefixSuffix {
-        prefix: prefix.clone(),
-        suffix: suffix.clone(),
-    };
-    cache.put(expr, Arc::new(ps));
-
-    Ok((prefix, suffix))
 }

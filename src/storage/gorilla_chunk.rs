@@ -1,15 +1,16 @@
-use get_size::GetSize;
-use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use crate::common::current_time_millis;
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
-use crate::gorilla::DataPoint;
-use crate::gorilla::decoder::{Error, StdDecoder};
+use crate::gorilla::decoder::{Decode, Error, StdDecoder};
 use crate::gorilla::encoder::{Encode, StdEncoder};
 use crate::gorilla::stream::{BufferedReader, BufferedWriter};
+use crate::gorilla::DataPoint;
 use crate::storage::chunk::Chunk;
 use crate::storage::utils::trim_vec_data;
 use crate::storage::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES, F64_SIZE, I64_SIZE};
+use get_size::GetSize;
+use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
+use valkey_module::raw;
 
 pub(crate) type ChunkEncoder = StdEncoder<BufferedWriter>;
 
@@ -64,7 +65,8 @@ impl GorillaChunk {
     }
 
     pub fn is_full(&self) -> bool {
-        self.data_size() >= self.max_size
+        let usage = self.encoder.w.usage();
+        usage >= self.max_size
     }
 
     pub fn clear(&mut self) {
@@ -161,7 +163,7 @@ impl GorillaChunk {
 
     /// estimate remaining capacity based on the current data size and chunk max_size
     pub fn remaining_capacity(&self) -> usize {
-        self.max_size - self.data_size()
+        self.max_size - self.encoder.w.usage()
     }
 
     /// Estimate the number of samples that can be stored in the remaining capacity
@@ -184,6 +186,47 @@ impl GorillaChunk {
 
     fn buf(&self) -> &[u8] {
         self.encoder.w.bytes()
+    }
+
+    fn rdb_load_encoded(rdb: *mut raw::RedisModuleIO) -> Result<ChunkEncoder, valkey_module::error::Error> {
+        let mut encoder = ChunkEncoder {
+            time: raw::load_unsigned(rdb)?,
+            delta: raw::load_unsigned(rdb)?,
+            value_bits: raw::load_unsigned(rdb)?,
+            val: raw::load_double(rdb)?,
+            leading_zeroes: raw::load_unsigned(rdb)? as u32,
+            trailing_zeroes: raw::load_unsigned(rdb)? as u32,
+            first: raw::load_unsigned(rdb)? == 1,
+            count: raw::load_unsigned(rdb)? as usize,
+            w: BufferedWriter::new(),
+        };
+        let temp = raw::load_string_buffer(rdb)?;
+        let buf: Vec<u8> = Vec::from(temp.as_ref());
+        let pos = raw::load_unsigned(rdb)? as u32;
+        encoder.w.buf = buf;
+        encoder.w.pos = pos;
+        Ok(encoder)
+    }
+
+    fn rdb_save_encoded(&self, rdb: *mut raw::RedisModuleIO) {
+        let encoder = &self.encoder;
+
+        raw::save_unsigned(rdb, encoder.time);
+        raw::save_unsigned(rdb, encoder.delta);
+        raw::save_unsigned(rdb, encoder.value_bits);
+        raw::save_double(rdb, encoder.val);
+
+        raw::save_unsigned(rdb, encoder.leading_zeroes as u64);
+        raw::save_unsigned(rdb, encoder.trailing_zeroes as u64);
+        raw::save_unsigned(rdb, if encoder.first {
+            1
+        } else {
+            0
+        });
+        raw::save_unsigned(rdb, encoder.count as u64);
+
+        raw::save_slice(rdb, &encoder.w.buf);
+        raw::save_unsigned(rdb, encoder.w.pos as u64);
     }
 }
 
@@ -348,6 +391,30 @@ impl Chunk for GorillaChunk {
 
         Ok(right_chunk)
     }
+
+    fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
+        raw::save_unsigned(rdb, self.max_size as u64);
+        raw::save_signed(rdb, self.first_timestamp);
+        raw::save_signed(rdb, self.last_timestamp);
+        raw::save_double(rdb, self.last_value);
+        self.rdb_save_encoded(rdb);
+    }
+
+    fn rdb_load(rdb: *mut raw::RedisModuleIO) -> Result<Self, valkey_module::error::Error> {
+        let max_size = raw::load_unsigned(rdb)? as usize;
+        let first_timestamp = raw::load_signed(rdb)?;
+        let last_timestamp = raw::load_signed(rdb)?;
+        let last_value = raw::load_double(rdb)?;
+        let encoder = Self::rdb_load_encoded(rdb)?;
+        let chunk = GorillaChunk {
+            encoder,
+            first_timestamp,
+            last_timestamp,
+            last_value,
+            max_size,
+        };
+        Ok(chunk)
+    }
 }
 
 fn create_encoder(ts: Timestamp, cap: Option<usize>) -> ChunkEncoder {
@@ -376,26 +443,25 @@ impl<'a> Iterator for ChunkIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.decoder.next() {
-            Some(Ok(dp)) => Some(Self::Item {
+            Ok(dp) => Some(Self::Item {
                 timestamp: dp.get_time() as i64,
                 value: dp.get_value(),
             }),
-            Some(Err(Error::EndOfStream)) => None,
-            Some(Err(err)) => {
+            Err(Error::EndOfStream) => None,
+            Err(Error::Stream(crate::gorilla::stream::Error::EOF)) => None, // is this an error ?
+            Err(err) => {
                 #[cfg(debug_assertions)]
                 eprintln!("Error decoding sample: {:?}", err);
                 None
             },
-            None => None,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use rand::Rng;
+    use std::time::Duration;
 
     use crate::error::TsdbError;
     use crate::storage::chunk::Chunk;
@@ -449,6 +515,7 @@ mod tests {
         options.samples = 1000;
         options.range = 0.0..100.0;
         options.typ = RandAlgo::Uniform;
+  //    options.significant_digits = Some(8);
         let data = generate_series_data(&options).unwrap();
         for sample in data.iter() {
             chunk.add_sample(&sample).unwrap();

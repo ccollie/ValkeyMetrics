@@ -3,12 +3,11 @@ use valkey_module::REDISMODULE_AUX_BEFORE_RDB;
 use valkey_module::{native_types::ValkeyType, RedisModuleDefragCtx, RedisModuleString, ValkeyString};
 
 use crate::globals::with_timeseries_index;
+use crate::index::TimeSeriesIndex;
 use crate::storage::defrag_series;
 use crate::storage::time_series::TimeSeries;
 use std::os::raw::{c_int, c_void};
-use std::ptr::null_mut;
 use valkey_module::raw;
-use crate::index::TimeSeriesIndex;
 // see https://github.com/redis/redis/blob/unstable/tests/modules
 
 pub static REDIS_PROMQL_SERIES_VERSION: i32 = 1;
@@ -39,25 +38,13 @@ pub static VALKEY_PROMQL_SERIES_TYPE: ValkeyType = ValkeyType::new(
 );
 
 unsafe extern "C" fn rdb_save(rdb: *mut raw::RedisModuleIO, value: *mut c_void) {
-    let v = &*value.cast::<TimeSeries>();
-    // todo: bincode/postcard
-    todo!("bincode::serialize(&v)")
+    let series = &*value.cast::<TimeSeries>();
+    series.rdb_save(rdb);
 }
 
-unsafe extern "C" fn rdb_load(rdb: *mut raw::RedisModuleIO, _encver: c_int) -> *mut c_void {
-    let v = raw::load_string(rdb);
-    if v.is_err() {
-        return null_mut();
-    }
-    let f = v.unwrap();
-    let sm = new_from_valkey_string(f);
-    if sm.is_err() {
-        return null_mut();
-    }
-    let ff = sm.unwrap();
-    let bb = Box::new(ff);
-    let rawbox = Box::into_raw(bb);
-    rawbox as *mut c_void
+unsafe extern "C" fn rdb_load(rdb: *mut raw::RedisModuleIO, encver: c_int) -> *mut c_void {
+    TimeSeries::rdb_load(rdb, encver)
+    // index.index_time_series(&new_series, &tmp);
 }
 
 unsafe extern "C" fn mem_usage(value: *const c_void) -> usize {

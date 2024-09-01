@@ -5,6 +5,7 @@ use crate::storage::utils::get_timestamp_index_bounds;
 use crate::storage::{DuplicatePolicy, Sample, SAMPLE_SIZE};
 use serde::{Deserialize, Serialize};
 use get_size::GetSize;
+use valkey_module::raw;
 
 // todo: move to constants
 pub const MAX_UNCOMPRESSED_SAMPLES: usize = 256;
@@ -138,6 +139,10 @@ impl UncompressedChunk {
             }
         }
     }
+
+    pub fn iter(&self) -> impl Iterator<Item=Sample> + '_ {
+        UncompressedChunkIterator::new(self)
+    }
 }
 
 impl Chunk for UncompressedChunk {
@@ -259,6 +264,61 @@ impl Chunk for UncompressedChunk {
 
         let res = Self::new(self.max_size, new_timestamps, new_values);
         Ok(res)
+    }
+
+    fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
+        raw::save_unsigned(rdb, self.max_size as u64);
+        raw::save_unsigned(rdb, self.max_elements as u64);
+        raw::save_unsigned(rdb, self.timestamps.len() as u64);
+        for (ts, val) in self.timestamps.iter().zip(self.values.iter()) {
+            raw::save_signed(rdb, *ts);
+            raw::save_double(rdb, *val);
+        }
+    }
+
+    fn rdb_load(rdb: *mut raw::RedisModuleIO) -> Result<Self, valkey_module::error::Error> {
+        let max_size = raw::load_unsigned(rdb)? as usize;
+        let max_elements = raw::load_unsigned(rdb)? as usize;
+        let len = raw::load_unsigned(rdb)? as usize;
+        let mut timestamps = Vec::with_capacity(len);
+        let mut values = Vec::with_capacity(len);
+        for _ in 0..len {
+            let ts = raw::load_signed(rdb)?;
+            let val = raw::load_double(rdb)?;
+            timestamps.push(ts);
+            values.push(val);
+        }
+        Ok(Self {
+            max_size,
+            timestamps,
+            values,
+            max_elements,
+        })
+    }
+}
+
+pub struct UncompressedChunkIterator<'a> {
+    chunk: &'a UncompressedChunk,
+    index: usize,
+}
+
+impl<'a> UncompressedChunkIterator<'a> {
+    pub fn new(chunk: &'a UncompressedChunk) -> Self {
+        Self { chunk, index: 0 }
+    }
+}
+
+impl<'a> Iterator for UncompressedChunkIterator<'a> {
+    type Item = Sample;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.chunk.timestamps.len() {
+            return None;
+        }
+        let ts = self.chunk.timestamps[self.index];
+        let val = self.chunk.values[self.index];
+        self.index += 1;
+        Some(Sample { timestamp: ts, value: val })
     }
 }
 

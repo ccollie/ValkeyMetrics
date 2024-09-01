@@ -10,6 +10,8 @@ use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use get_size::GetSize;
+use valkey_module::{raw, RedisModuleIO};
+use valkey_module::error::Error;
 use crate::storage::gorilla_chunk::GorillaChunk;
 
 pub const MIN_CHUNK_SIZE: usize = 48;
@@ -100,6 +102,8 @@ pub trait Chunk: Sized {
     fn overlaps(&self, start_ts: i64, end_ts: i64) -> bool {
         self.first_timestamp() <= end_ts && self.last_timestamp() >= start_ts
     }
+    fn rdb_save(&self, rdb: *mut raw::RedisModuleIO);
+    fn rdb_load(rdb: *mut raw::RedisModuleIO) -> Result<Self, valkey_module::error::Error>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -376,6 +380,7 @@ impl TimeSeriesChunk {
         std::mem::size_of::<Self>() +
             self.get_heap_size()
     }
+
 }
 
 impl Chunk for TimeSeriesChunk {
@@ -480,6 +485,14 @@ impl Chunk for TimeSeriesChunk {
             Gorilla(chunk) => Ok(Gorilla(chunk.split()?)),
             Pco(chunk) => Ok(Pco(chunk.split()?)),
         }
+    }
+
+    fn rdb_save(&self, rdb: *mut RedisModuleIO) {
+        todo!()
+    }
+
+    fn rdb_load(rdb: *mut RedisModuleIO) -> Result<Self, Error> {
+        todo!()
     }
 }
 

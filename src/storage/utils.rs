@@ -48,7 +48,8 @@ pub fn round_to_significant_digits(x: f64, n: u32) -> f64 {
     if n == 0 || n >= 18 {
         return x;
     }
-    let power = 10.0_f64.powi(n as i32 - 1 - x.abs().log10().floor() as i32);
+    let magnitude = x.abs().log10().floor();
+    let power = 10.0_f64.powi(n as i32 - 1 - magnitude as i32);
     (x * power).round() / power
 }
 

@@ -224,23 +224,23 @@ where
     }
 }
 
-impl Iterator for StdDecoder<stream::BufferedReader<'_>> {
-    type Item = Result<DataPoint, Error>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match Iterator::next(self) {
-            Some(Ok(dp)) => Some(Ok(dp)),
-            Some(Err(Error::EndOfStream)) => None,
-            Some(Err(err)) => Some(Err(err)),
-            None => None,
-        }
-    }
-}
+// impl Iterator for StdDecoder<stream::BufferedReader<'_>> {
+//     type Item = Result<DataPoint, Error>;
+//
+//     fn next(&mut self) -> Option<Self::Item> {
+//         match Iterator::next(self) {
+//             Some(Ok(dp)) => Some(Ok(dp)),
+//             Some(Err(Error::EndOfStream)) => None,
+//             Some(Err(err)) => Some(Err(err)),
+//             None => None,
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
     use crate::gorilla::DataPoint;
-    use super::{Error, StdDecoder};
+    use super::{Decode, Error, StdDecoder};
     use crate::gorilla::stream::BufferedReader;
 
     #[test]
@@ -263,8 +263,8 @@ mod tests {
 
         let expected_datapoint = DataPoint::new(1482268055 + 10, 1.24);
 
-        assert_eq!(decoder.next().unwrap(), Ok(expected_datapoint));
-        assert_eq!(decoder.next().unwrap(), Err(Error::EndOfStream));
+        assert_eq!(decoder.next().unwrap(), expected_datapoint);
+        assert_eq!(decoder.next(), Err(Error::EndOfStream));
     }
 
     #[test]
@@ -283,11 +283,11 @@ mod tests {
         let fourth_expected_datapoint = DataPoint::new(1482268055 + 44, -7.41);
         let fifth_expected_datapoint = DataPoint::new(1482268055 + 52, 103.50);
 
-        assert_eq!(decoder.next().unwrap(), Ok(first_expected_datapoint));
-        assert_eq!(decoder.next().unwrap(), Ok(second_expected_datapoint));
-        assert_eq!(decoder.next().unwrap(), Ok(third_expected_datapoint));
-        assert_eq!(decoder.next().unwrap(), Ok(fourth_expected_datapoint));
-        assert_eq!(decoder.next().unwrap(), Ok(fifth_expected_datapoint));
-       // assert_eq!(decoder.next().err().unwrap(), Error::EndOfStream);
+        assert_eq!(decoder.next(), Ok(first_expected_datapoint));
+        assert_eq!(decoder.next(), Ok(second_expected_datapoint));
+        assert_eq!(decoder.next(), Ok(third_expected_datapoint));
+        assert_eq!(decoder.next(), Ok(fourth_expected_datapoint));
+        assert_eq!(decoder.next(), Ok(fifth_expected_datapoint));
+        assert_eq!(decoder.next().err().unwrap(), Error::EndOfStream);
     }
 }

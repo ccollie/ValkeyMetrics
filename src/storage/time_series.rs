@@ -7,10 +7,11 @@ use crate::storage::uncompressed_chunk::UncompressedChunk;
 use crate::storage::DuplicatePolicy;
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
-use serde::{Deserialize, Serialize};
 use std::collections::BinaryHeap;
 use std::mem::size_of;
 use std::time::Duration;
+use valkey_module::{raw, ValkeyError};
+use valkey_module::error::GenericError;
 use crate::storage::utils::round_to_significant_digits;
 
 /// Represents a time series. The time series consists of time series blocks, each containing BLOCK_SIZE_FOR_TIME_SERIES
@@ -501,6 +502,113 @@ impl TimeSeries {
         }
         let retention_millis = self.retention.as_millis() as i64;
         (self.last_timestamp - retention_millis).min(0)
+    }
+
+    pub fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
+        raw::save_unsigned(rdb, self.id);
+        raw::save_string(rdb, &self.metric_name);
+        raw::save_unsigned(rdb, self.labels.len() as u64);
+        for label in self.labels.iter() {
+            raw::save_string(rdb, &label.name);
+            raw::save_string(rdb, &label.value);
+        }
+        raw::save_unsigned(rdb, self.retention.as_secs());
+        // todo: how to mark as optional ???
+        if let Some(interval) = self.dedupe_interval {
+            raw::save_unsigned(rdb, interval.as_secs());
+        } else {
+            raw::save_unsigned(rdb, 0);
+        }
+        raw::save_unsigned(rdb, self.dedupe_interval.map(|x| x.as_secs()).unwrap_or(0));
+        raw::save_unsigned(rdb, self.duplicate_policy.to_u8() as u64);
+        raw::save_unsigned(rdb, self.chunk_compression as u64);
+        raw::save_unsigned(rdb, self.significant_digits.unwrap_or(255) as u64);
+        raw::save_unsigned(rdb, self.chunk_size_bytes as u64);
+        raw::save_unsigned(rdb, self.chunks.len() as u64);
+        for chunk in self.chunks.iter() {
+            chunk.rdb_save(rdb);
+        }
+    }
+
+    pub fn rdb_load(rdb: *mut raw::RedisModuleIO, _encver: i32) -> *mut std::ffi::c_void {
+        if let Ok(series) = Self::load_internal(rdb, _encver) {
+            Box::into_raw(Box::new(series)) as *mut std::ffi::c_void
+        } else {
+            std::ptr::null_mut()
+        }
+    }
+
+     fn load_internal(rdb: *mut raw::RedisModuleIO, _encver: i32) -> Result<Self, valkey_module::error::Error> {
+        let id = raw::load_unsigned(rdb)?;
+        let metric_name = raw::load_string(rdb)?.into();
+        let labels_len = raw::load_unsigned(rdb)? as usize;
+        let mut labels = Vec::with_capacity(labels_len);
+        for _ in 0..labels_len {
+            let name = raw::load_string(rdb)?;
+            let value = raw::load_string(rdb)?;
+            labels.push(Label { name: name.into(), value: value.into() });
+        }
+        let retention = Duration::from_secs(raw::load_unsigned(rdb)?);
+        let dedupe_interval = if let Ok(interval) = raw::load_unsigned(rdb) {
+            if interval == 0 {
+                None
+            } else {
+                Some(Duration::from_secs(interval))
+            }
+        } else {
+            None
+        };
+        let duplicate_policy = DuplicatePolicy::try_from(raw::load_unsigned(rdb)? as u8
+        ).map_err(|_| valkey_module::error::Error::Generic(
+            GenericError::new("Invalid duplicate policy")
+        ))?;
+
+        let chunk_compression = ChunkCompression::try_from(
+            raw::load_unsigned(rdb)? as u8
+        ).map_err(|_| valkey_module::error::Error::Generic(
+            GenericError::new("Invalid chunk compression")
+        ))?;
+
+        let significant_digits = raw::load_unsigned(rdb)? as u8;
+        let chunk_size_bytes = raw::load_unsigned(rdb)? as usize;
+        let chunks_len = raw::load_unsigned(rdb)? as usize;
+        let mut chunks = Vec::with_capacity(chunks_len);
+        let mut last_value = f64::NAN;
+        let mut total_samples: usize = 0;
+        let mut first_timestamp = 0;
+        let mut last_timestamp = 0;
+
+        for _ in 0..chunks_len {
+            let chunk = TimeSeriesChunk::rdb_load(rdb)?;
+            last_value = chunk.last_value();
+            total_samples += chunk.num_samples();
+            if first_timestamp == 0 {
+                first_timestamp = chunk.first_timestamp();
+            }
+            last_timestamp = last_timestamp.max(chunk.last_timestamp());
+            chunks.push(chunk);
+        }
+
+        let ts = TimeSeries {
+            id,
+            metric_name,
+            labels,
+            retention,
+            dedupe_interval,
+            duplicate_policy,
+            chunk_compression: chunk_compression.into(),
+            significant_digits: if significant_digits == 255 { None } else { Some(significant_digits) },
+            chunk_size_bytes,
+            chunks,
+            total_samples,
+            first_timestamp,
+            last_timestamp,
+            last_value,
+        };
+
+        // ts.update_meta();
+         // add to index
+        Ok(ts)
     }
 }
 
