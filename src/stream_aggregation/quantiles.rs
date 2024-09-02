@@ -60,23 +60,23 @@ impl AggrState for QuantilesAggrState {
 
     fn flush_state(&mut self, ctx: &mut FlushCtx) {
         let mut map = self.m.pin();
-        for entry in map.iter() {
-            let mut sv = entry.value().lock().unwrap();
+        for (key, value) in map.iter() {
+            let mut sv = value.lock().unwrap();
 
             let deleted = ctx.flush_timestamp > sv.delete_deadline;
             if deleted {
                 sv.deleted = true;
-                self.m.remove(&entry.key());
+                map.remove(key);
                 continue;
             }
 
             let state = sv.state[ctx.idx].take();
 
-            if let Some(hist) = state {
-                let quantiles = self.phis.iter().map(|&phi| hist.percentile(phi * 100.0).unwrap()).collect::<Vec<_>>();
+            if let Some(mut hist) = state {
+                let quantiles = self.phis.iter().map(|&phi| hist.quantile(phi * 100.0)).collect::<Vec<_>>();
                 for (i, &quantile) in quantiles.iter().enumerate() {
                     let phi_str = format!("{}", self.phis[i]);
-                    ctx.append_series_with_extra_label(&entry.key(), "quantiles", quantile, "quantile", &phi_str);
+                    ctx.append_series_with_extra_label(&key, "quantiles", quantile, "quantile", &phi_str);
                 }
             }
         }

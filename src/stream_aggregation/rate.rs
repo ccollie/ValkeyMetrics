@@ -49,7 +49,7 @@ impl RateAggrState {
 
 impl AggrState for RateAggrState {
     fn push_samples(&mut self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
-        for s in samples {
+        for s in samples.iter() {
             let (input_key, output_key) = get_input_output_key(&s.key);
 
             loop {

@@ -63,13 +63,13 @@ impl AggrState for StdvarAggrState {
 
     fn flush_state(&mut self, ctx: &mut FlushCtx) {
         let map = self.m.pin();
-        for entry in map.iter() {
-            let mut sv = entry.value().lock().unwrap();
+        for (key, value) in map.iter() {
+            let mut sv = value.lock().unwrap();
 
             let deleted = ctx.flush_timestamp > sv.delete_deadline;
             if deleted {
                 sv.deleted = true;
-                map.remove(&entry.key());
+                map.remove(&key);
                 drop(sv);
                 continue;
             }
@@ -78,7 +78,7 @@ impl AggrState for StdvarAggrState {
             sv.state[ctx.idx] = StdvarState { count: 0.0, avg: 0.0, q: 0.0 };
 
             if state.count > 0.0 {
-                ctx.append_series(&entry.key(), "stdvar", state.q / state.count);
+                ctx.append_series(&key, "stdvar", state.q / state.count);
             }
         }
     }

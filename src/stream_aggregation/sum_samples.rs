@@ -23,7 +23,6 @@ impl SumSamplesAggrState {
     pub fn new() -> Self {
         Self { m: HashMap::with_hasher(RandomState::new()) }
     }
-
     fn update_state(sv: &mut SumSamplesStateValue, sample: &PushSample, delete_deadline: i64, idx: usize) {
         let state = &mut sv.state[idx];
         state.sum += sample.value;

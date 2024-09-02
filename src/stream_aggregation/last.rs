@@ -62,13 +62,13 @@ impl AggrState for LastAggrState {
 
     fn flush_state(&mut self, ctx: &mut FlushCtx) {
         let map = self.m.pin();
-        for entry in map.iter() {
-            let mut sv = entry.value().lock().unwrap();
+        for (key, value) in map.iter() {
+            let mut sv = value.lock().unwrap();
 
             let deleted = ctx.flush_timestamp > sv.delete_deadline;
             if deleted {
                 sv.deleted = true;
-                map.remove(&entry.key());
+                map.remove(key);
                 continue;
             }
 
@@ -76,7 +76,7 @@ impl AggrState for LastAggrState {
             sv.state[ctx.idx] = LastState { last: 0.0, timestamp: 0 };
 
             if state.timestamp > 0 {
-                ctx.append_series(&entry.key(), "last", state.last);
+                ctx.append_series(key, "last", state.last);
             }
         }
     }

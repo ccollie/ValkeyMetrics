@@ -104,11 +104,13 @@ impl AggrState for TotalAggrState {
 
     fn flush_state(&mut self, ctx: &mut FlushCtx) {
         let suffix = self.get_suffix();
-        for entry in self.m.iter() {
-            let mut sv = entry.value().lock().unwrap();
+        let map = self.m.pin();
+        for (key, value) in map.iter() {
+            let mut sv = value.lock().unwrap();
+
             if ctx.flush_timestamp > sv.delete_deadline {
                 sv.deleted = true;
-                self.m.remove(&entry.key());
+                map.remove(key);
                 continue;
             }
 
@@ -124,7 +126,7 @@ impl AggrState for TotalAggrState {
                 }
             }
 
-            ctx.append_series(entry.key().clone(), suffix, total);
+            ctx.append_series(key.clone(), suffix, total);
         }
     }
 }

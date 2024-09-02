@@ -66,13 +66,13 @@ impl AggrState for MinAggrState {
 
     fn flush_state(&mut self, ctx: &mut FlushCtx) {
         let mut map = self.m.pin();
-        for entry in map.iter() {
-            let mut sv = entry.value().lock().unwrap();
+        for (key, value) in map.iter() {
+            let mut sv = value.lock().unwrap();
 
             let deleted = ctx.flush_timestamp > sv.delete_deadline;
             if deleted {
                 sv.deleted = true;
-                map.remove(&entry.key());
+                map.remove(&key);
                 continue;
             }
 
@@ -80,7 +80,7 @@ impl AggrState for MinAggrState {
             sv.state[ctx.idx] = MinState { min: 0.0, exists: false };
 
             if state.exists {
-                ctx.append_series(&entry.key(), "min", state.min);
+                ctx.append_series(&key, "min", state.min);
             }
         }
     }

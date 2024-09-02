@@ -57,7 +57,7 @@ impl AggrState for CountSamplesAggrState {
             let deleted = ctx.flush_timestamp > sv.delete_deadline;
             if deleted {
                 sv.deleted = true;
-                self.m.remove(entry.key());
+                self.m.remove(entry.output_key);
                 continue;
             }
 

@@ -70,8 +70,7 @@ impl AggrState for AvgAggrState {
 
     fn flush_state(&mut self, ctx: &mut FlushCtx) {
         let map = self.m.pin();
-        for entry in map.iter() {
-            let (k, v) = entry.pair();
+        for (k, v) in map.iter() {
             let mut sv = v.lock().unwrap();
 
             // Check for stale entries
@@ -91,7 +90,7 @@ impl AggrState for AvgAggrState {
             if state.count > 0 {
                 let key = k.clone();
                 let avg = state.sum / state.count as f64;
-                ctx.append_series(key, "avg", avg);
+                ctx.append_series(k, "avg", avg);
             }
         }
     }
