@@ -13,7 +13,6 @@ chrono = { version = "0.4", features = ["serde"] }
 dynamic-lru-cache = "0.2"
 enquote = "1.1"
 get-size = { version = "^0.1", features = ["derive"] }
-htmlescape = "0.3"
 integer-encoding = "4.0"
 itertools = "0.13"
 linkme = "0.3"
@@ -37,7 +36,7 @@ timer = "0.2"
 tinyvec = "1.8"
 url = { version = "2.5", features = ["serde"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-rand = "0.8.5"
+rand = "0.8"
 rand_distr = "0.4"
 tracing = "0.1"
 valkey-module = "0.1"

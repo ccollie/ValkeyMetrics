@@ -23,7 +23,13 @@ impl<'a> BufferedReader<'a> {
     }
 
     fn get_byte(&mut self) -> Result<u8, Error> {
-        self.bytes.get(self.index).cloned().ok_or(Error::EOF)
+        match self.bytes.get(self.index) {
+            Some(b) => {
+                Ok(*b)
+            }
+            None => Err(Error::EOF),
+        }
+//        self.bytes.get(self.index).cloned().ok_or(Error::EOF)
     }
 }
 

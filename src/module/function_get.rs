@@ -1,7 +1,7 @@
 use crate::module::with_timeseries_mut;
 use valkey_module::{Context, NextArg, ValkeyResult, ValkeyString, ValkeyValue};
 
-pub(crate) fn get(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
+pub fn get(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1);
     let key = args.next_arg()?;
 

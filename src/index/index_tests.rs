@@ -10,13 +10,18 @@ mod tests {
     }
 
     fn index_time_series(index: &mut TimeSeriesIndex, ts: &TimeSeries, name: &str) {
-        index.index_time_series(ts, name);
+        index.index_time_series(ts, name.as_bytes());
+    }
+
+    fn create_series() -> TimeSeries {
+        let mut ts = TimeSeries::new();
+        ts.id = TimeSeriesIndex::next_id();
+        ts
     }
 
     #[test]
     fn test_index_series() {
-        let mut ts = TimeSeries::new();
-        ts.id = 1;
+        let mut ts = create_series();
         ts.metric_name = "latency".to_string();
         ts.labels = vec![
             Label {
@@ -39,8 +44,8 @@ mod tests {
 
     #[test]
     fn test_remove_series() {
-        let mut ts = TimeSeries::new();
-        ts.id = 1;
+        let mut ts = create_series();
+
         ts.metric_name = "latency".to_string();
         ts.labels = vec![
             Label {
@@ -54,6 +59,8 @@ mod tests {
         ];
 
         let mut ts2 = ts.clone();
+        ts2.id = TimeSeriesIndex::next_id();
+
         ts2.labels[1].value = "qa".to_string();
         ts2.labels.push(Label {
             name: "version".to_string(),
@@ -61,6 +68,7 @@ mod tests {
         });
 
         let mut index = TimeSeriesIndex::new();
+
         index_time_series(&mut index, &ts, "time-series-1");
         index_time_series(&mut index, &ts2, "time-series-2");
 
@@ -77,8 +85,8 @@ mod tests {
     fn test_get_label_values() {
         let mut index = TimeSeriesIndex::new();
 
-        let mut ts = TimeSeries::new();
-        ts.id = 1;
+        let mut ts = create_series();
+
         ts.metric_name = "latency".to_string();
         ts.labels = vec![
             Label {
@@ -92,6 +100,8 @@ mod tests {
         ];
 
         let mut ts2 = ts.clone();
+        ts2.id = TimeSeriesIndex::next_id();
+
         ts2.labels[0].value = "us-east-2".to_string();
         ts2.labels[1].value = "qa".to_string();
 

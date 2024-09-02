@@ -12,12 +12,6 @@ impl<'a> SeriesSlice<'a> {
     pub fn new(timestamps: &'a [i64], values: &'a [f64]) -> Self {
         Self { timestamps, values }
     }
-    pub fn trim(&mut self, start_ts: Timestamp, end_ts: Timestamp) {
-        if let Some((start_idx, end_idx)) = get_timestamp_index_bounds(self.timestamps, start_ts, end_ts) {
-            self.timestamps = &self.timestamps[start_idx..end_idx];
-            self.values = &self.values[start_idx..end_idx];
-        }
-    }
 
     pub fn skip_values_before(&mut self, ts: Timestamp) {
         if let Some(idx) = get_timestamp_index(self.timestamps, ts) {

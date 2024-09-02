@@ -2,13 +2,11 @@
 mod time;
 pub mod types;
 pub mod regex_util;
-pub(crate) mod humanize;
 mod utils;
 pub mod decimal;
 mod parse;
 pub mod constants;
 
-pub use humanize::*;
 pub use utils::*;
 
 pub use parse::*;

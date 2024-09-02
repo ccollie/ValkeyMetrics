@@ -3,7 +3,7 @@ use crate::module::with_timeseries_mut;
 use crate::storage::Timestamp;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
-pub(crate) fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
+pub fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let arg_count = args.len() - 1;
     let mut args = args.into_iter().skip(1);
 

@@ -109,13 +109,6 @@ impl TimeSeries {
         self.total_samples == 0
     }
 
-    pub fn get_label_value(&self, name: &str) -> Option<&String> {
-        if let Some(label) = self.get_label(name) {
-            return Some(&label.value);
-        }
-        None
-    }
-
     pub fn get_label(&self, name: &str) -> Option<&Label> {
         self.labels.iter().find(|label| label.name == name)
     }

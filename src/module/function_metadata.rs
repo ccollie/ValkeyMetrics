@@ -13,7 +13,7 @@ use valkey_module::{
 // todo: series count
 
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#finding-series-by-label-matchers
-pub(crate) fn series(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
+pub fn series(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let label_args = parse_metadata_command_args(ctx, args, true)?;
     let limit = label_args.limit.unwrap_or(usize::MAX);
 
@@ -27,7 +27,7 @@ pub(crate) fn series(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     Ok(format_array_result(values))
 }
 
-pub(crate) fn cardinality(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
+pub fn cardinality(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let label_args = parse_metadata_command_args(ctx, args, true)?;
     let count = with_matched_series(ctx, 0, label_args, |acc, _| acc + 1)?;
 
@@ -35,7 +35,7 @@ pub(crate) fn cardinality(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResul
 }
 
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#getting-label-names
-pub(crate) fn label_names(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
+pub fn label_names(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     // todo: this does a lot of cloning :-(
     let label_args = parse_metadata_command_args(ctx, args, false)?;
     let limit = label_args.limit.unwrap_or(usize::MAX);
@@ -51,9 +51,9 @@ pub(crate) fn label_names(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResul
     })?;
 
     let labels = names
-        .iter()
+        .into_iter()
         .take(limit)
-        .map(|v| ValkeyValue::from(v.clone()))
+        .map(ValkeyValue::from)
         .collect::<Vec<_>>();
 
     Ok(format_array_result(labels))
@@ -74,19 +74,13 @@ pub(crate) fn label_values(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
     })?;
 
     let label_values = names
-        .iter()
+        .into_iter()
         .take(limit)
-        .map(|v| ValkeyValue::from(v.clone()))
+        .map(ValkeyValue::from)
         .collect::<Vec<_>>();
 
     Ok(format_array_result(label_values))
 }
-
-fn format_string_array_result(arr: &[String]) -> ValkeyValue {
-    let converted = arr.iter().map(ValkeyValue::from).collect();
-    format_array_result(converted)
-}
-
 
 pub(crate) fn with_matched_series<F, R>(ctx: &Context, mut acc: R, args: MetadataFunctionArgs, mut f: F) -> ValkeyResult<R>
 where

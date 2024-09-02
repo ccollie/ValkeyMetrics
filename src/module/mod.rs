@@ -17,21 +17,20 @@ mod function_add;
 mod function_alter;
 mod function_get;
 pub mod arg_parse;
-mod aggregation;
 mod range_utils;
 mod function_stats;
 
-pub mod commands {
-    pub(crate) use super::function_add::*;
-    pub(crate) use super::function_alter::*;
-    pub(crate) use super::function_create::*;
-    pub(crate) use super::function_del::*;
-    pub(crate) use super::function_get::*;
-    pub(crate) use super::function_madd::*;
-    pub(crate) use super::function_metadata::*;
-    pub(crate) use super::function_query::*;
-    pub(crate) use super::function_range::*;
-    pub(crate) use super::function_stats::*;
+pub(super) mod commands {
+    pub use super::function_add::*;
+    pub use super::function_alter::*;
+    pub use super::function_create::*;
+    pub use super::function_del::*;
+    pub use super::function_get::*;
+    pub use super::function_madd::*;
+    pub use super::function_metadata::*;
+    pub use super::function_query::*;
+    pub use super::function_range::*;
+    pub use super::function_stats::*;
 }
 
 pub(crate) fn with_timeseries(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&TimeSeries) -> ValkeyResult) -> ValkeyResult {

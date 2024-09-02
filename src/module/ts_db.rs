@@ -72,10 +72,8 @@ unsafe extern "C" fn copy(
         let sm = &*(value as *mut TimeSeries);
         let mut new_series = sm.clone();
         new_series.id = TimeSeriesIndex::next_id();
-        // todo: simplify this
         let key = ValkeyString::from_redis_module_string(guard.ctx, tokey);
-        let tmp = key.to_string();
-        index.index_time_series(&new_series, &tmp);
+        index.index_time_series(&new_series, key.as_slice());
         Box::into_raw(Box::new(new_series)).cast::<c_void>()
     })
 }

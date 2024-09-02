@@ -1,9 +1,6 @@
 use std::f64::consts::LN_10;
 use std::f64::consts::LN_2;
 
-
-const INT64_MAX: i64 = i64::MAX;
-
 pub fn round_to_decimal_digits(f: f64, digits: i32) -> f64 {
     if digits <= -100 || digits >= 100 {
         return f;

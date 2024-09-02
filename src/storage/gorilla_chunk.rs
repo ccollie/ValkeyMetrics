@@ -71,6 +71,9 @@ impl GorillaChunk {
 
     pub fn clear(&mut self) {
         self.encoder.clear();
+        self.first_timestamp = 0;
+        self.last_timestamp = 0;
+        self.last_value = f64::NAN;
     }
 
     pub fn set_data(&mut self, timestamps: &[i64], values: &[f64]) -> TsdbResult<()> {
@@ -448,7 +451,7 @@ impl<'a> Iterator for ChunkIter<'a> {
                 value: dp.get_value(),
             }),
             Err(Error::EndOfStream) => None,
-            Err(Error::Stream(crate::gorilla::stream::Error::EOF)) => None, // is this an error ?
+          //  Err(Error::Stream(crate::gorilla::stream::Error::EOF)) => None, // is this an error ?
             Err(err) => {
                 #[cfg(debug_assertions)]
                 eprintln!("Error decoding sample: {:?}", err);
@@ -510,11 +513,11 @@ mod tests {
 
     #[test]
     fn test_chunk_compress() {
-        let mut chunk = GorillaChunk::default();
+        let mut chunk = GorillaChunk::with_max_size(16384);
         let mut options = GeneratorOptions::default();
         options.samples = 1000;
         options.range = 0.0..100.0;
-        options.typ = RandAlgo::Uniform;
+        options.typ = RandAlgo::MackeyGlass;
   //    options.significant_digits = Some(8);
         let data = generate_series_data(&options).unwrap();
         for sample in data.iter() {

@@ -2,15 +2,14 @@ use super::regexp_cache::{RegexpCache, RegexpCacheValue};
 use crate::common::METRIC_NAME_LABEL;
 use metricsql_common::regex_util::match_handlers::StringMatchHandler;
 use metricsql_common::regex_util::{
-    get_optimized_re_match_func
-    ,
-    OptimizedMatchFunc,
+    get_optimized_re_match_func,
     FULL_MATCH_COST
 };
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::mem::size_of;
 use std::sync::{Arc, LazyLock, OnceLock};
+use get_size::GetSize;
 
 /// TagFilters represents filters used for filtering tags.
 #[derive(Clone, Default, Debug)]
@@ -228,29 +227,44 @@ impl Display for TagFilter {
     }
 }
 
+fn string_size(s: &str) -> usize {
+    size_of::<String>() + s.len() // todo: add pointer size
+}
+
+fn string_vec_size(v: &Vec<String>) -> usize {
+    size_of::<Vec<String>>() + v.iter().map(|x| string_size(x)).sum::<usize>()
+}
+
 fn matcher_size_bytes(m: &StringMatchHandler) -> usize {
+    use StringMatchHandler::*;
     let base = size_of::<StringMatchHandler>();
     let extra = match m {
-        StringMatchHandler::Alternates(alts) => {
-            alts
-                .iter()
-                .map(|x| x.len() * size_of::<char>()).sum()
+        Alternates(alts, _) | OrderedAlternates(alts) => {
+            string_vec_size(alts)
         },
-        StringMatchHandler::ContainsAnyOf(x) => {
-            x.literals
-                .iter()
-                .map(|x| x.len() * size_of::<char>()).sum()
-        },
-        StringMatchHandler::And(first, second) => {
+        And(first, second) => {
             matcher_size_bytes(first) + matcher_size_bytes(second)
         }
-        _ => 0,
+        MatchAll | MatchNone | Empty | NotEmpty => 0,
+        Literal(s) |
+        Contains(s) |
+        StartsWith(s) |
+        EndsWith(s) => string_size(s),
+        Fsm(fsm) => fsm.get_size(),
+        FastRegex(fr) => fr.get_size(),
+        MatchFn(func) => {
+            size_of::<fn(&str, &str) -> bool>()
+        }
+        Regex(r) => r.get_size(),
+        AlternatesFn(alts, f) => {
+            alts.get_size() + size_of::<fn(&str) -> bool>()
+        }
     };
     base + extra
 }
 
 pub(super) fn compile_regexp(expr: &str) -> Result<RegexpCacheValue, String> {
-    let OptimizedMatchFunc { matcher, cost } =
+    let (matcher, cost) =
         get_optimized_re_match_func(expr)
             .map_err(|_| {
                 return format!("cannot build regexp from {}", expr);

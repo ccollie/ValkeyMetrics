@@ -1,6 +1,16 @@
 use std::borrow::Cow;
 use std::ffi::CStr;
-use valkey_module::{CallOptionResp, CallOptions, CallOptionsBuilder, CallResult, RedisModuleString, RedisModule_StringPtrLen, ValkeyError, ValkeyResult, ValkeyValue};
+use valkey_module::{
+    CallOptionResp,
+    CallOptions,
+    CallOptionsBuilder,
+    CallResult,
+    RedisModuleString,
+    RedisModule_StringPtrLen,
+    ValkeyError,
+    ValkeyResult,
+    ValkeyValue
+};
 
 use crate::common::current_time_millis;
 use crate::common::types::Timestamp;

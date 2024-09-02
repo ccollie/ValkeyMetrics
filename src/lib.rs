@@ -5,8 +5,8 @@ extern crate tinyvec;
 extern crate async_trait;
 
 use valkey_module::{valkey_module, Context as ValkeyContext, NotifyEvent, ValkeyString};
-use valkey_module::server_events::FlushSubevent;
-use valkey_module_macros::{config_changed_event_handler, flush_event_handler};
+use valkey_module::server_events::{FlushSubevent, LoadingSubevent};
+use valkey_module_macros::{config_changed_event_handler, flush_event_handler, loading_event_handler};
 
 mod aggregators;
 mod common;
@@ -24,6 +24,7 @@ mod gorilla;
 
 use crate::globals::{clear_timeseries_index, with_timeseries_index};
 use module::*;
+use crate::index::reset_timeseries_id_after_load;
 use crate::storage::time_series::TimeSeries;
 
 pub const VALKEY_PROMQL_VERSION: i32 = 1;
@@ -42,6 +43,21 @@ fn flushed_event_handler(_ctx: &ValkeyContext, flush_event: FlushSubevent) {
     }
 }
 
+#[loading_event_handler]
+fn loading_event_handler(_ctx: &ValkeyContext, values: LoadingSubevent) {
+    match values {
+        LoadingSubevent::ReplStarted |
+        LoadingSubevent::AofStarted => {
+            // TODO!: limit to current db
+            clear_timeseries_index();
+        }
+        LoadingSubevent::Ended => {
+            reset_timeseries_id_after_load();
+        }
+        _ => {}
+    }
+}
+
 fn remove_key_from_index(ctx: &ValkeyContext, key: &[u8]) {
     with_timeseries_index(ctx, |ts_index| {
         let key: ValkeyString = ctx.create_string(key);
@@ -55,13 +71,12 @@ fn index_timeseries_by_key(ctx: &ValkeyContext, key: &[u8]) {
         let redis_key = ctx.open_key_writable(&_key);
         let series = redis_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE);
         if let Ok(Some(series)) = series {
-            if ts_index.is_key_indexed(&_key) {
+            if ts_index.is_series_indexed(series.id) {
                 // todo: log warning
                 ts_index.remove_series_by_key(ctx, &_key);
                 return;
             }
-            let string_key = String::from_utf8_lossy(key);
-            ts_index.index_time_series(series, &string_key);
+            ts_index.index_time_series(series, key);
         }
     });
 }

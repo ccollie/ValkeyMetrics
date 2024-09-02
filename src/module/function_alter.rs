@@ -14,8 +14,8 @@ pub fn alter(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         // todo: should we even allow this. In prometheus, labels are immutable
         if labels_changed {
             with_timeseries_index(ctx, |ts_index| {
-                let key = parsed_key.to_string();
-                ts_index.reindex_timeseries(series, &key);
+                let key = parsed_key.as_slice();
+                ts_index.reindex_timeseries(series, key);
             })
         }
 

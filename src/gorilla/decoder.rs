@@ -224,19 +224,6 @@ where
     }
 }
 
-// impl Iterator for StdDecoder<stream::BufferedReader<'_>> {
-//     type Item = Result<DataPoint, Error>;
-//
-//     fn next(&mut self) -> Option<Self::Item> {
-//         match Iterator::next(self) {
-//             Some(Ok(dp)) => Some(Ok(dp)),
-//             Some(Err(Error::EndOfStream)) => None,
-//             Some(Err(err)) => Some(Err(err)),
-//             None => None,
-//         }
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
     use crate::gorilla::DataPoint;
@@ -248,8 +235,7 @@ mod tests {
         let bytes = vec![0, 0, 0, 0, 88, 89, 157, 151, 240, 0, 0, 0, 0];
         let r = BufferedReader::new(&bytes);
         let mut decoder = StdDecoder::new(r);
-
-        // assert_eq!(decoder.next().err().unwrap(), Error::EndOfStream);
+        assert_eq!(decoder.next().err().unwrap(), Error::EndOfStream);
     }
 
     #[test]

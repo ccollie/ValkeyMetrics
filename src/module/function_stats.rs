@@ -15,17 +15,17 @@ const LIMIT_PARALLELISM_THRESHOLD: usize = 1000;
 const SENTINEL_VALUE: &str = "\u{E000}";
 
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#tsdb-stats
-pub(crate) fn stats(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
+pub fn stats(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let limit = match args.len() {
         0 => DEFAULT_LIMIT,
         1 => {
-            let next = parse_integer_arg(&args[0], "limit", false)? as usize;
-            if next > usize::MAX {
+            let next = parse_integer_arg(&args[0], "limit", false)?;
+            if next > usize::MAX as i64 {
                 return Err(ValkeyError::Str("ERR LIMIT too large"));
             } else if next == 0 {
                 return Err(ValkeyError::Str("ERR LIMIT must be greater than 0"));
             }
-            next
+            next as usize
         },
         _ => {
             return Err(ValkeyError::WrongArity);

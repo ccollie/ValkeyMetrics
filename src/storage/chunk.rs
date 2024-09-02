@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use get_size::GetSize;
 use valkey_module::{raw, RedisModuleIO};
-use valkey_module::error::Error;
+use valkey_module::error::{Error, GenericError};
 use crate::storage::gorilla_chunk::GorillaChunk;
 
 pub const MIN_CHUNK_SIZE: usize = 48;
@@ -44,6 +44,10 @@ impl ChunkCompression {
             ChunkCompression::Gorilla => "gorilla",
             ChunkCompression::Pco => "pco",
         }
+    }
+
+    pub fn to_u8(&self) -> u8 {
+        *self as u8
     }
 }
 
@@ -490,14 +494,25 @@ impl Chunk for TimeSeriesChunk {
     fn rdb_save(&self, rdb: *mut RedisModuleIO) {
         use TimeSeriesChunk::*;
         match self {
-            Uncompressed(chunk) => chunk.rdb_save(rdb),
-            Gorilla(chunk) => chunk.rdb_save(rdb),
-            Pco(chunk) => chunk.rdb_save(rdb),
+            Uncompressed(chunk) => {
+                raw::save_unsigned(rdb, ChunkCompression::Uncompressed as u8 as u64);
+                chunk.rdb_save(rdb);
+            },
+            Gorilla(chunk) => {
+                raw::save_unsigned(rdb, ChunkCompression::Gorilla as u8 as u64);
+                chunk.rdb_save(rdb)
+            },
+            Pco(chunk) => {
+                raw::save_unsigned(rdb, ChunkCompression::Pco as u8 as u64);
+                chunk.rdb_save(rdb)
+            },
         }
     }
 
     fn rdb_load(rdb: *mut RedisModuleIO) -> Result<Self, Error> {
-        let compression = ChunkCompression::try_from(rdb.load_u8()?)?;
+        let compression = ChunkCompression::try_from(raw::load_unsigned(rdb)? as u8)
+            .map_err(|e| Error::Generic(GenericError::new("Error loading chunk compression marker")))?;
+
         let chunk = match compression {
             ChunkCompression::Uncompressed => {
                 TimeSeriesChunk::Uncompressed(UncompressedChunk::rdb_load(rdb)?)

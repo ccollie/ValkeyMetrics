@@ -267,6 +267,7 @@ impl Chunk for UncompressedChunk {
     }
 
     fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
+        // todo: compress ?
         raw::save_unsigned(rdb, self.max_size as u64);
         raw::save_unsigned(rdb, self.max_elements as u64);
         raw::save_unsigned(rdb, self.timestamps.len() as u64);
