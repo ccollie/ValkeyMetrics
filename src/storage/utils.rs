@@ -1,3 +1,5 @@
+use enquote::enquote;
+use super::Label;
 use rand_distr::num_traits::Zero;
 use crate::common::types::Timestamp;
 
@@ -176,6 +178,37 @@ pub(crate) fn filter_samples_by_ts<'a>(
     }
 
     (count, &by_ts_args[ts_filter_index..])
+}
+
+pub fn format_prometheus_metric_name_into(full_name: &mut String, name: &str, labels: &[Label]) {
+    full_name.push_str(name);
+    if !labels.is_empty() {
+        full_name.push('{');
+        for (i, label) in labels.iter().enumerate() {
+            full_name.push_str(&label.name);
+            full_name.push_str("=\"");
+            // avoid allocation if possible
+            if label.value.contains('"') {
+                let quoted_value = enquote('\"', &label.value);
+                full_name.push_str(&quoted_value);
+            } else {
+                full_name.push_str(&label.value);
+            }
+            full_name.push_str("\"");
+            if i < labels.len() - 1 {
+                full_name.push(',');
+            }
+        }
+        full_name.push('}');
+    }
+}
+
+pub fn format_prometheus_metric_name(name: &str, labels: &[Label]) -> String {
+    let size_hint = name.len() + labels.iter()
+        .map(|l| l.name.len() + l.value.len() + 3).sum::<usize>();
+    let mut full_name: String = String::with_capacity(size_hint);
+    format_prometheus_metric_name_into(&mut full_name, name, labels);
+    full_name
 }
 
 #[cfg(test)]

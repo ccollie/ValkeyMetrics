@@ -47,6 +47,12 @@ where
     res
 }
 
+// todo: move elsewhere
+pub fn clear_timeseries_index() {
+    let guard = TIMESERIES_INDEX.guard();
+    TIMESERIES_INDEX.clear(&guard);
+}
+
 pub fn with_db_timeseries_index<F, R>(db: u32, f: F) -> R
 where
     F: FnOnce(&TimeSeriesIndex) -> R,

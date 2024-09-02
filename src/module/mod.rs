@@ -19,6 +19,7 @@ mod function_get;
 pub mod arg_parse;
 mod aggregation;
 mod range_utils;
+mod function_stats;
 
 pub mod commands {
     pub(crate) use super::function_add::*;
@@ -30,6 +31,7 @@ pub mod commands {
     pub(crate) use super::function_metadata::*;
     pub(crate) use super::function_query::*;
     pub(crate) use super::function_range::*;
+    pub(crate) use super::function_stats::*;
 }
 
 pub(crate) fn with_timeseries(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&TimeSeries) -> ValkeyResult) -> ValkeyResult {

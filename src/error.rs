@@ -54,6 +54,18 @@ pub enum TsdbError {
 
 pub type TsdbResult<T> = Result<T, TsdbError>;
 
+impl From<&str> for TsdbError {
+  fn from(s: &str) -> Self {
+    TsdbError::General(s.to_string())
+  }
+}
+
+impl From<String> for TsdbError {
+  fn from(s: String) -> Self {
+    TsdbError::General(s)
+  }
+}
+
 /*
 impl Into<ValkeyError> for TsdbError {
   fn into(self) -> ValkeyError {

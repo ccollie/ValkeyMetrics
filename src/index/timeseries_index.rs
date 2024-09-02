@@ -1,17 +1,20 @@
+use crate::error::TsdbResult;
 use crate::module::{with_timeseries, VALKEY_PROMQL_SERIES_TYPE};
 use crate::storage::time_series::TimeSeries;
+use crate::storage::utils::format_prometheus_metric_name;
 use crate::storage::Label;
 use metricsql_common::hash::IntMap;
 use metricsql_parser::prelude::{LabelFilter, LabelFilterOp, Matchers};
 use metricsql_runtime::METRIC_NAME_LABEL;
 use papaya::HashMap;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use valkey_module::{Context, ValkeyString, ValkeyValue};
 use roaring::{MultiOps, RoaringTreemap};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
+use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::RwLock;
+use std::sync::{RwLock, RwLockReadGuard};
+use valkey_module::{Context, ValkeyString, ValkeyValue};
 
 /// Map from db to TimeseriesIndex
 pub type TimeSeriesIndexMap = HashMap<u32, TimeSeriesIndex>;
@@ -29,15 +32,21 @@ pub fn next_timeseries_id() -> u64 {
 }
 
 
+pub struct NameBitmapPair<'a> {
+    pub name: &'a str,
+    pub bitmap: &'a RoaringTreemap,
+}
+
+
 #[derive(Default, Debug)]
-struct IndexInner {
+pub(crate) struct IndexInner {
     /// Map from timeseries id to timeseries key.
-    id_to_key: IntMap<u64, String>, // todo: have a feature to use something like compact_str
+    pub id_to_key: IntMap<u64, String>, // todo: have a feature to use something like compact_str
     /// Map from label name to set of timeseries ids.
-    label_to_ts: LabelsBitmap,
+    pub label_to_ts: LabelsBitmap,
     /// Map from label name + label value to set of timeseries ids.
-    label_kv_to_ts: LabelsBitmap,
-    series_sequence: AtomicU64,
+    pub label_kv_to_ts: LabelsBitmap,
+    pub series_sequence: AtomicU64,
 }
 
 impl IndexInner {
@@ -173,11 +182,6 @@ impl IndexInner {
             .collect::<Vec<_>>()
             .intersection()
     }
-
-    pub fn is_key_indexed(&self, key: &str) -> bool {
-        let key = format!("{}={}", METRIC_NAME_LABEL, key);
-        self.label_kv_to_ts.contains_key(&key)
-    }
 }
 
 /// Index for quick access to timeseries by label, label value or metric name.
@@ -255,6 +259,49 @@ impl TimeSeriesIndex {
         false
     }
 
+    /// This exists primarily to ensure that we disallow duplicate metric names, since the
+    /// metric name and valkey key are distinct
+    pub fn get_id_by_name_and_labels(&self, metric: &str, labels: &[Label]) -> TsdbResult<Option<u64>> {
+        let inner = self.inner.read().unwrap();
+        let key = format!("{}={}", METRIC_NAME_LABEL, metric);
+        if let Some(bmp) = inner.label_kv_to_ts.get(&key) {
+            let mut acc: RoaringTreemap = bmp.clone(); // wish we didn't have to clone here
+            for label in labels.iter() {
+                let key = format!("{}={}", label.name, label.value);
+                if let Some(bmp) = inner.label_kv_to_ts.get(&key) {
+                    acc &= bmp;
+                }
+            }
+            match acc.len() {
+                0 => Ok(None),
+                1 => Ok(Some(acc.iter().next().unwrap())),
+                _ => {
+                    let metric_name = format_prometheus_metric_name(metric, labels);
+                    // todo: show keys in the error message ?
+                    let msg = format!("Multiple series with the same metric: {}", metric_name);
+                    Err(msg.into())
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn prometheus_name_exists(&self, metric: &str, labels: &[Label]) -> bool {
+        matches!(self.get_id_by_name_and_labels(metric, labels), Ok(Some(_)))
+    }
+
+    pub fn get_key_by_name_and_labels(&self, metric: &str, labels: &[Label]) -> TsdbResult<Option<String>> {
+        let possible_id = self.get_id_by_name_and_labels(metric, labels)?;
+        match possible_id {
+            Some(id) => {
+                let inner = self.inner.read().unwrap();
+                Ok(inner.id_to_key.get(&id).cloned())
+            }
+            None => Ok(None)
+        }
+    }
+
     // todo: store Arc<RoaringTreeMap> in the index
     pub(super) fn get_ids_by_metric_name(&self, metric: &str) -> RoaringTreemap {
         let inner = self.inner.read().unwrap();
@@ -295,13 +342,19 @@ impl TimeSeriesIndex {
         let suffix = format!("{label}={}", char::MAX);
         inner.label_kv_to_ts
             .range(prefix..suffix)
-            .flat_map(|(key, _)| {
+            .filter_map(|(key, _)| {
                 if let Some((_, value)) = key.split_once('=') {
                     Some(value.to_string())
                 } else {
                     None
                 }
             }).collect()
+    }
+
+    pub fn is_key_indexed(&self, key: &str) -> bool {
+        let inner = self.inner.read().unwrap();
+        let key = format!("{}={}", METRIC_NAME_LABEL, key);
+        inner.label_kv_to_ts.contains_key(&key)
     }
 
     /// Returns a list of all series matching `matchers` while having samples in the range
@@ -330,7 +383,62 @@ impl TimeSeriesIndex {
         let inner = self.inner.read().unwrap();
         find_ids_by_matchers(&inner.label_kv_to_ts, matchers)
     }
+
+    pub(crate) fn get_inner(&self) -> RwLockReadGuard<IndexInner> {
+        self.inner.read().unwrap()
+    }
 }
+
+pub struct KeyValueRef<'a> {
+    pub key: &'a str,
+    pub value: &'a str,
+    pub bitmap: &'a RoaringTreemap,
+}
+
+pub struct LabelValueIterator<'a> {
+    inner: std::collections::btree_map::Iter<'a, String, RoaringTreemap>,
+}
+
+impl<'a> LabelValueIterator<'a> {
+    pub fn new(inner: std::collections::btree_map::Iter<'a, String, RoaringTreemap>) -> LabelValueIterator<'a> {
+        LabelValueIterator { inner }
+    }
+}
+
+impl<'a> Iterator for LabelValueIterator<'a> {
+    type Item = KeyValueRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some((key, bitmap)) = self.inner.next() {
+            if let Some((k, value)) = key.split_once('=') {
+                return Some(KeyValueRef{key: k, value, bitmap});
+            }
+        }
+        None
+    }
+}
+
+pub struct LabelNameIter<'a> {
+    inner: std::collections::btree_map::Iter<'a, String, RoaringTreemap>,
+}
+
+impl<'a> LabelNameIter<'a> {
+    pub fn new(inner: std::collections::btree_map::Iter<'a, String, RoaringTreemap>) -> LabelNameIter<'a> {
+        LabelNameIter { inner }
+    }
+}
+
+impl<'a> Iterator for LabelNameIter<'a> {
+    type Item = (&'a str, &'a RoaringTreemap);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some((key, map)) = self.inner.next() {
+            return Some((key, map));
+        }
+        None
+    }
+}
+
 
 fn get_label_value_bitmap(
     label_kv_to_ts: &LabelsBitmap,
@@ -341,7 +449,7 @@ fn get_label_value_bitmap(
     let suffix = format!("{label}=\u{10ffff}");
     label_kv_to_ts
         .range(prefix..suffix)
-        .flat_map(|(key, map)| {
+        .filter_map(|(key, map)| {
             if let Some((_, value)) = key.split_once('=') {
                 return if predicate(value) {
                     Some(map)

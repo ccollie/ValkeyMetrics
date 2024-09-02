@@ -1,18 +1,27 @@
-use super::{merge_by_capacity, validate_chunk_size, Chunk, ChunkCompression, Label, Sample, TimeSeriesChunk, TimeSeriesOptions};
+use super::{
+    merge_by_capacity,
+    validate_chunk_size,
+    Chunk,
+    ChunkCompression,
+    Label,
+    Sample,
+    TimeSeriesChunk,
+    TimeSeriesOptions
+};
 use crate::common::types::{PooledTimestampVec, PooledValuesVec, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
 use crate::storage::constants::{DEFAULT_CHUNK_SIZE_BYTES, SPLIT_FACTOR};
 use crate::storage::timestamps_filter_iterator::TimestampsFilterIterator;
 use crate::storage::uncompressed_chunk::UncompressedChunk;
+use crate::storage::utils::{format_prometheus_metric_name, round_to_significant_digits};
 use crate::storage::DuplicatePolicy;
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use std::collections::BinaryHeap;
 use std::mem::size_of;
 use std::time::Duration;
-use valkey_module::{raw, ValkeyError};
 use valkey_module::error::GenericError;
-use crate::storage::utils::round_to_significant_digits;
+use valkey_module::raw;
 
 /// Represents a time series. The time series consists of time series blocks, each containing BLOCK_SIZE_FOR_TIME_SERIES
 /// data points. All but the last block are compressed.
@@ -91,6 +100,7 @@ impl TimeSeries {
                     value: v.to_string(),
                 });
             }
+            res.labels.sort();
         }
         Ok(res)
     }
@@ -108,6 +118,17 @@ impl TimeSeries {
 
     pub fn get_label(&self, name: &str) -> Option<&Label> {
         self.labels.iter().find(|label| label.name == name)
+    }
+
+    /// Get the full metric name of the time series, including labels in Prometheus format.
+    /// For example,
+    ///
+    /// `http_requests_total{method="POST", status="500"}`
+    ///
+    /// Note that for our internal purposes, we store the metric name and labels separately, and
+    /// assume that the labels are sorted by name.
+    pub fn get_prometheus_metric_name(&self) -> String {
+        format_prometheus_metric_name(&self.metric_name, &self.labels)
     }
 
     fn adjust_value(&mut self, value: f64) -> f64 {

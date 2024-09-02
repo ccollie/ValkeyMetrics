@@ -115,6 +115,9 @@ pub(crate) fn create_series(
 ) -> TsdbResult<TimeSeries> {
     let mut ts = TimeSeries::with_options(options)?;
     with_timeseries_index(ctx, |index| {
+        // will return an error if the series already exists
+        index.get_id_by_name_and_labels(&ts.metric_name, &ts.labels)?;
+
         ts.id = TimeSeriesIndex::next_id();
         let key= key.to_string();
         index.index_time_series(&ts, &key);

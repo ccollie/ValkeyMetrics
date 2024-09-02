@@ -12,7 +12,7 @@ use valkey_module::raw;
 
 pub static REDIS_PROMQL_SERIES_VERSION: i32 = 1;
 pub static VALKEY_PROMQL_SERIES_TYPE: ValkeyType = ValkeyType::new(
-    "vk_promTS",
+    "vktseries",
     REDIS_PROMQL_SERIES_VERSION,
     RedisModuleTypeMethods {
         version: valkey_module::TYPE_METHOD_VERSION,
@@ -104,11 +104,4 @@ unsafe extern "C" fn defrag(
         Ok(_) => 0,
         Err(_) => 1,
     }
-}
-
-
-pub(crate) fn new_from_valkey_string(c: ValkeyString) -> Result<TimeSeries, serde_json::Error> {
-    // let mut val = bincode::deserialize::<TimeSeries>(&c.to_string().as_bytes());
-    // serde_json::from_str(&c.to_string())
-    todo!("bincode::deserialize::<TimeSeries>(&c.to_string().as_bytes())")
 }

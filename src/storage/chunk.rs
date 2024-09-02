@@ -488,11 +488,28 @@ impl Chunk for TimeSeriesChunk {
     }
 
     fn rdb_save(&self, rdb: *mut RedisModuleIO) {
-        todo!()
+        use TimeSeriesChunk::*;
+        match self {
+            Uncompressed(chunk) => chunk.rdb_save(rdb),
+            Gorilla(chunk) => chunk.rdb_save(rdb),
+            Pco(chunk) => chunk.rdb_save(rdb),
+        }
     }
 
     fn rdb_load(rdb: *mut RedisModuleIO) -> Result<Self, Error> {
-        todo!()
+        let compression = ChunkCompression::try_from(rdb.load_u8()?)?;
+        let chunk = match compression {
+            ChunkCompression::Uncompressed => {
+                TimeSeriesChunk::Uncompressed(UncompressedChunk::rdb_load(rdb)?)
+            }
+            ChunkCompression::Gorilla => {
+                TimeSeriesChunk::Gorilla(GorillaChunk::rdb_load(rdb)?)
+            }
+            ChunkCompression::Pco => {
+                TimeSeriesChunk::Pco(PcoChunk::rdb_load(rdb)?)
+            }
+        };
+        Ok(chunk)
     }
 }
 
