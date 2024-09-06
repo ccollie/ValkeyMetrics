@@ -3,12 +3,7 @@ use std::collections::HashMap;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
-
-#[derive(Clone, Hash)]
-pub struct Label {
-    name: String,
-    value: String,
-}
+use crate::storage::Label;
 
 pub struct LabelsCompressor {
     label_to_idx: dashmap::DashMap<Label, u64>,

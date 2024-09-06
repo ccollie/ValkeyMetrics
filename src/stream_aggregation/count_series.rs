@@ -21,7 +21,7 @@ impl CountSeriesAggrState {
 }
 
 impl AggrState for CountSeriesAggrState {
-    fn push_samples(&mut self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
+    fn push_samples(&mut self, samples: &Vec<PushSample>, delete_deadline: i64, idx: usize) {
         let map = self.m.pin();
         for s in samples {
             let (input_key, output_key) = get_input_output_key(&s.key);

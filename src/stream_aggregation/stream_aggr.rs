@@ -24,9 +24,10 @@ use metricsql_common::prelude::{AtomicCounter, histogram::Histogram};
 use metricsql_runtime::{Label, Labels};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
+use valkey_module::RedisModuleTimerID;
 use crate::stream_aggregation::deduplicator::drop_series_labels;
 
 // Constants
@@ -221,6 +222,12 @@ impl Aggregators {
     }
 }
 
+pub enum AggregatorMsg {
+    Flush,
+    Stop,
+    Tick
+}
+
 // Aggregator struct
 pub struct Aggregator {
     r#match: Option<IfExpression>,
@@ -238,7 +245,6 @@ pub struct Aggregator {
     dedup_interval: Duration,
     aggr_outputs: Vec<AggrOutput>,
     suffix: String,
-    stop_ch: Arc<Mutex<()>>,
     min_timestamp: i64,
     flush_after: FastHistogram,
     flush_duration: Histogram,
@@ -249,6 +255,10 @@ pub struct Aggregator {
     ignored_old_samples: u64,
     ignored_nan_samples: u64,
     matched_samples: u64,
+    timer_id: RedisModuleTimerID,
+    delay_timer_id: RedisModuleTimerID,
+    channel_rx: mpsc::Receiver<AggregatorMsg>,
+    channel_tx: mpsc::Sender<AggregatorMsg>,
 }
 
 // AggrOutput struct
@@ -259,7 +269,7 @@ struct AggrOutput {
 
 // AggrState trait
 pub(crate) trait AggrState {
-    fn push_samples(&mut self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize);
+    fn push_samples(&mut self, samples: &Vec<PushSample>, delete_deadline: i64, idx: usize);
     fn flush_state(&mut self, ctx: &mut FlushCtx);
 }
 
@@ -310,11 +320,12 @@ impl FlushCtx {
             return;
         }
 
-        let output_relabeling = self.a.as_ref().unwrap().output_relabeling.clone();
+        let aggregator = self.aggregator.lock().unwrap();
+        let output_relabeling = aggregator.output_relabeling.clone();
         if output_relabeling.is_none() {
             if let Some(push_func) = &self.push_func {
                 push_func(tss);
-                self.aggr_output.as_ref().unwrap().output_samples.fetch_add(tss.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                self.aggr_output.output_samples.fetch_add(tss.len() as u64, std::sync::atomic::Ordering::Relaxed);
             }
             return;
         }
@@ -325,7 +336,7 @@ impl FlushCtx {
         for mut ts in tss {
             dst_labels.clear();
             dst_labels.extend_from_slice(&ts.labels);
-            dst_labels = output_relabeling.as_ref().unwrap().apply(&dst_labels);
+            dst_labels = output_relabeling.unwrap().apply(&dst_labels);
             if dst_labels.is_empty() {
                 continue;
             }
@@ -334,7 +345,7 @@ impl FlushCtx {
         }
         if let Some(push_func) = &self.push_func {
             push_func(dst);
-            self.ao.as_ref().unwrap().output_samples.fetch_add(dst.len() as u64, Ordering::Relaxed);
+            self.aggr_output.output_samples.fetch_add(dst.len(), Ordering::Relaxed);
         }
         promutils::put_labels(aux_labels);
     }
@@ -342,9 +353,10 @@ impl FlushCtx {
     pub fn append_series(&mut self, key: &str, suffix: &str, value: f64) {
         let labels_len = self.labels.len();
         let samples_len = self.samples.len();
+        let aggregator = self.aggregator.lock().unwrap();
         self.labels = decompress_labels(&self.labels, key);
-        if !self.a.as_ref().unwrap().keep_metric_names {
-            self.labels = add_metric_suffix(&self.labels, labels_len, &self.a.as_ref().unwrap().suffix, suffix);
+        if !aggregator.keep_metric_names {
+            self.labels = add_metric_suffix(&self.labels, labels_len, &aggregator.suffix, suffix);
         }
         self.samples.push(Sample {
             timestamp: self.flush_timestamp,
@@ -494,15 +506,16 @@ pub fn new_aggregator(cfg: &StreamingAggregationConfig,
     let mut aggr_outputs = Vec::with_capacity(cfg.outputs.len());
     let mut outputs_seen = HashSet::with_capacity(cfg.outputs.len());
     for output in &cfg.outputs {
-        let as_ = new_aggr_state(output, &mut outputs_seen, staleness_interval)?;
+        let aggr_state = new_aggr_state(output, &mut outputs_seen, staleness_interval)?;
         aggr_outputs.push(AggrOutput {
-            as_: as_,
-            output_samples: 0,
+            aggr_state,
+            output_samples: AtomicUsize::new(0),
         });
     }
 
     let suffix = format!(":{}_{}_", cfg.interval, if !by.is_empty() { format!("_by_{}", by.join("_")) } else { "".to_string() });
 
+    let (tx, rx) = mpsc::channel();
     let aggregator = Arc::new(Aggregator {
         r#match: cfg.r#match.clone(),
         drop_input_labels,
@@ -519,7 +532,6 @@ pub fn new_aggregator(cfg: &StreamingAggregationConfig,
         dedup_interval,
         aggr_outputs,
         suffix,
-        stop_ch: Arc::new(Mutex::new(false)),
         flush_after: FastHistogram::new(),
         flush_duration: Histogram::new(),
         dedup_flush_duration: Histogram::new(),
@@ -530,6 +542,8 @@ pub fn new_aggregator(cfg: &StreamingAggregationConfig,
         ignored_nan_samples: 0,
         ignored_old_samples: 0,
         min_timestamp: current_time_millis(),
+        channel_rx: rx,
+        channel_tx: tx,
         wg: Arc::new(Mutex::new(Vec::new())),
     });
 
@@ -644,7 +658,7 @@ impl Aggregator {
                 }
 
                 if ignore_first_intervals > 0 {
-                    self.flush(None, 0);
+                    self.flush(None, 0, 0);
                     ignore_first_intervals -= 1;
                 } else {
                     self.flush(Some(&push_func), t.tick().unwrap().as_millis() as i64);
@@ -842,7 +856,7 @@ impl Aggregator {
             }
 
             let buf_len = buf.len();
-            buf = compress_labels(buf, input_labels, output_labels);
+            buf = compress_labels(&mut buf, input_labels, output_labels);
             let key = String::from_utf8_lossy(&buf[buf_len..]).to_string();
 
             for s in ts.samples.iter() {
@@ -878,9 +892,9 @@ impl Aggregator {
         }
     }
 
-    fn push_samples(&self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
-        for ao in &self.aggr_outputs {
-            ao.as_.push_samples(samples.clone(), delete_deadline, idx);
+    fn push_samples(&mut self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
+        for ao in self.aggr_outputs.iter_mut() {
+            ao.aggr_state.push_samples(samples.clone(), delete_deadline, idx);
         }
     }
 }

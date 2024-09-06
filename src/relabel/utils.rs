@@ -1,7 +1,7 @@
 use metricsql_runtime::parse_metric_selector;
 use regex::Regex;
-use crate::common::regex_util::simplify;
 use crate::storage::Label;
+use crate::common::simplify;
 
 /// `new_labels_from_string` creates labels from s, which can have the form `metric{labels}`.
 ///

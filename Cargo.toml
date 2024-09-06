@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }
+arc-interner = "0.7"
 binary-merge = "0.1"
 bincode = { version = "2.0.0-rc.3", features = ["alloc", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -44,9 +45,9 @@ rand_distr = "0.4.3"
 tracing = "0.1"
 valkey-module = "0.1"
 valkey-module-macros = "0.1"
-dashmap = "6.0.1"
+dashmap = "6.1"
 bytes = "1.7.1"
-tokio = "1.39.3"
+tokio = "1.40.0"
 prometheus = "0.13.4"
 log = "0.4.22"
 [lib]

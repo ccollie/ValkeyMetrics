@@ -1,5 +1,6 @@
 use metricsql_common::prelude::remove_start_end_anchors;
 use regex::Regex;
+use crate::common::{simplify, PromRegex};
 use crate::relabel::{DEFAULT_ORIGINAL_REGEX_FOR_RELABEL_CONFIG, DEFAULT_REGEX_FOR_RELABEL_CONFIG};
 
 const EMPTY_REGEX: &str = "";

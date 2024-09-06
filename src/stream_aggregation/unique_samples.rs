@@ -28,7 +28,7 @@ impl UniqueSamplesAggrState {
 }
 
 impl AggrState for UniqueSamplesAggrState {
-    fn push_samples(&mut self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
+    fn push_samples(&mut self, samples: &Vec<PushSample>, delete_deadline: i64, idx: usize) {
         for s in samples.iter() {
             let output_key = get_output_key(&s.key);
 

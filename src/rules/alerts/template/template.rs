@@ -11,20 +11,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::{OnceLock, RwLock};
-use std::collections::HashMap;
-use chrono::{DateTime, Duration, NaiveDateTime, Utc};
-use enquote::enquote;
-use crate::rules::alerts::{AlertsError, AlertsResult, DatasourceMetric};
-use gtmpl::{FuncError, gtmpl_fn, Template, Func, Value};
-use gtmpl_derive::Gtmpl;
-use metricsql_runtime::METRIC_NAME_LABEL;
-use regex::Regex;
-use url::Url;
 use crate::common;
 use crate::common::humanize::humanize_bytes;
+use crate::rules::alerts::{AlertsError, AlertsResult, DatasourceMetric};
+use crate::storage::Label;
+use chrono::{DateTime, Duration, Utc};
+use enquote::enquote;
+use gtmpl::{gtmpl_fn, Func, FuncError, Template, Value};
+use gtmpl_derive::Gtmpl;
 use htmlescape::encode_minimal;
-use metricsql_parser::label::Labels;
+use metricsql_runtime::METRIC_NAME_LABEL;
+use regex::Regex;
+use std::collections::HashMap;
+use std::sync::{OnceLock, RwLock};
+use url::Url;
 
 pub type FuncMap = HashMap<String, Func>;
 
@@ -100,13 +100,13 @@ pub fn reload() {
 /// Labels as map simplifies templates evaluation.
 #[derive(Gtmpl, Clone, Default)]
 struct Metric {
-    labels: Labels,
+    labels: Vec<Label>,
     timestamp: i64,
     value: f64,
 }
 
 impl Metric {
-    fn new(labels: Labels, timestamp: i64, value: f64) -> Self {
+    fn new(labels: Vec<Label>, timestamp: i64, value: f64) -> Self {
         Metric {
             labels,
             timestamp,
@@ -123,12 +123,8 @@ impl Metric {
 fn datasource_metrics_to_template_metrics(ms: &[DatasourceMetric]) -> Vec<Metric> {
     let mut mss = Vec::with_capacity(ms.len());
     for m in ms.iter() {
-        let mut labels_map = Labels::default();
-        for label in m.labels.iter() {
-            labels_map.insert(label.name.clone(), label.value.clone());
-        }
         mss.push(Metric {
-            labels: labels_map,
+            labels: m.labels.clone(),
             timestamp: m.timestamps[0],
             value:     m.values[0]
         })
@@ -170,7 +166,8 @@ pub(crate) fn make_query_fn(query: QueryFn) -> Func {
         }
         let arg = &args[0];
         if let Value::String(q) = arg {
-            let result = query(&q)?;
+            let result = query(&q)
+                .map_err(|e| FuncError::Generic(format!("query failed: {}", e)))?;
             let mss = datasource_metrics_to_template_metrics(&result).into();
             Ok(Value::Array(mss))
         } else {
@@ -266,9 +263,9 @@ gtmpl_fn!(fn first(metrics: &Vec<Metric>) -> Result<Metric, FuncError> {
 });
 
 // toTime converts given timestamp to a time.Time.
-gtmpl_fn!(fn to_time(v: u64) -> Result<NaiveDateTime, FuncError> {
+gtmpl_fn!(fn to_time(v: u64) -> Result<DateTime<Utc>, FuncError> {
     // v here is seconds
-    match NaiveDateTime::from_timestamp_millis((v * 1000) as i64) {
+    match DateTime::from_timestamp_millis((v * 1000) as i64) {
         Some(t) => Ok(t),
         None => Err( FuncError::Generic(format!("cannot convert {} to Time", v)))
     }

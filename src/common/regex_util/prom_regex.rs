@@ -1,7 +1,7 @@
-use metricsql_common::prelude::match_handlers::StringMatchHandler;
-use super::regex_utils::{get_prefix_matcher, get_suffix_matcher};
-use regex::Error as RegexError;
 use crate::common::regex_util::simplify;
+use metricsql_common::prelude::get_optimized_re_match_func;
+use metricsql_common::prelude::match_handlers::StringMatchHandler;
+use regex::Error as RegexError;
 
 /// PromRegex implements an optimized string matching for Prometheus-like regex.
 ///
@@ -18,9 +18,8 @@ pub struct PromRegex {
     /// prefix contains literal prefix for regex.
     /// For example, prefix="foo" for regex="foo(a|b)"
     pub prefix: String,
-    is_complete: bool,
-    prefix_matcher: StringMatchHandler,
-    suffix_matcher: StringMatchHandler,
+    pub matcher: StringMatchHandler,
+    pub is_complete: bool,
 }
 
 impl Default for PromRegex {
@@ -32,10 +31,10 @@ impl Default for PromRegex {
 impl PromRegex {
     pub fn new(expr: &str) -> Result<PromRegex, RegexError> {
         let (prefix, suffix) = simplify(expr)?;
+        let (matcher, _) = get_optimized_re_match_func(expr)?;
         let pr = PromRegex {
-            prefix: prefix.to_string(),
-            prefix_matcher: get_prefix_matcher(&prefix),
-            suffix_matcher: get_suffix_matcher(&suffix)?,
+            prefix,
+            matcher,
             is_complete: suffix.is_empty(),
         };
         Ok(pr)
@@ -46,15 +45,6 @@ impl PromRegex {
     /// The pr is automatically anchored to the beginning and to the end
     /// of the matching string with '^' and '$'.
     pub fn is_match(&self, s: &str) -> bool {
-        if self.prefix_matcher.matches(s) {
-            if let Some(suffix) = s.strip_prefix(&self.prefix) {
-                return self.suffix_matcher.matches(suffix);
-            }
-        }
-        false
-    }
-
-    pub fn is_complete(&self) -> bool {
-        self.is_complete
+        self.matcher.matches(s)
     }
 }

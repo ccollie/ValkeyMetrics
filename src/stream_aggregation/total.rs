@@ -53,12 +53,13 @@ impl TotalAggrState {
 }
 
 impl AggrState for TotalAggrState {
-    fn push_samples(&mut self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
+    fn push_samples(&mut self, samples: &Vec<PushSample>, delete_deadline: i64, idx: usize) {
         for s in samples.iter() {
             let (input_key, output_key) = get_input_output_key(s.key);
 
+            let map = self.m.pin();
             loop {
-                let entry = self.m.entry(output_key.clone()).or_insert_with(|| {
+                let entry = map.get_or_insert_with(output_key,|| {
                     Arc::new(Mutex::new(TotalStateValue {
                         shared: TotalState {
                             total: 0.0,

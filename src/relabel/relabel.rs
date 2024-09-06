@@ -10,7 +10,7 @@ use metricsql_runtime::METRIC_NAME_LABEL;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::xxh3_64;
-
+use crate::common::PromRegex;
 use crate::relabel::{DEFAULT_ORIGINAL_REGEX_FOR_RELABEL_CONFIG, GraphiteLabelRule, GraphiteMatchTemplate, IfExpression, is_default_regex_for_config};
 use crate::relabel::actions::RelabelActionType;
 use crate::relabel::utils::{are_equal_label_values, concat_label_values, contains_all_label_values, get_label_value, set_label_value};
@@ -48,7 +48,6 @@ pub struct ParsedRelabelConfig {
 
     pub regex: PromRegex,
     pub regex_original: Regex,
-    pub matcher: StringMatchHandler,
 
     pub has_capture_group_in_target_label: bool,
     pub has_capture_group_in_replacement: bool,
@@ -150,7 +149,7 @@ impl ParsedRelabelConfig {
         }
 
         let buf = concat_label_values(&labels, &self.source_labels, &self.separator);
-        let drop = self.matcher.matches(&buf);
+        let drop = self.regex.is_match(&buf);
         if drop {
             labels.truncate(labels_offset);
         }
@@ -232,7 +231,7 @@ impl ParsedRelabelConfig {
             return;
         }
         let buf = concat_label_values(&labels, &self.source_labels, &self.separator);
-        let keep = self.matcher.matches(&buf);
+        let keep = self.regex.is_match(&buf);
         if !keep {
             labels.truncate(labels_offset);
         }
@@ -279,12 +278,12 @@ impl ParsedRelabelConfig {
 
     fn label_drop(&self, labels: &mut Vec<Label>, _labels_offset: usize) {
         // Drop all the labels matching `regex`
-        labels.retain(|label| !self.matcher.matches(&label.name))
+        labels.retain(|label| !self.regex.is_match(&label.name))
     }
 
     fn label_keep(&self, labels: &mut Vec<Label>, _labels_offset: usize) {
         // Keep all the labels matching `regex`
-        labels.retain(|label| self.matcher.matches(&label.name))
+        labels.retain(|label| self.regex.is_match(&label.name))
     }
 
     fn label_map(&self, labels: &mut Vec<Label>, labels_offset: usize) {
@@ -335,7 +334,7 @@ impl ParsedRelabelConfig {
     pub(crate) fn replace_full_string_fast(&self, s: &str) -> String {
         let replacement = &self.replacement;
         if !self.has_capture_group_in_target_label {
-            match &self.matcher {
+            match &self.regex.matcher {
                 StringMatchHandler::Literal(pattern) => {
                     if s == pattern {
                         return replacement.clone();
@@ -367,7 +366,7 @@ impl ParsedRelabelConfig {
                 }
             }
         }
-        if !self.matcher.matches(s) {
+        if !self.regex.is_match(s) {
             // Fast path - regex mismatch
             return s.to_string();
         }
@@ -404,12 +403,12 @@ impl ParsedRelabelConfig {
     /// replaces all the regex matches with the replacement in s.
     pub(crate) fn replace_string_submatches_fast(&self, s: &str) -> String {
         if !self.has_capture_group_in_replacement {
-            match &self.matcher {
+            match &self.regex.matcher {
                 StringMatchHandler::Contains(_) |
                 StringMatchHandler::Literal(_) |
                 StringMatchHandler::StartsWith(_) |
                 StringMatchHandler::EndsWith(_) => {
-                    if !self.matcher.matches(s) {
+                    if !self.regex.is_match(s) {
                         // Fast path - zero regex matches in s.
                         return s.to_string();
                     }
@@ -475,7 +474,7 @@ fn handle_replace(prc: &ParsedRelabelConfig, labels: &mut Vec<Label>, labels_off
         }
     }
     let source_str = &buf;
-    if !prc.matcher.matches(source_str) {
+    if !prc.regex.is_match(source_str) {
         // Fast path - regexp mismatch.
         return;
     }

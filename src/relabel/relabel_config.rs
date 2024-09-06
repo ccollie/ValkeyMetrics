@@ -13,7 +13,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 use dynamic_lru_cache::DynamicCache;
 use metricsql_common::prelude::remove_start_end_anchors;
-use crate::common::METRIC_NAME_LABEL;
+use crate::common::{simplify, PromRegex, METRIC_NAME_LABEL};
 use crate::relabel::actions::RelabelActionType;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -443,6 +443,7 @@ pub fn parse_relabel_config(rc: RelabelConfig) -> Result<ParsedRelabelConfig, St
         string_replacer_cache: DynamicCache::new(64), // todo: pass in config ?
         regex: prom_regex,
         regex_original: regex_original_compiled,
+        matcher: Default::default(),
         has_capture_group_in_target_label: target_label.contains("$"),
         has_capture_group_in_replacement: replacement.contains("$"),
         has_label_reference_in_replacement: replacement.contains("{{"),

@@ -24,7 +24,7 @@ impl LabelsCompressor {
         self.next_idx.load(Ordering::Relaxed)
     }
 
-    pub fn compress(&self, dst: Vec<u8>, labels: Vec<Label>) -> Vec<u8> {
+    pub fn compress(&self, dst: &mut Vec<u8>, labels: Vec<Label>) -> Vec<u8> {
         if labels.is_empty() {
             return vec![0];
         }
@@ -36,7 +36,7 @@ impl LabelsCompressor {
         dst
     }
 
-    fn compress_inner(&self, dst: &mut [u64], labels: Vec<Label>) {
+    fn compress_inner(&self, dst: &mut [u64], labels: &Vec<Label>) {
         for (i, label) in labels.iter().enumerate() {
             let map = self.label_to_idx.pin();
             if let Some(v) = map.get(label) {
@@ -51,11 +51,11 @@ impl LabelsCompressor {
         }
     }
 
-    pub fn decompress(&self, dst: Vec<Label>, src: Vec<u8>) -> Vec<Label> {
+    pub fn decompress(&self, dst: &mut Vec<Label>, src: Vec<u8>) {
         let (labels_len, n_size) = encoding::unmarshal_var_uint64(&src);
         let tail = &src[n_size..];
         if labels_len == 0 {
-            return dst;
+            return
         }
 
         let mut a = vec![0; labels_len as usize];
