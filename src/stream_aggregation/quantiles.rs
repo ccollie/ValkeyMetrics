@@ -19,7 +19,6 @@ impl QuantilesAggrState {
     pub fn new(phis: Vec<f64>) -> Self {
         Self { m: HashMap::new(), phis }
     }
-
     fn update_state(sv: &mut QuantilesStateValue, sample: &PushSample, delete_deadline: i64, idx: usize) {
         let state = &mut sv.state[idx];
         if state.is_none() {

@@ -52,13 +52,13 @@ impl AggrState for CountSeriesAggrState {
 
     fn flush_state(&mut self, ctx: &mut FlushCtx) {
         let map = self.m.pin();
-        for entry in map.iter() {
-            let mut sv = entry.value().lock().unwrap();
+        for (k, value) in map.iter() {
+            let mut sv = value.lock().unwrap();
 
             let deleted = ctx.flush_timestamp > sv.delete_deadline;
             if deleted {
                 sv.deleted = true;
-                map.remove(&entry.key());
+                map.remove(k);
                 continue;
             }
 
@@ -66,7 +66,7 @@ impl AggrState for CountSeriesAggrState {
             sv.state[ctx.idx].clear();
 
             if state > 0 {
-                ctx.append_series(&entry.key(), "count_series", state as f64);
+                ctx.append_series(&value.key(), "count_series", state as f64);
             }
         }
     }

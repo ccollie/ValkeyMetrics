@@ -28,7 +28,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
 use crate::stream_aggregation::deduplicator::drop_series_labels;
-// Placeholder for the Go libraries used in the original code
 
 // Constants
 const AGGR_STATE_SIZE: usize = 2;
@@ -70,14 +69,14 @@ pub struct Options {
 // Config struct
 #[derive(Serialize, Deserialize)]
 pub struct StreamingAggregationConfig {
-    /// name is an optional name of the given streaming aggregation config.
+    /// `name` is an optional name of the given streaming aggregation config.
     ///
     /// If it is set, then it is used as `name` label in the exposed metrics
     /// for the given aggregation config at /metrics page.
     /// See https://docs.victoriametrics.com/vmagent/#monitoring and https://docs.victoriametrics.com/#monitoring
     pub name: Option<String>,
 
-    /// match is an optional filter for incoming samples to aggregate.
+    /// an optional filter for incoming samples to aggregate.
     /// It can contain arbitrary Prometheus series selector
     /// according to https://docs.victoriametrics.com/keyconcepts/#filtering .
     /// If match isn't set, then all the incoming samples are aggregated.
@@ -86,11 +85,11 @@ pub struct StreamingAggregationConfig {
     /// if they match at least a single series selector.
     pub r#match: Option<IfExpression>,
 
-    /// interval is the interval for the aggregation.
+    /// `interval` is the interval for the aggregation.
     /// The aggregated stats is sent to remote storage once per interval.
     pub interval: Duration,
 
-    /// dedup_interval is an optional interval for de-duplication of input samples before the aggregation.
+    /// `dedup_interval` is an optional interval for de-duplication of input samples before the aggregation.
     /// Samples are de-duplicated on a per-series basis. See https://docs.victoriametrics.com/keyconcepts/#time-series
     /// and https://docs.victoriametrics.com/#deduplication
     /// The deduplication is performed after input_relabel_configs relabeling is applied.
@@ -122,7 +121,7 @@ pub struct StreamingAggregationConfig {
     /// Incomplete aggregated data isn't flushed to the storage by default, since it is usually confusing.
     pub flush_on_shutdown: Option<bool>,
 
-    /// without is an optional list of labels, which must be removed from the output aggregation.
+    /// an optional list of labels, which must be removed from the output aggregation.
     /// See https://docs.victoriametrics.com/stream-aggregation/#aggregating-by-labels
     pub without: Option<Vec<String>>,
 
@@ -157,7 +156,7 @@ pub struct StreamingAggregationConfig {
     /// and stream aggregation.
     pub drop_input_labels: Option<Vec<String>>,
 
-    /// input_relabel_configs is an optional relabeling rules,
+    /// `input_relabel_configs` is an optional relabeling rules,
     /// which are applied to the incoming samples after they pass the match filter
     /// and before being aggregated.
     /// See https://docs.victoriametrics.com/stream-aggregation/#relabeling
@@ -206,19 +205,19 @@ impl Aggregators {
     // Push returns matchIdxs with len equal to len(tss).
     // It re-uses the matchIdxs if it has enough capacity to hold len(tss) items.
     // Otherwise it allocates new matchIdxs.
-    fn push(&self, tss: Vec<TimeSeries>, mut match_idxs: Vec<u8>) -> Vec<u8> {
-        match_idxs.resize(tss.len(), 0);
+    fn push(&self, tss: Vec<TimeSeries>, mut match_indices: Vec<u8>) -> Vec<u8> {
+        match_indices.resize(tss.len(), 0);
 
         if self.aggregators.is_empty() {
-            return match_idxs;
+            return match_indices;
         }
 
         for aggr in &self.aggregators {
             let mut inner = aggr.lock().unwrap();
-            inner.push(tss.clone(), &mut match_idxs);
+            inner.push(tss.clone(), &mut match_indices);
         }
 
-        match_idxs
+        match_indices
     }
 }
 
@@ -293,7 +292,7 @@ pub(crate) struct FlushCtx {
 impl FlushCtx {
     pub fn reset(&mut self) {
         self.aggregator.clear_poison(); // ????
-        self.aggr_output = None;
+        self.aggr_output.output_samples.store(0, Ordering::Relaxed);
         self.push_func = None;
         self.flush_timestamp = 0;
         self.reset_series();
@@ -387,7 +386,7 @@ impl FlushCtx {
     }
 }
 
-fn get_flush_ctx(a: Arc<Aggregator>, ao: Arc<AggrOutput>, push_func: Box<dyn Fn(Vec<TimeSeries>) + Send + Sync>, flush_timestamp: i64, idx: usize) -> Arc<Mutex<flushCtx>> {
+fn get_flush_ctx(a: Arc<Aggregator>, output: Arc<AggrOutput>, push_func: Box<dyn Fn(Vec<TimeSeries>) + Send + Sync>, flush_timestamp: i64, idx: usize) -> Arc<Mutex<flushCtx>> {
     let mut pool = FLUSH_CTX_POOL.lock().unwrap();
     let ctx = pool.pop().unwrap_or_else(|| Arc::new(Mutex::new(FlushCtx {
         aggregator: a.clone(),
@@ -402,7 +401,7 @@ fn get_flush_ctx(a: Arc<Aggregator>, ao: Arc<AggrOutput>, push_func: Box<dyn Fn(
     })));
     let mut ctx_guard = ctx.lock().unwrap();
     ctx_guard.a = Some(a);
-    ctx_guard.ao = Some(ao);
+    ctx_guard.ao = Some(output);
     ctx_guard.push_func = Some(push_func);
     ctx_guard.flush_timestamp = flush_timestamp;
     ctx_guard.idx = idx;
@@ -426,14 +425,15 @@ pub fn new_aggregator(cfg: &StreamingAggregationConfig,
         return Err(format!("aggregation interval cannot be smaller than 1s; got {:?}", &cfg.interval));
     }
 
-    let opts = opts.unwrap_or(&Options {
-        dedup_interval: Duration::from_secs(0),
-        drop_input_labels: false,
+    let opts = opts.unwrap_or_else(|| Options {
+        dedup_interval: Some(Duration::from_secs(0)),
+        drop_input_labels: vec![],
         keep_metric_names: false,
         ignore_old_samples: false,
         ignore_first_intervals: 0,
         no_align_flush_to_interval: false,
         flush_on_shutdown: false,
+        keep_input: false,
     });
 
     let dedup_interval = if let Some(interval) = &cfg.dedup_interval {
@@ -520,7 +520,7 @@ pub fn new_aggregator(cfg: &StreamingAggregationConfig,
         aggr_outputs,
         suffix,
         stop_ch: Arc::new(Mutex::new(false)),
-        flush_after: Vec::new(),
+        flush_after: FastHistogram::new(),
         flush_duration: Histogram::new(),
         dedup_flush_duration: Histogram::new(),
         samples_lag: Histogram::new(),
@@ -749,7 +749,7 @@ impl Aggregator {
         let mut dedup_idx = flush_idx;
         if !self.dedup_interval.is_zero() {
             let millis = self.dedup_interval.as_millis() as i64;
-            dedup_idx = get_state_idx(millis, dedupTime.Add(-a.dedupInterval).UnixMilli())
+            dedup_idx = get_state_idx(millis, dedupTime.Add(-self.dedup_interval).UnixMilli())
         }
         (dedup_idx, flush_idx)
     }
@@ -911,6 +911,7 @@ pub(super) fn get_input_output_key(key: &str) -> (&str, &str) {
     (input_key, output_key)
 }
 
+#[inline]
 fn get_state_idx(interval: i64, ts: i64) -> usize {
     (ts / interval).abs() as usize % AGGR_STATE_SIZE
 }

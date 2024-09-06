@@ -3,6 +3,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
+use lazy_static::lazy::Lazy;
 
 const INTERN_STRING_MAX_LEN: usize = 500;
 static DISABLE_CACHE: Lazy<bool> = Lazy::new(|| false);

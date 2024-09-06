@@ -1,4 +1,3 @@
-use crate::common::regex_util::PromRegex;
 use crate::rules::alerts::{AlertsError, AlertsResult};
 use crate::relabel::label_filter::to_canonical_label_name;
 use crate::relabel::{LabelFilter, LabelFilterOp, LabelMatchers};
@@ -6,9 +5,10 @@ use metricsql_parser::ast::Expr;
 use metricsql_parser::prelude::MetricExpr;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
+use metricsql_common::prelude::get_optimized_re_match_func;
 use crate::storage::Label;
 
-/// IfExpression represents PromQL-like label filters such as `metric_name{filters...}`.
+/// `IfExpression` represents PromQL-like label filters such as `metric_name{filters...}`.
 ///
 /// It may contain either a single filter or multiple filters, which are executed with `or` operator.
 ///
@@ -139,13 +139,13 @@ fn metric_expr_to_label_filter_list(me: &MetricExpr) -> AlertsResult<Vec<LabelMa
         let mut lfs_new: Vec<LabelFilter> = Vec::with_capacity(filters.len());
         for filter in filters.iter() {
             let lf = new_label_filter(filter).map_err(|e| {
-                let msg  = format!("cannot parse label filter {filter}: {:?}", e);
+                let msg   = format!("cannot parse label filter {filter}: {:?}", e);
                 // todo: more specific error
                 AlertsError::Generic(msg)
             })?;
             lfs_new.push(lf);
         }
-        Ok(LabelMatchers(lfs_new))
+        Ok(LabelMatchers::new(lfs_new))
     }
 
     if !me.matchers.matchers.is_empty() {
@@ -167,7 +167,7 @@ fn new_label_filter(mlf: &BaseLabelFilter) -> AlertsResult<LabelFilter> {
         re: None,
     };
     if lf.op.is_regex() {
-        let re = PromRegex::new(&lf.value)
+        let (re, _) = get_optimized_re_match_func(&lf.value)
             .map_err(|e| {
                 let msg = format!("cannot parse regexp for {}: {}", mlf, e);
                 // todo: specific error

@@ -25,11 +25,12 @@ impl CountSamplesAggrState {
 
 impl AggrState for CountSamplesAggrState {
     fn push_samples(&mut self, samples: Vec<PushSample>, delete_deadline: i64, idx: usize) {
+        let map = self.m.pin();
         for s in samples.iter() {
             let output_key = get_output_key(&s.key);
 
             loop {
-                let entry = self.m.entry(output_key.clone()).or_insert_with(|| {
+                let entry = map.get_or_insert_with(output_key.to_string(), || {
                     Arc::new(Mutex::new(CountSamplesStateValue {
                         state: [0; AGGR_STATE_SIZE],
                         deleted: false,

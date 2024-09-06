@@ -12,7 +12,7 @@ use ahash::AHashMap;
 use enquote::enquote;
 use metricsql_runtime::TimestampTrait;
 use metricsql_parser::prelude::METRIC_NAME;
-use redis_module::Context;
+use valkey_module::Context;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use xxhash_rust::xxh3::Xxh3;
@@ -20,18 +20,28 @@ use crate::common::current_time_millis;
 use crate::config::get_global_settings;
 
 use crate::rules::{EvalContext, Rule, RuleType};
-use crate::rules::alerts::{AlertingRule, AlertsError, AlertsResult, DataSourceType, GroupConfig, Notifier, Querier, RecordingRule, should_skip_rand_sleep_on_group_start, WriteQueue};
+use crate::rules::alerts::{
+    AlertingRule,
+    AlertsError,
+    AlertsResult,
+    DataSourceType,
+    GroupConfig,
+    Notifier,
+    Querier,
+    RecordingRule,
+    should_skip_rand_sleep_on_group_start,
+    WriteQueue
+};
 use crate::rules::alerts::datasource::datasource::{QuerierBuilder, QuerierParams};
 use crate::rules::alerts::executor::Executor;
 use crate::storage::{Label, Timestamp};
 
 
 /// Group is an entity for grouping rules
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Group {
     pub name: String,
     pub id: u64,
-    file: String,
     pub source_type: DataSourceType,
     pub alerting_rules: Vec<AlertingRule>,
     pub recording_rules: Vec<RecordingRule>,
@@ -49,7 +59,7 @@ pub struct Group {
     #[serde(skip)]
     concurrency: usize,
     pub(crate) checksum: String,
-    /// eval_alignment will make the timestamp of group query requests be aligned with interval
+    /// `eval_alignment` will make the timestamp of group query requests be aligned with interval
     pub eval_alignment: Option<bool>,
     #[serde(skip)]
     pub timer_id: u64,
@@ -61,7 +71,6 @@ impl Clone for Group {
             source_type: self.source_type.clone(),
             name: self.name.clone(),
             id: self.id,
-            file: self.file.clone(),
             alerting_rules: self.alerting_rules.clone(),
             recording_rules: self.recording_rules.clone(),
             interval: self.interval.clone(),
@@ -104,11 +113,12 @@ impl Clone for GroupMetrics {
 impl Group {
     pub fn from_config(cfg: GroupConfig, default_interval: Duration, labels: Vec<Label>) -> Group {
         let mut cfg = cfg;
+
+        let labels_empty = cfg.labels.is_empty();
         let mut g = Group {
             source_type: cfg.datasource_type,
             name: cfg.name,
             id: 0,
-            file: cfg.file.unwrap_or_default(),
             alerting_rules: vec![],
             interval: Duration::default(),
             eval_offset: Duration::default(),
@@ -148,12 +158,19 @@ impl Group {
                 extra_labels = labels.clone();
             }
             // apply group labels, it has priority on external labels
-            if !cfg.labels.is_empty() {
+            if !labels_empty {
                 extra_labels = merge_labels(&g.name, name, &extra_labels, &g.labels)
             }
             // apply rules labels, it has priority on other labels
             if !extra_labels.is_empty() {
-                let labels = merge_labels(&g.name, name, &extra_labels, &r.labels);
+                let mut rule_labels = Vec::with_capacity(r.labels.len());
+                for (k, v) in r.labels.iter() {
+                    rule_labels.push(Label {
+                        name: k.clone(),
+                        value: v.clone(),
+                    });
+                }
+                let labels = merge_labels(&g.name, name, &extra_labels, &rule_labels);
                 r.labels = labels.into();
             }
 
@@ -171,17 +188,15 @@ impl Group {
     /// id return unique group id that consists of rules file and group name
     pub(crate) fn id(&self) -> u64 {
         let mut hasher: Xxh3 = Xxh3::new();
-
-        hasher.write(self.file.as_bytes());
-        hasher.write(b"\xff");
         hasher.write(self.name.as_bytes());
+        hasher.write(b"\xff");
         hasher.write(self.source_type.to_string().as_bytes());
         hasher.write_u128(self.interval.as_millis());
         if let Some(offset) = self.eval_offset {
             let millis = offset.as_millis();
             hasher.write_i128(millis);
         }
-        return hasher.digest();
+        hasher.digest()
     }
 
     pub fn rule_count(&self) -> usize {
@@ -199,12 +214,16 @@ impl Group {
             if ar.r#for.is_zero() {
                 continue;
             }
+            let mut headers: AHashMap<String, String> = AHashMap::with_capacity(self.headers.len());
+            for header in self.headers.iter() {
+                headers.insert(header.name.clone(), header.value.clone());
+            }
             let q = qb.build_with_params(QuerierParams {
                 data_source_type: self.source_type.clone(),
                 evaluation_interval: self.interval.clone(),
                 eval_offset: Default::default(),
                 query_params: self.params.clone(),
-                headers: self.headers.into(),
+                headers,
                 debug: ar.debug,
             });
             ar.restore(ctx, ts, look_back)
@@ -213,7 +232,7 @@ impl Group {
         Ok(())
     }
 
-    /// update_with updates existing group with passed group object. This function ignores group
+    /// updates existing group with passed group object. This function ignores group
     /// evaluation interval change. It supposed to be updated in group.start function.
     /// Not thread-safe.
     pub fn update_with(&mut self, new_group: &Group) -> AlertsResult<()> {
@@ -272,7 +291,7 @@ impl Group {
         Ok(())
     }
 
-    fn createQuerier(&self, qb: impl QuerierBuilder) -> Box<dyn Querier> {
+    fn create_querier(&self, qb: impl QuerierBuilder) -> Box<dyn Querier> {
         qb.build_with_params(QuerierParams {
             data_source_type: self.source_type.clone(),
             evaluation_interval: self.interval,
@@ -286,11 +305,11 @@ impl Group {
     //////////////////////////////////////////////
     pub(super) fn start(&mut self,
                         ctx: &Context,
-                        nts: fn() -> Vec<dyn Notifier>,
+                        nts: Arc<Vec<Box<dyn Notifier>>>,
                         write_queue: Arc<WriteQueue>,
                         querier_builder: Arc<&dyn QuerierBuilder>) {
 
-        let mut eval_ts = current_time_millis();
+        let eval_ts = current_time_millis();
         // sleep random duration to spread group rules evaluation
         // over time in order to reduce load on datasource.
         if !should_skip_rand_sleep_on_group_start() {
@@ -304,7 +323,7 @@ impl Group {
             // todo sleep
         }
 
-        let querier = self.createQuerier(querier_builder);
+        let querier = self.create_querier(querier_builder);
         let mut e = Executor::new(nts, &self.notifier_headers, write_queue, querier);
 
         info!("started rule group \"{}\"", self.name);
@@ -381,7 +400,6 @@ impl Group {
 
         // todo: rayon
         let errs = e.exec_concurrently(&mut self.recording_rules, ts, resolve_duration, self.limit);
-        let errs1 = e.exec_concurrently(&mut self.alerting_rules, ts, resolve_duration, self.limit);
         for err in errs {
             if err != nil {
                 let msg = format!("group {}: {:?}", self.name, err);
@@ -399,7 +417,7 @@ impl Group {
         let settings = get_global_settings();
         let eval_ts = current_time_millis();
 
-        let querier = self.createQuerier(qb);
+        let querier = self.create_querier(qb);
         let mut e = Executor::new(nts, &self.notifier_headers, write_queue, querier);
 
         // restore the rules state after the first evaluation so only active alerts can be restored.
@@ -498,13 +516,13 @@ impl Group {
             // and https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1232
             return timestamp.truncate(self.interval)
         }
-        return timestamp
+        timestamp
     }
 }
 
 fn new_group_metrics(g: &Group) -> GroupMetrics {
     let mut m = GroupMetrics::default();
-    return m;
+    m
 }
 
 // merges group rule labels into result map
@@ -515,13 +533,13 @@ pub(crate) fn merge_labels(group_name: &str, rule_name: &str, set1: &Vec<Label>,
     for label in set2.iter() {
         let prev_v = r.iter().find(|x| x.name == label.name);
         if prev_v.is_some() {
-            tracing::info!("label {k}={prev_v} for rule {}.{} overwritten with external label {k}={v}",
+            info!("label {k}={prev_v} for rule {}.{} overwritten with external label {k}={v}",
                   group_name,
                   rule_name);
         }
         r.push(label.clone());
     }
-    return r;
+    r
 }
 
 
@@ -536,7 +554,7 @@ fn get_resolve_duration(group_interval: Duration, delta: &Duration,
     if !max_duration.is_zero() && resolve_duration > max_duration {
         resolve_duration = max_duration
     }
-    return resolve_duration;
+    resolve_duration
 }
 
 /// delay_before_start returns a duration on the interval between [ts..ts+interval].

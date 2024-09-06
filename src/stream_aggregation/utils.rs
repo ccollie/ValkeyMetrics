@@ -1,9 +1,10 @@
+use crate::common::METRIC_NAME_LABEL;
 use crate::storage::Label;
 
 pub(super) fn add_metric_suffix(labels: &[Label], offset: usize, first_suffix: &str, last_suffix: &str) -> Vec<Label> {
     let mut buf: String = String::new();
     let src = &labels[offset..];
-    for label in src.iter().filter(|label| label.name != "__name__") {
+    for label in src.iter().filter(|label| label.name !=  METRIC_NAME_LABEL) {
         buf.clear();
         buf.push_str(&label.value);
         buf.push_str(first_suffix);

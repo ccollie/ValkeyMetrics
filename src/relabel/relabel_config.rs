@@ -1,4 +1,3 @@
-use crate::common::regex_util::{remove_start_end_anchors, simplify, PromRegex};
 use crate::relabel::relabel::ParsedRelabelConfig;
 use crate::relabel::{
     labels_to_string, new_graphite_label_rules, DebugStep, GraphiteLabelRule,
@@ -13,6 +12,7 @@ use std::fmt;
 use std::fmt::Display;
 use std::str::FromStr;
 use dynamic_lru_cache::DynamicCache;
+use metricsql_common::prelude::remove_start_end_anchors;
 use crate::common::METRIC_NAME_LABEL;
 use crate::relabel::actions::RelabelActionType;
 
@@ -114,7 +114,6 @@ pub(crate) struct RelabelConfig {
     pub if_expr: Option<IfExpression>,
     pub action: RelabelActionType,
     pub source_labels: Vec<String>,
-    #[serde(default=";")]
     pub separator: String,
     pub target_label: String,
     pub regex: Option<Regex>,
@@ -139,6 +138,7 @@ pub(crate) struct RelabelConfig {
     pub labels: HashMap<String, String>,
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ParsedConfigs(pub Vec<ParsedRelabelConfig>);
 
 impl ParsedConfigs {

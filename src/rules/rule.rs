@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::fmt::{Debug, Display};
 use std::str::FromStr;
 use std::time::Duration;
-use redis_module::{Context as RedisContext};
+use valkey_module::{Context as ValkeyContext};
 use serde::{Deserialize, Serialize};
 use crate::common::types::{Timestamp};
 use crate::rules::alerts::{AlertingRule, AlertsError, AlertsResult, Querier, RecordingRule};
@@ -58,11 +58,11 @@ impl FromStr for RuleType {
 
 pub struct EvalContext<'a> {
     pub querier: Box<dyn Querier>,
-    pub redis_ctx: &'a RedisContext
+    pub redis_ctx: &'a ValkeyContext
 }
 
 impl<'a> EvalContext<'a> {
-    pub fn new(querier: Box<dyn Querier>, redis_ctx: &'a RedisContext) -> Self {
+    pub fn new(querier: Box<dyn Querier>, redis_ctx: &'a ValkeyContext) -> Self {
         EvalContext {
             querier,
             redis_ctx
@@ -82,7 +82,7 @@ impl<'a> EvalContext<'a> {
     }
 }
 
-/// Rule represents alerting or recording_rule rule that has unique id, can be executed
+/// Rule represents alerting or recording rule that has unique id, can be executed
 /// and updated with other Rule.
 pub trait Rule: Debug {
     /// id returns unique id that may be used for identifying this Rule among others.

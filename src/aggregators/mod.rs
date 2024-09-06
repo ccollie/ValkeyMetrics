@@ -1,9 +1,10 @@
 // The code in this file is copied from
-// https://github.com/cryptorelay/redis-aggregation/tree/master
+// https://github.com/cryptorelay/Valkey-aggregation/tree/master
 // License: Apache License 2.0
 
-use valkey_module::{ValkeyError, ValkeyString};
+use Valkey_module::{ValkeyError, ValkeyString};
 
+type Time = i64;
 type Value = f64;
 
 pub trait AggOp {
@@ -12,9 +13,6 @@ pub trait AggOp {
     fn update(&mut self, value: Value);
     fn reset(&mut self);
     fn current(&self) -> Option<Value>;
-    fn empty_value(&self) -> Value {
-        f64::NAN
-    }
 }
 
 #[derive(Clone, Default, Debug)]
@@ -35,7 +33,7 @@ impl AggOp for AggFirst {
         self.0 = None;
     }
     fn current(&self) -> Option<Value> {
-        self.0
+        return self.0;
     }
 }
 
@@ -55,7 +53,7 @@ impl AggOp for AggLast {
         self.0 = None;
     }
     fn current(&self) -> Option<Value> {
-        self.0
+        return self.0;
     }
 }
 
@@ -79,7 +77,7 @@ impl AggOp for AggMin {
         self.0 = None;
     }
     fn current(&self) -> Option<Value> {
-        self.0
+        return self.0;
     }
 }
 
@@ -103,7 +101,7 @@ impl AggOp for AggMax {
         self.0 = None;
     }
     fn current(&self) -> Option<Value> {
-        self.0
+        return self.0;
     }
 }
 
@@ -137,7 +135,7 @@ impl AggOp for AggRange {
         self.init = false;
     }
     fn current(&self) -> Option<Value> {
-        if !self.init {
+        return if !self.init {
             None
         } else {
             Some(self.max - self.min)
@@ -172,9 +170,9 @@ impl AggOp for AggAvg {
     }
     fn current(&self) -> Option<Value> {
         if self.count == 0 {
-            None
+            return None;
         } else {
-            Some(self.sum / self.count as f64)
+            return Some(self.sum / self.count as f64);
         }
     }
 }
@@ -195,10 +193,7 @@ impl AggOp for AggSum {
         self.0 = 0.;
     }
     fn current(&self) -> Option<Value> {
-        Some(self.0)
-    }
-    fn empty_value(&self) -> Value {
-        0.
+        return Some(self.0);
     }
 }
 
@@ -218,11 +213,7 @@ impl AggOp for AggCount {
         self.0 = 0;
     }
     fn current(&self) -> Option<Value> {
-        Some(self.0 as Value)
-    }
-
-    fn empty_value(&self) -> Value {
-        0.
+        return Some(self.0 as Value);
     }
 }
 
@@ -239,11 +230,11 @@ impl AggStd {
     }
     fn from_str(buf: &str) -> AggStd {
         let t = serde_json::from_str::<(Value, Value, usize)>(buf).unwrap();
-        Self {
+        return Self {
             sum: t.0,
             sum_2: t.1,
             count: t.2,
-        }
+        };
     }
     fn add(&mut self, value: Value) {
         self.sum += value;
@@ -256,6 +247,7 @@ impl AggStd {
         self.count = 0;
     }
     fn variance(&self) -> Value {
+        // ported from: https://github.com/ValkeyTimeSeries/ValkeyTimeSeries/blob/7911f43e2861472565b2aa61d8e91a9c37ec6cae/src/compaction.c
         //  var(X) = sum((x_i - E[X])^2)
         //  = sum(x_i^2) - 2 * sum(x_i) * E[X] + E^2[X]
         if self.count <= 1 {
@@ -367,6 +359,24 @@ impl AggOp for AggStdS {
     }
 }
 
+pub fn parse_agg_type(name: &str) -> Option<Box<dyn AggOp>> {
+    match name {
+        "first" => Some(Box::new(AggFirst::default())),
+        "last" => Some(Box::new(AggLast::default())),
+        "min" => Some(Box::new(AggMin::default())),
+        "max" => Some(Box::new(AggMax::default())),
+        "avg" => Some(Box::new(AggAvg::default())),
+        "sum" => Some(Box::new(AggSum::default())),
+        "count" => Some(Box::new(AggCount::default())),
+        "range" => Some(Box::new(AggRange::default())),
+        "stds" => Some(Box::new(AggStdS::default())),
+        "stdp" => Some(Box::new(AggStdP::default())),
+        "vars" => Some(Box::new(AggVarS::default())),
+        "varp" => Some(Box::new(AggVarP::default())),
+        _ => None
+    }
+}
+
 
 #[derive(Clone, Debug)]
 pub enum Aggregator {
@@ -437,14 +447,6 @@ impl Aggregator {
             Aggregator::VarS(_) => "var.s",
             Aggregator::VarP(_) => "var.p",
             Aggregator::Range(_) =>"range"
-        }
-    }
-
-    pub fn finalize(&self) -> f64 {
-        if let Some(v) = self.current() {
-            v
-        } else {
-            self.empty_value()
         }
     }
 }
@@ -532,23 +534,6 @@ impl AggOp for Aggregator {
             Aggregator::VarS(agg) => agg.current(),
             Aggregator::VarP(agg) => agg.current(),
             Aggregator::Range(agg) => agg.current()
-        }
-    }
-
-    fn empty_value(&self) -> Value {
-        match self {
-            Aggregator::First(agg) => agg.empty_value(),
-            Aggregator::Last(agg) => agg.empty_value(),
-            Aggregator::Min(agg) => agg.empty_value(),
-            Aggregator::Max(agg) => agg.empty_value(),
-            Aggregator::Avg(agg) => agg.empty_value(),
-            Aggregator::Sum(agg) => agg.empty_value(),
-            Aggregator::Count(agg) => agg.empty_value(),
-            Aggregator::Range(agg) => agg.empty_value(),
-            Aggregator::StdS(agg) => agg.empty_value(),
-            Aggregator::StdP(agg) => agg.empty_value(),
-            Aggregator::VarS(agg) => agg.empty_value(),
-            Aggregator::VarP(agg) => agg.empty_value(),
         }
     }
 }

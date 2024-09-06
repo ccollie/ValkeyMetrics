@@ -115,6 +115,7 @@ impl AggrState for TotalAggrState {
             }
 
             let total = sv.shared.total + sv.state[ctx.idx];
+
             sv.shared.last_values.retain(|_, v| ctx.flush_timestamp <= v.delete_deadline);
             sv.state[ctx.idx] = 0.0;
 

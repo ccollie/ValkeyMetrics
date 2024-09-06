@@ -3,7 +3,6 @@ use crate::stream_aggregation::{OutputKey, PushSample, AGGR_STATE_SIZE};
 use std::sync::{Arc, Mutex};
 use ahash::{HashMap, HashMapExt, RandomState};
 
-// todo: use ahash::RandomState
 pub struct RateAggrState {
     map: papaya::HashMap<OutputKey, Arc<Mutex<RateStateValue>>, RandomState>,
     is_avg: bool,
@@ -33,7 +32,7 @@ struct RateLastValueState {
 impl RateAggrState {
     pub fn new(is_avg: bool) -> Self {
         Self {
-            map: papaya::HashMap::with_hasher(ahash::RandomState::new()),
+            map: papaya::HashMap::with_hasher(RandomState::new()),
             is_avg,
         }
     }
@@ -99,7 +98,7 @@ impl AggrState for RateAggrState {
                     }
                     lv.value = s.value;
                     lv.timestamp = s.timestamp;
-                    state.last_values[idx] = lv;
+                    state.last_values[idx] = lv.clone();
                     state.delete_deadline = delete_deadline;
                     // todo: how to eliminate alloc (to_string)
                     sv.state.insert(input_key.to_string(), state.clone());

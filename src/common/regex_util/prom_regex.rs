@@ -1,6 +1,7 @@
-use crate::common::regex_util::regex_utils::{get_prefix_matcher, get_suffix_matcher, simplify};
+use metricsql_common::prelude::match_handlers::StringMatchHandler;
+use super::regex_utils::{get_prefix_matcher, get_suffix_matcher};
 use regex::Error as RegexError;
-use crate::common::regex_util::match_handlers::StringMatchHandler;
+use crate::common::regex_util::simplify;
 
 /// PromRegex implements an optimized string matching for Prometheus-like regex.
 ///

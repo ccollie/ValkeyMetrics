@@ -3,7 +3,7 @@ use regex::Regex;
 use crate::common::regex_util::simplify;
 use crate::storage::Label;
 
-/// new_labels_from_string creates labels from s, which can have the form `metric{labels}`.
+/// `new_labels_from_string` creates labels from s, which can have the form `metric{labels}`.
 ///
 /// This function must be used only in non performance-critical code, since it allocates too much
 pub fn new_labels_from_string(metric_with_labels: &str) -> Vec<Label> {
