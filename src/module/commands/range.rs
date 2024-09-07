@@ -7,7 +7,7 @@ use crate::storage::{AggregationOptions, BucketTimestamp, RangeAlignment, RangeO
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 use std::iter::Skip;
 use std::vec::IntoIter;
-use crate::module::range_utils::get_range;
+use crate::module::commands::range_utils::get_range;
 
 const CMD_ARG_FILTER_BY_VALUE: &str = "FILTER_BY_VALUE";
 const CMD_ARG_FILTER_BY_TS: &str = "FILTER_BY_TS";
@@ -174,17 +174,5 @@ pub fn parse_aggregation_args(args: &mut Skip<IntoIter<ValkeyString>>) -> Valkey
         }
     }
 
-
     Ok(aggr)
-}
-
-fn get_arg_keyword_position(args: &[ValkeyString], arg: &str, requires_param: bool) -> ValkeyResult<Option<usize>> {
-    let needle = arg.as_bytes();
-    if let Some(pos) = args.iter().position(|probe| probe.as_slice() == needle) {
-        if requires_param && pos + 1 >= args.len() {
-            return Err(ValkeyError::WrongArity);
-        }
-        return Ok(Some(pos));
-    }
-    Ok(None)
 }

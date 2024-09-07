@@ -7,12 +7,11 @@ use metricsql_common::hash::IntMap;
 use metricsql_parser::prelude::{LabelFilter, LabelFilterOp, Matchers};
 use metricsql_runtime::METRIC_NAME_LABEL;
 use papaya::HashMap;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use roaring::{MultiOps, RoaringTreemap};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{RwLock, RwLockReadGuard};
+use croaring::Bitmap64;
 use valkey_module::{Context, ValkeyString, ValkeyValue};
 
 /// Type for the key of the index. Use instead of `String` because Valkey keys are binary safe not utf8 safe.
@@ -23,7 +22,7 @@ pub type TimeSeriesIndexMap = HashMap<u32, TimeSeriesIndex>;
 
 /// A type mapping a label name to a bitmap of ids of timeseries having that label.
 /// Note that we use `BtreeMap` specifically for it's `range()` method, so a regular HashMap won't work.
-pub type LabelsBitmap = BTreeMap<String, RoaringTreemap>;
+pub type LabelsBitmap = BTreeMap<String, Bitmap64>;
 
 
 // todo: in on_load, we need to set this to the last id + 1
@@ -42,9 +41,17 @@ pub fn reset_timeseries_id_sequence() {
     TIMESERIES_ID_MAX.store(1, Ordering::SeqCst);
 }
 
-pub fn reset_timeseries_id_after_load() {
-    let max = TIMESERIES_ID_MAX.load(Ordering::SeqCst);
-    TIMESERIES_ID_SEQUENCE.store(max + 1, Ordering::SeqCst);
+pub fn reset_timeseries_id_after_load() -> u64 {
+    let mut max = TIMESERIES_ID_MAX.fetch_max(1, Ordering::SeqCst);
+    max += 1;
+    TIMESERIES_ID_SEQUENCE.store(max, Ordering::SeqCst);
+    max
+}
+
+#[derive(Clone, Copy)]
+enum SetOperation {
+    Union,
+    Intersection,
 }
 
 #[derive(Default, Debug)]
@@ -55,7 +62,6 @@ pub(crate) struct IndexInner {
     pub label_to_ts: LabelsBitmap,
     /// Map from label name + label value to set of timeseries ids.
     pub label_kv_to_ts: LabelsBitmap,
-    pub series_sequence: AtomicU64,
 }
 
 impl IndexInner {
@@ -64,7 +70,6 @@ impl IndexInner {
             id_to_key: Default::default(),
             label_to_ts: Default::default(),
             label_kv_to_ts: Default::default(),
-            series_sequence: AtomicU64::new(1),
         }
     }
 
@@ -72,9 +77,6 @@ impl IndexInner {
         self.id_to_key.clear();
         self.label_to_ts.clear();
         self.label_kv_to_ts.clear();
-
-        // we use Relaxed here since we only need uniqueness, not monotonicity
-        self.series_sequence.store(1, Ordering::Relaxed);
     }
 
     fn index_time_series(&mut self, ts: &TimeSeries, key: &[u8]) {
@@ -169,28 +171,41 @@ impl IndexInner {
         index_series_by_label_internal(&mut self.label_to_ts, &mut self.label_kv_to_ts, ts_id, label, value)
     }
 
-    pub(super) fn get_ids_by_metric_name(&self, metric: &str) -> Option<&RoaringTreemap> {
+    pub(super) fn get_ids_by_metric_name(&self, metric: &str) -> Option<&Bitmap64> {
         let key = format!("{}={}", METRIC_NAME_LABEL, metric);
         self.label_kv_to_ts.get(&key)
     }
 
     /// Returns a list of all series matching `matchers` while having samples in the range
     /// [`start`, `end`]
-    fn series_ids_by_matchers(&self, matchers: &[Matchers]) -> RoaringTreemap {
+    fn series_ids_by_matchers(&self, matchers: &[Matchers]) -> Bitmap64 {
         if matchers.is_empty() {
             return Default::default();
         }
+
+        let mut dest = Bitmap64::new();
+
         if matchers.len() == 1 {
             let filter = &matchers[0];
-            return find_ids_by_matchers(&self.label_kv_to_ts, filter);
+            find_ids_by_matchers(&self.label_kv_to_ts, filter, &mut dest);
+            return dest;
         }
+
         // todo: if we get a None from get_series_by_id, we should log an error
         // and remove the id from the index
-        matchers
-            .par_iter()
-            .map(|filter| find_ids_by_matchers(&self.label_kv_to_ts, filter))
-            .collect::<Vec<_>>()
-            .intersection()
+
+        // todo: determine if we should use rayon here. Some ideas
+        // - look at label cardinality for each filter in matcher
+        // - look at complexity of matchers (regex vs no regex)
+        let mut dest = Bitmap64::new();
+        let mut acc = Bitmap64::new();
+        for matcher in matchers.iter() {
+            find_ids_by_matchers(&self.label_kv_to_ts, matcher, &mut acc);
+            dest.or_inplace(&acc);
+            acc.clear();
+        }
+
+        dest
     }
 }
 
@@ -207,7 +222,6 @@ impl TimeSeriesIndex {
                 id_to_key: Default::default(),
                 label_to_ts: Default::default(),
                 label_kv_to_ts: Default::default(),
-                series_sequence: AtomicU64::new(1)
             })
         }
     }
@@ -270,19 +284,22 @@ impl TimeSeriesIndex {
     }
 
     /// This exists primarily to ensure that we disallow duplicate metric names, since the
-    /// metric name and valkey key are distinct
+    /// metric name and valkey key are distinct. IE we can have the metric http_requests_total{status="200"}
+    /// stored at requests:http:total:200
     pub fn get_id_by_name_and_labels(&self, metric: &str, labels: &[Label]) -> TsdbResult<Option<u64>> {
         let inner = self.inner.read().unwrap();
         let key = format!("{}={}", METRIC_NAME_LABEL, metric);
         if let Some(bmp) = inner.label_kv_to_ts.get(&key) {
-            let mut acc: RoaringTreemap = bmp.clone(); // wish we didn't have to clone here
+            let mut key: String = String::new();
+            let mut acc: Bitmap64 = bmp.clone(); // wish we didn't have to clone here
             for label in labels.iter() {
-                let key = format!("{}={}", label.name, label.value);
+                write!(key,"{}={}", label.name, label.value).unwrap();
                 if let Some(bmp) = inner.label_kv_to_ts.get(&key) {
-                    acc &= bmp;
+                    acc.and_inplace(bmp);
                 }
+                key.clear();
             }
-            match acc.len() {
+            match acc.cardinality() {
                 0 => Ok(None),
                 1 => Ok(Some(acc.iter().next().unwrap())),
                 _ => {
@@ -312,14 +329,14 @@ impl TimeSeriesIndex {
         }
     }
 
-    // todo: store Arc<RoaringTreeMap> in the index
-    pub(super) fn get_ids_by_metric_name(&self, metric: &str) -> RoaringTreemap {
+    // todo: store Arc<Bitmap64> in the index
+    pub(super) fn get_ids_by_metric_name(&self, metric: &str) -> Bitmap64 {
         let inner = self.inner.read().unwrap();
         let key = format!("{}={}", METRIC_NAME_LABEL, metric);
         if let Some(bmp) = inner.label_kv_to_ts.get(&key) {
             bmp.clone()
         } else {
-            RoaringTreemap::new()
+            Bitmap64::new()
         }
     }
 
@@ -339,27 +356,25 @@ impl TimeSeriesIndex {
         &self,
         label: &str,
         predicate: impl Fn(&str) -> bool,
-    ) -> RoaringTreemap {
+    ) -> Bitmap64 {
         let inner = self.inner.read().unwrap();
         get_label_value_bitmap(&inner.label_kv_to_ts, label, predicate)
     }
 
     /// Returns a list of all values for the given label
-    pub(crate) fn get_label_values(
+    pub fn get_label_values(
         &self,
         label: &str,
     ) -> BTreeSet<String> {
         let inner = self.inner.read().unwrap();
         let prefix = format!("{label}=");
         let suffix = format!("{label}={}", char::MAX);
+        let split_pos = prefix.len();
         inner.label_kv_to_ts
             .range(prefix..suffix)
             .filter_map(|(key, _)| {
-                if let Some((_, value)) = key.split_once('=') {
-                    Some(value.to_string())
-                } else {
-                    None
-                }
+                let value = &key[split_pos..];
+                Some(value.to_string())
             }).collect()
     }
 
@@ -375,7 +390,7 @@ impl TimeSeriesIndex {
 
     /// Returns a list of all series matching `matchers` while having samples in the range
     /// [`start`, `end`]
-    pub(crate) fn series_ids_by_matchers(&self, matchers: &[Matchers]) -> RoaringTreemap {
+    pub(crate) fn series_ids_by_matchers(&self, matchers: &[Matchers]) -> Bitmap64 {
         let inner = self.inner.read().unwrap();
         inner.series_ids_by_matchers(matchers)
     }
@@ -385,7 +400,7 @@ impl TimeSeriesIndex {
     pub(crate) fn series_keys_by_matchers(&self, ctx: &Context, matchers: &[Matchers]) -> Vec<ValkeyString> {
         let inner = self.inner.read().unwrap();
         let bitmap = inner.series_ids_by_matchers(matchers);
-        let mut result: Vec<ValkeyString> = Vec::with_capacity(bitmap.len() as usize);
+        let mut result: Vec<ValkeyString> = Vec::with_capacity(bitmap.cardinality() as usize);
         for id in bitmap.iter() {
             if let Some(value) = inner.id_to_key.get(&id) {
                 let key = ctx.create_string(&value[0..]);
@@ -395,9 +410,11 @@ impl TimeSeriesIndex {
         result
     }
 
-    pub(crate) fn find_ids_by_matchers(&self, matchers: &Matchers) -> RoaringTreemap {
+    pub(crate) fn find_ids_by_matchers(&self, matchers: &Matchers) -> Bitmap64 {
         let inner = self.inner.read().unwrap();
-        find_ids_by_matchers(&inner.label_kv_to_ts, matchers)
+        let mut dest = Bitmap64::new();
+        find_ids_by_matchers(&inner.label_kv_to_ts, matchers, &mut dest);
+        dest
     }
 
     pub(crate) fn get_inner(&self) -> RwLockReadGuard<IndexInner> {
@@ -405,47 +422,18 @@ impl TimeSeriesIndex {
     }
 }
 
-pub struct KeyValueRef<'a> {
-    pub key: &'a str,
-    pub value: &'a str,
-    pub bitmap: &'a RoaringTreemap,
-}
-
-pub struct LabelValueIterator<'a> {
-    inner: std::collections::btree_map::Iter<'a, String, RoaringTreemap>,
-}
-
-impl<'a> LabelValueIterator<'a> {
-    pub fn new(inner: std::collections::btree_map::Iter<'a, String, RoaringTreemap>) -> LabelValueIterator<'a> {
-        LabelValueIterator { inner }
-    }
-}
-
-impl<'a> Iterator for LabelValueIterator<'a> {
-    type Item = KeyValueRef<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some((key, bitmap)) = self.inner.next() {
-            if let Some((k, value)) = key.split_once('=') {
-                return Some(KeyValueRef{key: k, value, bitmap});
-            }
-        }
-        None
-    }
-}
-
 pub struct LabelNameIter<'a> {
-    inner: std::collections::btree_map::Iter<'a, String, RoaringTreemap>,
+    inner: std::collections::btree_map::Iter<'a, String, Bitmap64>,
 }
 
 impl<'a> LabelNameIter<'a> {
-    pub fn new(inner: std::collections::btree_map::Iter<'a, String, RoaringTreemap>) -> LabelNameIter<'a> {
+    pub fn new(inner: std::collections::btree_map::Iter<'a, String, Bitmap64>) -> LabelNameIter<'a> {
         LabelNameIter { inner }
     }
 }
 
 impl<'a> Iterator for LabelNameIter<'a> {
-    type Item = (&'a str, &'a RoaringTreemap);
+    type Item = (&'a str, &'a Bitmap64);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some((key, map)) = self.inner.next() {
@@ -456,27 +444,74 @@ impl<'a> Iterator for LabelNameIter<'a> {
 }
 
 
+fn filter_by_label_value_predicate(
+    label_kv_to_ts: &LabelsBitmap,
+    dest: &mut Bitmap64,
+    op: SetOperation,
+    label: &str,
+    predicate: impl Fn(&str) -> bool,
+) {
+    let prefix = format!("{label}=");
+    let suffix = format!("{label}=\u{10ffff}");
+    let start_pos = prefix.len();
+    let mut iter = label_kv_to_ts
+        .range(prefix..suffix)
+        .filter_map(|(key, map)| {
+            let value = &key[start_pos..];
+            if predicate(value) {
+                Some(map)
+            } else {
+                None
+            }
+        });
+
+    match op {
+        SetOperation::Union => {
+            for map in iter {
+                dest.or_inplace(map);
+            }
+        }
+        SetOperation::Intersection => {
+            if dest.is_empty() {
+                // we need at least one set to intersect with
+                if let Some(first) = iter.next() {
+                    dest.or_inplace(first);
+                } else {
+                    return;
+                }
+            }
+            while let Some(map) = iter.next() {
+                dest.and_inplace(map);
+            }
+        }
+    }
+}
+
 fn get_label_value_bitmap(
     label_kv_to_ts: &LabelsBitmap,
     label: &str,
     predicate: impl Fn(&str) -> bool,
-) -> RoaringTreemap {
+) -> Bitmap64 {
     let prefix = format!("{label}=");
     let suffix = format!("{label}=\u{10ffff}");
-    label_kv_to_ts
+    let start_pos = prefix.len();
+    let mut bitmap = Bitmap64::new();
+
+    let iter = label_kv_to_ts
         .range(prefix..suffix)
         .filter_map(|(key, map)| {
-            if let Some((_, value)) = key.split_once('=') {
-                return if predicate(value) {
-                    Some(map)
-                } else {
-                    None
-                };
+            let value = &key[start_pos..];
+            if predicate(value) {
+                Some(map)
+            } else {
+                None
             }
-            None
-        })
-        .collect::<Vec<_>>()
-        .union()
+        });
+
+    for map in iter {
+        bitmap.or_inplace(map);
+    }
+    bitmap
 }
 
 fn index_series_by_label_internal(
@@ -488,107 +523,111 @@ fn index_series_by_label_internal(
 ) {
     let ts_by_label = label_to_ts
         .entry(label.to_owned())
-        .or_insert_with(RoaringTreemap::new);
+        .or_default();
 
-    ts_by_label.insert(ts_id);
+    ts_by_label.add(ts_id);
 
     let ts_by_label_value = label_kv_to_ts
         .entry(format!("{}={}", label, value))
-        .or_insert_with(RoaringTreemap::new);
+        .or_default();
 
-    ts_by_label_value.insert(ts_id);
+    ts_by_label_value.add(ts_id);
 }
+
+
 
 fn find_ids_by_label_filter(
     label_kv_to_ts: &LabelsBitmap,
     filter: &LabelFilter,
-) -> RoaringTreemap {
+    dest: &mut Bitmap64,
+    op: SetOperation,
+    key_buf: &mut String,
+) {
     use LabelFilterOp::*;
 
     match filter.op {
         Equal => {
-            unreachable!("Equal should be handled by find_ids_by_matchers")
+            key_buf.clear();
+            // according to https://github.com/rust-lang/rust/blob/1.47.0/library/alloc/src/string.rs#L2414-L2427
+            // write! will not return an Err, so the unwrap is safe
+            write!(key_buf, "{}={}", filter.label, filter.value).unwrap();
+            if let Some(map) = label_kv_to_ts.get(key_buf.as_str()) {
+                match op {
+                    SetOperation::Union => {
+                        dest.or_inplace(map);
+                    }
+                    SetOperation::Intersection => {
+                        if dest.is_empty() {
+                            // we need at least one set to intersect with
+                            dest.or_inplace(map);
+                        } else {
+                            dest.and_inplace(map);
+                        }
+                    }
+                }
+            } else if matches!(op, SetOperation::Intersection) {
+                // if we are intersecting, and we don't have a match, we can return early
+                dest.clear();
+                return;
+            }
         }
         NotEqual => {
             let predicate = |value: &str| value != filter.value;
-            get_label_value_bitmap(label_kv_to_ts, &filter.label, predicate)
+            filter_by_label_value_predicate(label_kv_to_ts, dest, op, &filter.label, predicate)
         }
         RegexEqual => {
             // todo: return Result. However if we get an invalid regex here,
             // we have a problem with the base metricsql library.
             let regex = regex::Regex::new(&filter.value).unwrap();
             let predicate = |value: &str| regex.is_match(value);
-            get_label_value_bitmap(label_kv_to_ts, &filter.label, predicate)
+            filter_by_label_value_predicate(label_kv_to_ts, dest, op, &filter.label, predicate)
         }
         RegexNotEqual => {
             // todo: return Result. However if we get an invalid regex here,
             // we have a problem with the base metricsql library.
             let regex = regex::Regex::new(&filter.value).unwrap();
             let predicate = |value: &str| !regex.is_match(value);
-            get_label_value_bitmap(label_kv_to_ts, &filter.label, predicate)
+            filter_by_label_value_predicate(label_kv_to_ts, dest, op, &filter.label, predicate)
         }
     }
+}
+
+fn find_ids_by_exact_match<'a>(
+    label_kv_to_ts: &'a LabelsBitmap,
+    label: &str,
+    value: &str,
+) -> Option<&'a Bitmap64> {
+    let key = format!("{}={}", label, value);
+    label_kv_to_ts.get(&key)
 }
 
 fn find_ids_by_multiple_filters(
     label_kv_to_ts: &LabelsBitmap,
     filters: &[LabelFilter],
-    bitmaps: &mut Vec<RoaringTreemap>,
+    dest: &mut Bitmap64,
+    operation: SetOperation,
     key_buf: &mut String, // used to minimize allocations
 ) {
-    let mut equal_bitmap: RoaringTreemap = RoaringTreemap::new();
-    let mut has_equal = false;
     for filter in filters.iter() {
-        // perform a more efficient lookup for label=value
-        if filter.op == LabelFilterOp::Equal {
-            // according to https://github.com/rust-lang/rust/blob/1.47.0/library/alloc/src/string.rs#L2414-L2427
-            // write! will not return an Err, so the unwrap is safe
-            write!(key_buf, "{}={}", filter.label, filter.value).unwrap();
-            if let Some(map) = label_kv_to_ts.get(key_buf.as_str()) {
-                equal_bitmap &= map;
-                has_equal = true;
-            }
-            key_buf.clear();
-        } else {
-            let map = find_ids_by_label_filter(label_kv_to_ts, filter);
-            bitmaps.push(map);
-        }
-    }
-    if has_equal {
-        bitmaps.push(equal_bitmap);
+        find_ids_by_label_filter(label_kv_to_ts, filter, dest, operation, key_buf);
     }
 }
 
 fn find_ids_by_matchers(
     label_kv_to_ts: &LabelsBitmap,
     matchers: &Matchers,
-) -> RoaringTreemap {
-
+    dest: &mut Bitmap64
+) {
     let mut key_buf = String::with_capacity(64);
 
-    let mut or_bitmap: Option<RoaringTreemap> = None;
-    let mut and_bitmap: Option<RoaringTreemap> = None;
     if !matchers.or_matchers.is_empty() {
-        let mut bitmaps: Vec<RoaringTreemap> = Vec::new();
         for filter in matchers.or_matchers.iter() {
-            find_ids_by_multiple_filters(label_kv_to_ts, filter, &mut bitmaps, &mut key_buf);
+            find_ids_by_multiple_filters(label_kv_to_ts, filter, dest, SetOperation::Union, &mut key_buf);
         }
-        or_bitmap = Some(bitmaps.union());
     }
 
     if !matchers.matchers.is_empty() {
-        let mut bitmaps: Vec<RoaringTreemap> = Vec::new();
-        find_ids_by_multiple_filters(label_kv_to_ts, &matchers.matchers, &mut bitmaps, &mut key_buf);
-        if let Some(or_bitmap) = or_bitmap {
-            bitmaps.push(or_bitmap);
-        }
-        and_bitmap = Some(bitmaps.intersection());
-    }
-
-    if let Some(and_bitmap) = and_bitmap {
-        and_bitmap
-    } else {
-        RoaringTreemap::new()
+        find_ids_by_multiple_filters(label_kv_to_ts, &matchers.matchers, dest, SetOperation::Intersection, &mut key_buf);
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::arg_parse::{parse_duration_arg, parse_number_with_unit, parse_timestamp};
-use crate::module::function_create::create_series;
+use crate::module::commands::create_series;
 use crate::module::{with_timeseries_mut, VALKEY_PROMQL_SERIES_TYPE};
 use crate::storage::time_series::TimeSeries;
 use crate::storage::{DuplicatePolicy, TimeSeriesOptions};
@@ -12,7 +12,6 @@ const CMD_ARG_DUPLICATE_POLICY: &str = "DUPLICATE_POLICY";
 const CMD_ARG_DEDUPE_INTERVAL: &str = "DEDUPE_INTERVAL";
 const CMD_ARG_CHUNK_SIZE: &str = "CHUNK_SIZE";
 const CMD_ARG_LABELS: &str = "LABELS";
-const CMD_ARG_METRIC_NAME: &str = "METRIC_NAME";
 
 pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1);

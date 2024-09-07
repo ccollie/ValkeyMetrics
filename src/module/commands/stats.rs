@@ -89,7 +89,7 @@ fn get_series_count_by_metric_name(inner: &RwLockReadGuard<IndexInner>, limit: u
         .range(prefix..)
         .filter_map(|(key,  map)| {
             if let Some((_, value)) = key.split_once('=') {
-                Some((value, map.len() as usize)) // todo: can this overflow?
+                Some((value, map.cardinality() as usize)) // todo: can this overflow?
             } else {
                 None
             }
@@ -141,7 +141,7 @@ fn get_series_count_by_label_pair(inner: &RwLockReadGuard<IndexInner>, limit: us
         .iter()
         .filter_map(|(key,  map)| {
             if let Some((name, value)) = key.split_once('=') {
-                Some((ValkeyValueKey::from(format!("{}={}", name, value)), map.len() as usize))
+                Some((ValkeyValueKey::from(format!("{}={}", name, value)), map.cardinality() as usize))
             } else {
                 None
             }
@@ -164,7 +164,7 @@ fn get_memory_in_bytes_by_label_pair(inner: &RwLockReadGuard<IndexInner>, limit:
             if let Some((name, value)) = key.split_once('=') {
                 // since we currently also store labels with the timeseries, we need to account for that
                 // hopefully we can use an interner to reduce this overhead
-                let series_count = map.len() as usize;
+                let series_count = map.cardinality() as usize;
                 Some((name, value.len() * (1 + series_count)))
             } else {
                 None

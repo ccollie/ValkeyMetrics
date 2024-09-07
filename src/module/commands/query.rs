@@ -11,7 +11,6 @@ use metricsql_runtime::{QueryResult, RuntimeResult};
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString};
 use crate::module::arg_parse::{parse_duration_arg, TimestampRangeValue};
 
-const CMD_ARG_FORMAT: &str = "FORMAT";
 const CMD_ARG_START: &str = "START";
 const CMD_ARG_END: &str = "END";
 const CMD_ARG_TIME: &str = "TIME";

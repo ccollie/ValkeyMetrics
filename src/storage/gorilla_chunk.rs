@@ -1,3 +1,4 @@
+use std::mem::size_of;
 use crate::common::current_time_millis;
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
@@ -7,10 +8,14 @@ use crate::gorilla::stream::{BufferedReader, BufferedWriter};
 use crate::gorilla::DataPoint;
 use crate::storage::chunk::Chunk;
 use crate::storage::utils::trim_vec_data;
-use crate::storage::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES, F64_SIZE, I64_SIZE};
+use crate::storage::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES};
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use valkey_module::raw;
+
+static F64_SIZE: usize = size_of::<f64>();
+static I64_SIZE: usize = size_of::<i64>();
+static SAMPLE_SIZE: usize = F64_SIZE + I64_SIZE;
 
 pub(crate) type ChunkEncoder = StdEncoder<BufferedWriter>;
 
@@ -268,7 +273,7 @@ impl Chunk for GorillaChunk {
 
         let mut iter = self.iter();
 
-        while let Some(sample) = iter.next() {
+        for sample in iter.by_ref() {
             if sample.timestamp < start_ts {
                 encoder.encode(DataPoint::new(sample.timestamp as u64, sample.value));
             } else {
@@ -276,17 +281,13 @@ impl Chunk for GorillaChunk {
             }
         }
 
-        loop {
-            if let Some(sample) = iter.next() {
-                if sample.timestamp >= end_ts {
-                    break;
-                }
-            } else {
+        for sample in iter.by_ref() {
+            if sample.timestamp >= end_ts {
                 break;
             }
         }
 
-        while let Some(sample) = iter.next() {
+        for sample in iter.by_ref() {
             encoder.encode(DataPoint::new(sample.timestamp as u64, sample.value));
         }
 
@@ -324,9 +325,8 @@ impl Chunk for GorillaChunk {
         if self.is_empty() {
             return Ok(());
         }
-        let mut iter = self.iter();
 
-        while let Some(sample) = iter.next() {
+        for sample in self.iter() {
             if sample.timestamp >= start {
                 timestamps.push(sample.timestamp);
                 values.push(sample.value);

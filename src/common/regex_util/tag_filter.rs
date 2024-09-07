@@ -1,15 +1,16 @@
 use super::regexp_cache::{RegexpCache, RegexpCacheValue};
 use crate::common::METRIC_NAME_LABEL;
+use get_size::GetSize;
 use metricsql_common::regex_util::match_handlers::StringMatchHandler;
-use metricsql_common::regex_util::{
-    get_optimized_re_match_func,
-    FULL_MATCH_COST
-};
+use metricsql_common::regex_util::{get_optimized_re_match_func, FULL_MATCH_COST};
+use metricsql_parser::label::{LabelFilter, LabelFilterOp};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::mem::size_of;
 use std::sync::{Arc, LazyLock, OnceLock};
-use get_size::GetSize;
+
+// todo: read from env
+static USE_REGEXP_CACHE: LazyLock<bool> = LazyLock::new(|| false);
 
 /// TagFilters represents filters used for filtering tags.
 #[derive(Clone, Default, Debug)]
@@ -21,6 +22,32 @@ impl TagFilters {
         filters.sort_by(|a, b| a.partial_cmp(b).unwrap());
         Self(filters)
     }
+
+    pub fn add_label_filters(&mut self, filters: &[LabelFilter]) -> Result<(), String> {
+        for filter in filters.iter() {
+            self.add_label_filter(filter)?;
+        }
+        self.sort();
+        Ok(())
+    }
+
+    pub fn add_label_filter(&mut self, filter: &LabelFilter) -> Result<(), String> {
+        match filter.op {
+            LabelFilterOp::Equal=> {
+                self.add(&filter.label, &filter.value, false, false)
+            }
+            LabelFilterOp::NotEqual => {
+                self.add(&filter.label, &filter.value, true, false)
+            }
+            LabelFilterOp::RegexEqual => {
+                self.add(&filter.label, &filter.value, false, true)
+            }
+            LabelFilterOp::RegexNotEqual => {
+                self.add(&filter.label, &filter.value, true, true)
+            }
+        }
+    }
+
     pub fn is_match(&self, b: &str) -> bool {
         // todo: should sort first
         self.0.iter().all(|tf| tf.matches(b))
@@ -92,6 +119,7 @@ impl TagFilters {
     pub(crate) fn reset(&mut self) {
         self.0.clear();
     }
+
 }
 
 impl Display for TagFilters {
@@ -122,13 +150,28 @@ pub(crate) struct TagFilter {
 }
 
 impl TagFilter {
+    pub fn from_label_filter(filter: &LabelFilter) -> Result<Self, String> {
+        match filter.op {
+            LabelFilterOp::Equal=> {
+                Self::new(&filter.label, &filter.value, false, false)
+            }
+            LabelFilterOp::NotEqual => {
+                Self::new(&filter.label, &filter.value, true, false)
+            }
+            LabelFilterOp::RegexEqual => {
+                Self::new(&filter.label, &filter.value, false, true)
+            }
+            LabelFilterOp::RegexNotEqual => {
+                Self::new(&filter.label, &filter.value, true, true)
+            }
+        }
+    }
+
     /// creates the tag filter for the given common_prefix, key and value.
     ///
     /// If is_negative is true, then the tag filter matches all the values except the given one.
     ///
     /// If is_regexp is true, then the value is interpreted as anchored regexp, i.e. '^(tag.Value)$'.
-    ///
-    /// MetricGroup must be encoded in the value with nil key.
     pub fn new(
         key: &str,
         value: &str,
@@ -138,31 +181,22 @@ impl TagFilter {
         if is_regexp && value.is_empty() {
             return Err("cannot use empty regexp".to_string());
         }
-        let matcher = if is_regexp {
-            let cached = get_regexp_from_cache(value)?;
-            cached.re_match.clone()
+        let (matcher, match_cost) = if is_regexp {
+            compile_regexp_anchored(value)?
         } else {
-            StringMatchHandler::match_fn(key.to_string(), |a, b| a == b)
+            (StringMatchHandler::Literal(key.to_string()), FULL_MATCH_COST)
         };
-        let mut tf = TagFilter {
+        // tf.is_empty_match = prefix.is_empty() && tf.suffix_match.matches("");
+
+        Ok(TagFilter {
             key: key.to_string(),
             value: value.to_string(),
             is_negative,
             is_regexp,
-            match_cost: 0,
+            match_cost,
             matcher,
             is_empty_match: false,
-        };
-
-        if !tf.is_regexp {
-            //tf.is_empty_match = prefix.is_empty();
-            tf.match_cost = FULL_MATCH_COST;
-            return Ok(tf);
-        }
-        let rcv = get_regexp_from_cache(value)?;
-        tf.match_cost = rcv.re_cost;
-        // tf.is_empty_match = prefix.is_empty() && tf.suffix_match.matches("");
-        Ok(tf)
+        })
     }
 
     pub fn matches(&self, b: &str) -> bool {
@@ -187,6 +221,7 @@ impl TagFilter {
         "="
     }
 }
+
 
 impl PartialEq<Self> for TagFilter {
     fn eq(&self, other: &Self) -> bool {
@@ -227,20 +262,13 @@ impl Display for TagFilter {
     }
 }
 
-fn string_size(s: &str) -> usize {
-    size_of::<String>() + s.len() // todo: add pointer size
-}
-
-fn string_vec_size(v: &Vec<String>) -> usize {
-    size_of::<Vec<String>>() + v.iter().map(|x| string_size(x)).sum::<usize>()
-}
 
 fn matcher_size_bytes(m: &StringMatchHandler) -> usize {
     use StringMatchHandler::*;
     let base = size_of::<StringMatchHandler>();
     let extra = match m {
         Alternates(alts, _) | OrderedAlternates(alts) => {
-            string_vec_size(alts)
+            alts.get_size()
         },
         And(first, second) => {
             matcher_size_bytes(first) + matcher_size_bytes(second)
@@ -249,23 +277,61 @@ fn matcher_size_bytes(m: &StringMatchHandler) -> usize {
         Literal(s) |
         Contains(s) |
         StartsWith(s) |
-        EndsWith(s) => string_size(s),
+        EndsWith(s) => s.get_size(),
         Fsm(fsm) => fsm.get_size(),
         FastRegex(fr) => fr.get_size(),
-        MatchFn(func) => {
+        MatchFn(_) => {
             size_of::<fn(&str, &str) -> bool>()
         }
         Regex(r) => r.get_size(),
-        AlternatesFn(alts, f) => {
+        AlternatesFn(alts, _f) => {
             alts.get_size() + size_of::<fn(&str) -> bool>()
         }
     };
     base + extra
 }
 
-pub(super) fn compile_regexp(expr: &str) -> Result<RegexpCacheValue, String> {
+pub fn compile_regexp(expr: &str) -> Result<(StringMatchHandler, usize), String> {
+    if *USE_REGEXP_CACHE {
+        let cached = get_regexp_from_cache(expr)?;
+        Ok((cached.re_match.clone(), cached.re_cost))
+    } else {
+        let compiled = compile_regexp_ex(expr)?;
+        Ok((compiled.re_match, compiled.re_cost))
+    }
+}
+
+pub fn compile_regexp_anchored(expr: &str) -> Result<(StringMatchHandler, usize), String> {
+    // all this is to ensure start and end anchors, avoiding allocation if possible
+    let mut has_start_anchor = false;
+    let mut has_end_anchor = false;
+
+    let mut cursor = expr;
+    while let Some(t) = cursor.strip_prefix('^') {
+        cursor = t;
+        has_start_anchor = true;
+    }
+    while cursor.ends_with("$") && !cursor.ends_with("\\$") {
+        if let Some(t) = cursor.strip_suffix("$") {
+            cursor = t;
+            has_end_anchor = true;
+        } else {
+            break;
+        }
+    }
+
+    if has_start_anchor && has_end_anchor {
+        // no need to allocate
+        compile_regexp(expr)
+    } else {
+        let anchored = format!("^{}$", cursor);
+        compile_regexp(&anchored)
+    }
+}
+
+fn compile_regexp_ex(expr: &str) -> Result<RegexpCacheValue, String> {
     let (matcher, cost) =
-        get_optimized_re_match_func(expr)
+        get_optimized_re_match_func(&expr)
             .map_err(|_| {
                 return format!("cannot build regexp from {}", expr);
             })?;
@@ -289,7 +355,15 @@ pub fn get_regexp_from_cache(expr: &str) -> Result<Arc<RegexpCacheValue>, String
     }
 
     // Put the re_match in the cache.
-    let rcv = compile_regexp(expr)?;
+    let (re_match, re_cost) = compile_regexp_anchored(expr)?;
+    // heuristic for rcv in-memory size
+    let size_bytes = matcher_size_bytes(&re_match);
+
+    let rcv = RegexpCacheValue {
+        re_match,
+        re_cost,
+        size_bytes,
+    };
     let result = Arc::new(rcv);
     cache.put(expr, result.clone());
 

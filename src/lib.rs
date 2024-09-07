@@ -3,6 +3,7 @@ extern crate get_size;
 extern crate valkey_module_macros;
 extern crate tinyvec;
 extern crate async_trait;
+extern crate croaring;
 
 use valkey_module::{valkey_module, Context as ValkeyContext, NotifyEvent, ValkeyString};
 use valkey_module::server_events::{FlushSubevent, LoadingSubevent};
@@ -125,14 +126,16 @@ valkey_module! {
         ["PROM.ADD", commands::add, "write deny-oom", 1, 1, 1],
         ["PROM.GET", commands::get, "write deny-oom", 1, 1, 1],
         ["PROM.MADD", commands::madd, "write deny-oom", 1, 1, 1],
-        ["PROM.DEL", commands::del_range, "write deny-oom", 1, 1, 1],
+        ["PROM.DELETE-KEY_RANGE", commands::delete_key_range, "write deny-oom", 1, 1, 1],
+        ["PROM.DELETE-RANGE", commands::delete_range, "write deny-oom", 1, 1, 1],
+        ["PROM.DELETE-SERIES", commands::delete_series, "write deny-oom", 1, 1, 1],
         ["PROM.QUERY", commands::prom_query, "write deny-oom", 1, 1, 1],
         ["PROM.QUERY-RANGE", commands::query_range, "write deny-oom", 1, 1, 1],
         ["PROM.RANGE", commands::range, "write deny-oom", 1, 1, 1],
         ["PROM.SERIES", commands::series, "write deny-oom", 1, 1, 1],
         ["PROM.CARDINALITY", commands::cardinality, "write deny-oom", 1, 1, 1],
-        ["PROM.LABEL_NAMES", commands::label_names, "write deny-oom", 1, 1, 1],
-        ["PROM.LABEL_VALUES", commands::label_values, "write deny-oom", 1, 1, 1],
+        ["PROM.LABEL-NAMES", commands::label_names, "write deny-oom", 1, 1, 1],
+        ["PROM.LABEL-VALUES", commands::label_values, "write deny-oom", 1, 1, 1],
         ["PROM.STATS", commands::stats, "write deny-oom", 1, 1, 1],
     ],
      event_handlers: [

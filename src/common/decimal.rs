@@ -49,8 +49,6 @@ fn to_float(v: i64, e: i16) -> f64 {
     }
 }
 
-const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
-
 fn positive_float_to_decimal(f: f64) -> (i64, i16) {
     let u = f as u64;
     if u as f64 != f {

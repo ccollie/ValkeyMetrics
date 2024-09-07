@@ -4,34 +4,11 @@ pub(crate) use utils::*;
 use crate::storage::time_series::TimeSeries;
 
 mod timeseries_api;
-mod function_metadata;
 mod result;
 mod utils;
-mod function_query;
 mod ts_db;
-mod function_create;
-mod function_del;
-mod function_range;
-mod function_madd;
-mod function_add;
-mod function_alter;
-mod function_get;
 pub mod arg_parse;
-mod range_utils;
-mod function_stats;
-
-pub(super) mod commands {
-    pub use super::function_add::*;
-    pub use super::function_alter::*;
-    pub use super::function_create::*;
-    pub use super::function_del::*;
-    pub use super::function_get::*;
-    pub use super::function_madd::*;
-    pub use super::function_metadata::*;
-    pub use super::function_query::*;
-    pub use super::function_range::*;
-    pub use super::function_stats::*;
-}
+pub(crate) mod commands;
 
 pub(crate) fn with_timeseries(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&TimeSeries) -> ValkeyResult) -> ValkeyResult {
     let redis_key = ctx.open_key(key);

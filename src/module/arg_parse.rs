@@ -157,6 +157,14 @@ impl TimestampRange {
     }
 }
 
+pub struct MetadataFunctionArgs {
+    pub label_name: Option<String>,
+    pub start: Timestamp,
+    pub end: Timestamp,
+    pub matchers: Vec<Matchers>,
+    pub limit: Option<usize>,
+}
+
 pub(crate) fn normalize_range_timestamps(
     start: Option<Timestamp>,
     end: Option<Timestamp>,

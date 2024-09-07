@@ -1,5 +1,5 @@
 use crate::common::types::Timestamp;
-use crate::storage::utils::{get_timestamp_index, get_timestamp_index_bounds};
+use crate::storage::utils::get_timestamp_index;
 use crate::storage::Sample;
 
 #[derive(Debug, Clone)]

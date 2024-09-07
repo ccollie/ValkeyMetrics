@@ -10,6 +10,7 @@ ahash = { version = "0.8", features = ["serde"] }
 binary-merge = "0.1"
 bincode = { version = "2.0.0-rc.3", features = ["alloc", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
+croaring = "2.0"
 dynamic-lru-cache = "0.2"
 enquote = "1.1"
 get-size = { version = "^0.1", features = ["derive"] }
@@ -31,7 +32,6 @@ thiserror = "1"
 rayon = "1.10"
 regex = "1.10"
 regex-syntax = { version = "0.8", features = [] }
-roaring = { version = "0.10", features = ["serde"]}
 timer = "0.2"
 tinyvec = "1.8"
 url = { version = "2.5", features = ["serde"] }
@@ -50,3 +50,8 @@ test-case = "3.3.1"
 
 [lib]
 crate-type=["rlib", "cdylib"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3

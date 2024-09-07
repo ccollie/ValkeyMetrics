@@ -109,10 +109,6 @@ impl TimeSeries {
         self.total_samples == 0
     }
 
-    pub fn get_label(&self, name: &str) -> Option<&Label> {
-        self.labels.iter().find(|label| label.name == name)
-    }
-
     /// Get the full metric name of the time series, including labels in Prometheus format.
     /// For example,
     ///
@@ -610,7 +606,7 @@ impl TimeSeries {
             retention,
             dedupe_interval,
             duplicate_policy,
-            chunk_compression: chunk_compression.into(),
+            chunk_compression,
             significant_digits: if significant_digits == 255 { None } else { Some(significant_digits) },
             chunk_size_bytes,
             chunks,
@@ -762,7 +758,6 @@ impl<'a> Iterator for SampleIterator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::constants::BLOCK_SIZE_FOR_TIME_SERIES;
     use crate::tests::generators::{generate_series_data, GeneratorOptions};
 
     #[test]
@@ -803,6 +798,8 @@ mod tests {
             i += 1;
         }
     }
+
+    const BLOCK_SIZE_FOR_TIME_SERIES: usize = 1000;
 
     #[test]
     fn test_block_size_entries() {

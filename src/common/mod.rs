@@ -1,5 +1,3 @@
-
-mod time;
 pub mod types;
 pub mod regex_util;
 mod utils;

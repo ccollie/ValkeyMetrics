@@ -86,17 +86,6 @@ pub(crate) fn get_timestamp_index_bounds(timestamps: &[i64], start_ts: Timestamp
     Some((start_idx, end_idx))
 }
 
-pub(crate) fn trim_to_date_range<'a>(timestamps: &'a [i64], values: &'a [f64], start_ts: Timestamp, end_ts: Timestamp) -> Option<(&'a [i64], &'a [f64])> {
-    if let Some((start_idx, end_idx)) = get_timestamp_index_bounds(timestamps, start_ts, end_ts) {
-        let stamps = &timestamps[0..];
-        let timestamps = &stamps[start_idx..end_idx];
-        let values = &values[start_idx..end_idx];
-        Some((timestamps, values))
-    } else {
-        None
-    }
-}
-
 // todo: needs test
 // todo: this looks slow : need to optimize
 pub fn trim_vec_data(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start_ts: Timestamp, end_ts: Timestamp) {
@@ -130,8 +119,8 @@ pub fn trim_vec_data(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start_ts:
 
 // returns the number of matches
 pub(crate) fn filter_samples_by_ts<'a>(
-    timestamps: &mut Vec<i64>,
-    values: &mut Vec<f64>,
+    timestamps: &mut [i64],
+    values: &mut [f64],
     by_ts_args: &'a [Timestamp]
 ) -> (usize, &'a [Timestamp]) {
     let mut count = 0;
@@ -194,7 +183,7 @@ pub fn format_prometheus_metric_name_into(full_name: &mut String, name: &str, la
             } else {
                 full_name.push_str(&label.value);
             }
-            full_name.push_str("\"");
+            full_name.push('"');
             if i < labels.len() - 1 {
                 full_name.push(',');
             }

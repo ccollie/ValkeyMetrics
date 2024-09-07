@@ -5,7 +5,7 @@ use metricsql_runtime::{MetricName, QueryResult, Tag, METRIC_NAME_LABEL};
 use std::collections::HashMap;
 use std::fmt::Display;
 use valkey_module::redisvalue::ValkeyValueKey;
-use valkey_module::ValkeyValue;
+use valkey_module::{ValkeyString, ValkeyValue};
 
 pub static META_KEY_LABEL: &str = "__meta:key__";
 
@@ -236,12 +236,15 @@ pub fn std_duration_to_redis_value(duration: &std::time::Duration) -> ValkeyValu
 pub fn string_hash_map_to_redis_value(map: &HashMap<String, String>) -> ValkeyValue {
     ValkeyValue::from(map.clone())
 }
-pub(super) fn get_ts_metric_selector(ts: &TimeSeries) -> ValkeyValue {
+pub(super) fn get_ts_metric_selector(ts: &TimeSeries, key: Option<&ValkeyString>) -> ValkeyValue {
     let mut map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::with_capacity(ts.labels.len() + 1);
     map.insert(
         ValkeyValueKey::String(METRIC_NAME_LABEL.into()),
         ValkeyValue::from(&ts.metric_name),
     );
+    if let Some(key) = key {
+        map.insert(ValkeyValueKey::String(META_KEY_LABEL.into()), ValkeyValue::from(key));
+    }
     for Label { name, value } in ts.labels.iter() {
         map.insert(ValkeyValueKey::String(name.into()), ValkeyValue::from(value));
     }

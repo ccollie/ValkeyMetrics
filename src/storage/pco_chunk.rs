@@ -1,3 +1,4 @@
+use std::mem::size_of;
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use serde::{Deserialize, Serialize};
@@ -6,9 +7,15 @@ use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::storage::chunk::Chunk;
 use crate::storage::utils::{get_timestamp_index_bounds, trim_vec_data};
-use crate::storage::{DuplicatePolicy, Sample, SeriesSlice, DEFAULT_CHUNK_SIZE_BYTES, F64_SIZE, I64_SIZE, VEC_BASE_SIZE};
+use crate::storage::{DuplicatePolicy, Sample, SeriesSlice, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
 use metricsql_encoding::encoders::pco::{decode as pco_decode, encode as pco_encode, encode_with_options as pco_encode_with_options, CompressorConfig};
 use valkey_module::raw;
+
+const F64_SIZE: usize = size_of::<f64>();
+const I64_SIZE: usize = size_of::<i64>();
+
+const SAMPLE_SIZE: usize = F64_SIZE + I64_SIZE;
+
 
 /// items above this count will cause value and timestamp encoding/decoding to happen in parallel
 pub(super) const COMPRESSION_PARALLELIZATION_THRESHOLD: usize = 1024;
@@ -156,7 +163,7 @@ impl PcoChunk {
             return 0.0;
         }
         let compressed_size = self.timestamps.len() as f64;
-        let uncompressed_size = self.count as f64 * I64_SIZE as f64;
+        let uncompressed_size = (self.count * I64_SIZE) as f64;
         uncompressed_size / compressed_size
     }
 
@@ -165,7 +172,7 @@ impl PcoChunk {
             return 0.0;
         }
         let compressed_size = self.values.len() as f64;
-        let uncompressed_size = self.count as f64 * F64_SIZE as f64;
+        let uncompressed_size = (self.count * F64_SIZE) as f64;
         uncompressed_size / compressed_size
     }
 
@@ -174,7 +181,7 @@ impl PcoChunk {
             return 0.0;
         }
         let compressed_size = (self.timestamps.len() + self.values.len()) as f64;
-        let uncompressed_size = (self.count * (I64_SIZE + F64_SIZE)) as f64;
+        let uncompressed_size = (self.count * SAMPLE_SIZE) as f64;
         uncompressed_size / compressed_size
     }
 

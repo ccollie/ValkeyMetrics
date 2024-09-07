@@ -511,7 +511,7 @@ impl Chunk for TimeSeriesChunk {
 
     fn rdb_load(rdb: *mut RedisModuleIO) -> Result<Self, Error> {
         let compression = ChunkCompression::try_from(raw::load_unsigned(rdb)? as u8)
-            .map_err(|e| Error::Generic(GenericError::new("Error loading chunk compression marker")))?;
+            .map_err(|_e| Error::Generic(GenericError::new("Error loading chunk compression marker")))?;
 
         let chunk = match compression {
             ChunkCompression::Uncompressed => {

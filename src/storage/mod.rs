@@ -221,13 +221,6 @@ impl TryFrom<u8> for DuplicatePolicy {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum DuplicateStatus {
-    Ok,
-    Err,
-    Deduped,
-}
-
 #[derive(Debug, Default, Clone)]
 pub struct TimeSeriesOptions {
     pub metric_name: Option<String>,
@@ -241,19 +234,6 @@ pub struct TimeSeriesOptions {
 }
 
 impl TimeSeriesOptions {
-    pub fn new(key: &ValkeyString) -> Self {
-        Self {
-            metric_name: Some(key.to_string()),
-            encoding: None,
-            chunk_size: Some(DEFAULT_CHUNK_SIZE_BYTES),
-            retention: None,
-            duplicate_policy: None,
-            dedupe_interval: None,
-            labels: Default::default(),
-            significant_digits: None
-        }
-    }
-
     pub fn encoding(&mut self, encoding: Encoding) {
         self.encoding = Some(encoding);
     }

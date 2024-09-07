@@ -1,4 +1,3 @@
-use crate::error::TsdbResult;
 use crate::rules::alerts::{Alert, Metric};
 use crate::ts::Timestamp;
 use valkey_module::Context;
@@ -19,8 +18,8 @@ pub struct NotifyAlertCommand {
 
 #[derive(Debug, Clone)]
 pub struct TimeSeriesWriteRequest {
-    pub(crate) key: String,
-    pub(crate) series: Metric,
+    pub key: String,
+    pub series: Metric,
 }
 
 #[derive(Debug, Clone)]
