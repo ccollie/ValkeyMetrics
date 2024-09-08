@@ -284,9 +284,6 @@ fn matcher_size_bytes(m: &StringMatchHandler) -> usize {
             size_of::<fn(&str, &str) -> bool>()
         }
         Regex(r) => r.get_size(),
-        AlternatesFn(alts, _f) => {
-            alts.get_size() + size_of::<fn(&str) -> bool>()
-        }
     };
     base + extra
 }
