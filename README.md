@@ -1,7 +1,7 @@
-# RedisPromQL
+# VKMetrics
 
-Valkey PromQL is a module providing a [Prometheus](https://prometheus.io/docs/prometheus/latest/querying/api/#querying-metadata)-like API atop the [RedisTimeSeries](https://redis.io/docs/data-types/timeseries/) module.
-Add your data and query it using PromQL.
+VKMetrics is a module providing a [Prometheus](https://prometheus.io/docs/prometheus/latest/querying/api/#querying-metadata)-like API over timeseries data.
+Add your data and query it using [PromQL](https://prometheus.io/docs/prometheus/latest/querying/basics/).
 
 Currently supported are [Instant Queries](https://prometheus.io/docs/prometheus/latest/querying/basics/#instant-vector-selectors) and [Range Queries](https://prometheus.io/docs/prometheus/latest/querying/basics/#range-vector-selectors),
 as well as basic [Metadata](https://prometheus.io/docs/prometheus/latest/querying/api/#querying-metadata) lookups.
@@ -13,82 +13,9 @@ as well as basic [Metadata](https://prometheus.io/docs/prometheus/latest/queryin
 
 ## Caveats
 - Is highly experimental and not yet ready for production use
-- The library does up-front query optimization and caching, so one-off ad-hoc queries are not as fast as repeated queries.
+- The library does up-front query optimization and caching, so one-off ad-hoc queries are not as fast as repeated queries. These behaviours will be made configurable in future releases.
 
-## Setup
-
-You can either get ValkeyPromQL setup in a Docker container or on your own machine.
-
-### Docker
-To quickly try out RedisTimeSeries, launch an instance using docker:
-```sh
-docker run -p 6379:6379 -it --rm redis/redis-stack-server:latest
-```
-
-### Build it yourself
-
-You can also build RedisPromQL on your own machine. Major Linux distributions as well as macOS are supported.
-
-First step is to have Redis and RedisTimeSeries installed. The following, for example, builds Redis on a clean Ubuntu 
-docker image (`docker pull ubuntu`) or a clean Debian docker image (`docker pull debian:stable`):
-
-```
-mkdir ~/Redis
-cd ~/Redis
-apt-get update -y && apt-get upgrade -y
-apt-get install -y wget make pkg-config build-essential
-wget https://download.redis.io/redis-stable.tar.gz
-tar -xzvf redis-stable.tar.gz
-cd redis-stable
-make distclean
-make
-make install
-```
-
-Next, you should get the ValkeyPromQL repository from git and build it:
-
-```
-apt-get install -y git
-cd ~/Redis
-git clone --recursive https://github.com/ccollie/redis-promql.git
-cd RedisTimeSeries
-./sbin/setup
-bash -l
-make
-```
-
-Then `exit` to exit bash.
-
-**Note:** to get a specific version of RedisTimeSeries, _e.g. 1.8.10, add `-b v1.8.10` to the `git clone` command above.
-
-Next, run `make run -n` and copy the full path of the RedisTimeSeries executable (_e.g., `/root/Redis/RedisTimeSeries/bin/linux-x64-release/redistimeseries.so`).
-
-Next, add RedisTimeSeries module to `redis.conf`, so Redis will load when started:
-
-```
-apt-get install -y vim
-cd ~/Redis/redis-stable
-vim redis.conf
-```
-Add: `loadmodule /root/Redis/RedisTimeSeries/bin/linux-x64-release/redistimeseries.so` under the MODULES section (use the full path copied above).
-
-Save and exit vim (ESC :wq ENTER)
-
-For more information about modules, go to the [Redis official documentation](https://redis.io/topics/modules-intro).
-
-### Run
-
-Run redis-server in the background and then redis-cli:
-
-```
-cd ~/Redis/redis-stable
-redis-server redis.conf &
-redis-cli
-```
-
-## Give it a try
-
-After you setup RedisPromQL, you can interact with it using redis-cli.
+## Quick Example
 
 Here we'll create a time series representing sensor temperature measurements.
 After you create the time series, you can send temperature measurements.
@@ -97,9 +24,9 @@ Then you can query the data for a time range on some aggregation rule.
 ### With `redis-cli`
 ```sh
 $ redis-cli
-127.0.0.1:6379> PROM.CREATE temperature:3:east RETENTION 60 LABELS sensor_id 1 area_id 32 __name__ temperature
+127.0.0.1:6379> PROM.CREATE temperature:3:east RETENTION 60 LABELS sensor_id 1 area_id 32 __name__ temperature region east
 OK
-127.0.0.1:6379> PROM.CREATE temperature:3:west RETENTION 60 LABELS sensor_id 2 area_id 32 __name__ temperature
+127.0.0.1:6379> PROM.CREATE temperature:3:west RETENTION 60 LABELS sensor_id 2 area_id 32 __name__ temperature region west
 OK
 127.0.0.1:6379> PROM.ADD temperature:3:east 1548149181 30
 OK
@@ -109,7 +36,7 @@ OK
 ```
 
 **Note**
-- The `__name__` label is required for RedisPromQL to work, and allows metric queries across Redis keys.
+- The `__name__` label represents the name of the measurement, and it is required for ValkeyPromQL to work, and allows metric queries across Redis keys.
 
 ## Tests
 
@@ -376,5 +303,8 @@ PROM.LABEL-VALUES job
 }
 ```
 
+## Acknowledgements
+This underlying library this project uses originated as a heavily modded `rust` port of [VictoriaMetrics](https://victoriametrics.com).
+
 ## License
-RedisPromQL is licensed under the [Server Side Public License v1 (SSPLv1)](https://www.mongodb.com/licensing/server-side-public-license).
+RedisPromQL is licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
