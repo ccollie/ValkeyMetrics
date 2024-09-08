@@ -1,7 +1,7 @@
 use std::sync::{Arc, OnceLock};
 use ahash::HashMapExt;
 use metricsql_common::hash::IntMap;
-use metricsql_engine::prelude::{Context as QueryContext};
+use metricsql_runtime::prelude::{Context as QueryContext};
 use crate::index::{TimeSeriesIndex};
 use crate::provider::TsdbDataProvider;
 use valkey_module::{raw, Context};

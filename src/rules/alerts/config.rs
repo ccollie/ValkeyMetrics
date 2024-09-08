@@ -13,7 +13,7 @@ use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
 use crate::rules::alerts::{AlertsError, AlertsResult};
 use crate::rules::RuleType;
 
-#[derive(Debug, Default, Clone, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum DataSourceType {
     #[default]
@@ -331,7 +331,7 @@ fn validate_expr(expr: &str) -> AlertsResult<()> {
     }
 }
 
-/// HashRule hashes significant Rule fields into unique hash that supposed to define Rule uniqueness
+/// HashRule hashes significant Rule fields into unique hash that defines Rule uniqueness
 fn hash_rule_config(r: &RuleConfig) -> u64 {
     let mut h = Xxh3::new();
     h.write(r.expr.as_bytes());

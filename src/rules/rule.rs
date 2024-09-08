@@ -21,11 +21,9 @@ impl RuleType {
             RuleType::Alerting => "alerting",
         }
     }
-
     pub fn is_recording(&self) -> bool {
         matches!(self, RuleType::Recording)
     }
-
     pub fn is_alerting(&self) -> bool {
         matches!(self, RuleType::Alerting)
     }

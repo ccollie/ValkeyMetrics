@@ -2,7 +2,7 @@
 // https://github.com/cryptorelay/Valkey-aggregation/tree/master
 // License: Apache License 2.0
 
-use Valkey_module::{ValkeyError, ValkeyString};
+use valkey_module::{ValkeyError, ValkeyString};
 
 type Time = i64;
 type Value = f64;
@@ -33,7 +33,7 @@ impl AggOp for AggFirst {
         self.0 = None;
     }
     fn current(&self) -> Option<Value> {
-        return self.0;
+        self.0
     }
 }
 
@@ -53,7 +53,7 @@ impl AggOp for AggLast {
         self.0 = None;
     }
     fn current(&self) -> Option<Value> {
-        return self.0;
+        self.0
     }
 }
 
@@ -77,7 +77,7 @@ impl AggOp for AggMin {
         self.0 = None;
     }
     fn current(&self) -> Option<Value> {
-        return self.0;
+        self.0
     }
 }
 
@@ -101,7 +101,7 @@ impl AggOp for AggMax {
         self.0 = None;
     }
     fn current(&self) -> Option<Value> {
-        return self.0;
+        self.0
     }
 }
 
@@ -135,7 +135,7 @@ impl AggOp for AggRange {
         self.init = false;
     }
     fn current(&self) -> Option<Value> {
-        return if !self.init {
+        if !self.init {
             None
         } else {
             Some(self.max - self.min)
@@ -170,9 +170,9 @@ impl AggOp for AggAvg {
     }
     fn current(&self) -> Option<Value> {
         if self.count == 0 {
-            return None;
+            None
         } else {
-            return Some(self.sum / self.count as f64);
+            Some(self.sum / self.count as f64)
         }
     }
 }
@@ -193,7 +193,7 @@ impl AggOp for AggSum {
         self.0 = 0.;
     }
     fn current(&self) -> Option<Value> {
-        return Some(self.0);
+        Some(self.0)
     }
 }
 
@@ -213,7 +213,7 @@ impl AggOp for AggCount {
         self.0 = 0;
     }
     fn current(&self) -> Option<Value> {
-        return Some(self.0 as Value);
+        Some(self.0 as Value)
     }
 }
 
@@ -230,11 +230,11 @@ impl AggStd {
     }
     fn from_str(buf: &str) -> AggStd {
         let t = serde_json::from_str::<(Value, Value, usize)>(buf).unwrap();
-        return Self {
+        Self {
             sum: t.0,
             sum_2: t.1,
             count: t.2,
-        };
+        }
     }
     fn add(&mut self, value: Value) {
         self.sum += value;

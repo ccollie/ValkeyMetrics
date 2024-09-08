@@ -179,12 +179,31 @@ impl WriteQueue {
         Ok(series)
     }
 
+    fn series_exists(&self, ctx: &ContextGuard, key: &ValkeyString) -> bool {
+        let series = get_timeseries_mut(ctx, key, false);
+        series.is_some()
+    }
+
+    fn create_series_if_not_exists<'a>(&self, ctx: &'a ContextGuard, key: &ValkeyString) -> AlertsResult<&'a mut TimeSeries> {
+        let mut series = get_timeseries_mut(ctx, key, false)
+            .map_err(|e| AlertsError::Generic(format!("failed to get series: {:?}", e)))?;
+
+        if series.is_none() {
+            self.create_series(ctx, key)
+        } else {
+            Ok(series.unwrap())
+        }
+    }
+
     fn send(&self, ctx: &ContextGuard, series: &mut [RawTimeSeries]) -> AlertsResult<()> {
         if series.is_empty() {
             return Ok(())
         }
-        if !series_exists(&ctx, &series[0].id) {
-            // create series
+        for ts in series {
+            let key = ts.key();
+            let mut series = self.create_series_if_not_exists(&ctx, &key)?;
+            // write data
+
         }
         Ok(())
     }

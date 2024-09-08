@@ -281,8 +281,8 @@ impl AlertingRule {
         tss
     }
 
-    /// alertsToSend walks through the current alerts of AlertingRule
-    /// and returns only those which should be sent to notifier.
+    /// walks through the current alerts of AlertingRule and returns only those which should be sent
+    /// to notifier.
     pub fn process_alerts_to_send<F>(
         &self,
         ts: Timestamp,
@@ -576,7 +576,7 @@ impl Rule for AlertingRule {
     /// `exec_range` executes alerting rule on the given time range similarly to exec.
     /// It doesn't update internal states of the Rule and is meant to be used just to get time series
     /// for back-filling.
-    /// It returns ALERT and ALERT_FOR_STATE time series as a result.
+    /// It returns `ALERT` and `ALERT_FOR_STATE` time series as a result.
     fn exec_range(&mut self, querier: &impl Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
         let res = querier.query_range(&self.expr, start, end)?;
         let mut result: Vec<RawTimeSeries> = vec![];

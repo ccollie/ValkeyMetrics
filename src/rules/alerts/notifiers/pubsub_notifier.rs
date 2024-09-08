@@ -11,7 +11,6 @@ impl PubSubNotifier {
     pub fn new(topic: String) -> Self {
         PubSubNotifier { topic }
     }
-
     fn publish(&self, ctx: &Context, msg: String) {
         match ctx.call("PUBLISH", &[&self.topic, &msg]) {
             Ok(_) => {}

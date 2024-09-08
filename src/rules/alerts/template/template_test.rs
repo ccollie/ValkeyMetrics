@@ -9,7 +9,7 @@ fn test_template_funcs() {
     fn f(func_name: &str, s: &str, result_expected: &str) {
         let funcs = template_funcs();
         let flocal = funcs.get(func_name).unwrap();
-        let result = (flocal)(vec![s].into()).unwrap();
+        let result = (flocal)(vec![s].into()).unwrap().to_string();
         assert_eq!(result, result_expected,
                    "unexpected result for {func_name}({s}); got\n{}\nwant\n{result_expected}", result);
     }
@@ -41,7 +41,7 @@ fn test_template_funcs() {
 	fn formatting(func_name: &str, p: impl Into<Value>, result_expected: &str) {
 		let funcs = template_funcs();
 		let flocal = funcs.get(func_name).unwrap();
-		let result = (flocal)(p).unwrap();
+		let result = (flocal)(p).unwrap().to_string();
 		assert_eq!(result, result_expected,
 				   "unexpected result for {func_name}({p}); got\n{result}\nwant\n{result_expected}");
 	}
@@ -86,7 +86,7 @@ fn mk_template(current: Option<&str>, replacement: Option<&str>) -> TextTemplate
 		tmp.parse(replacement).unwrap();
 		tmpl.replacement = tmp
 	}
-	return tmpl
+	tmpl
 }
 
 fn equal_templates(tmpls: &[Template]) -> bool {
@@ -259,7 +259,7 @@ fn test_templates_load() {
 
 	for tc in test_cases {
 		let master_tmpl = tc.initial_template;
-		err := Load(tc.path_patterns, tc.overwrite);
+		err = Load(tc.path_patterns, tc.overwrite);
 		if tc.exp_err == "" && err != None {
 			t.Error("happened error that wasn't expected: %w", err)
 		}

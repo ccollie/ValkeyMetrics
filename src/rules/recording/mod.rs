@@ -55,7 +55,7 @@ impl RecordingRule {
         for Label { name, value } in self.labels.iter() {
             labels.insert(name.clone(), value.clone());
         }
-        new_time_series(m.key, &m.values, &m.timestamps, labels)
+        new_time_series(&m.key, &m.values, &m.timestamps, labels)
     }
 
     fn run_query(&self, querier: &impl Querier, ts: Timestamp) -> AlertsResult<Vec<DatasourceMetric>> {
@@ -107,7 +107,7 @@ impl Rule for RecordingRule {
         }
 
         // Safety: unwrap is safe because we just checked for an error above
-        let q_metrics = res.unwrap();
+        let q_metrics = res?;
         let num_series = res.len();
         cur_state.samples = num_series;
 

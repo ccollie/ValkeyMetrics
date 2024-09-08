@@ -61,7 +61,7 @@ impl Manager {
                     ar_present = true
                 }
             }
-            let ng = Group::new(cfg, &self.querier_builder, self.evaluation_interval, &self.labels);
+            let ng = Group::from_config(cfg.clone(), self.evaluation_interval, &self.labels);
             groups_registry.insert(ng.ID(), ng)
         }
 
@@ -95,8 +95,8 @@ impl Manager {
             self.start_group(ctx, ng, restore)?;
         }
         if !to_update.is_empty() {
-            for item in to_update {
-                old.update_with(new);
+            for item in to_update.iter_mut() {
+                item.old.update_with(item.new)?;
                 item.old.interrupt_eval();
             }
         }

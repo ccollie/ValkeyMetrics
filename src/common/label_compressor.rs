@@ -267,7 +267,7 @@ mod tests {
                 for (i, labels) in series.iter().enumerate() {
                     let sExpected = labels_to_string(labels);
                     let data = lc.compress(nil, labels);
-                    let labels_result = lc.Decompress(nil, data);
+                    let labels_result = lc.decompress(nil, data);
                     let sResult = labels_to_string(labels_result);
                     if sExpected != sResult {
                         panic(fmt.Errorf("unexpected result on iteration %d; got %s; want %s", i, sResult, sExpected))

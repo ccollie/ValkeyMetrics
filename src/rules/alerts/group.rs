@@ -1,4 +1,3 @@
-use scopeguard::defer;
 use std::collections::HashMap;
 use std::default::Default;
 use std::hash::Hasher;
@@ -29,7 +28,6 @@ use crate::rules::alerts::{
     Notifier,
     Querier,
     RecordingRule,
-    should_skip_rand_sleep_on_group_start,
     WriteQueue
 };
 use crate::rules::alerts::datasource::datasource::{QuerierBuilder, QuerierParams};
@@ -302,50 +300,6 @@ impl Group {
         })
     }
 
-    //////////////////////////////////////////////
-    pub(super) fn start(&mut self,
-                        ctx: &Context,
-                        nts: Arc<Vec<Box<dyn Notifier>>>,
-                        write_queue: Arc<WriteQueue>,
-                        querier_builder: Arc<&dyn QuerierBuilder>) {
-
-        let eval_ts = current_time_millis();
-        // sleep random duration to spread group rules evaluation
-        // over time in order to reduce load on datasource.
-        if !should_skip_rand_sleep_on_group_start() {
-            let sleep_before_start = delay_before_start(eval_ts,
-                                                        self.id(),
-                                                        self.interval,
-                                                        Some(&self.eval_offset));
-            info!("will start in %v", sleep_before_start);
-
-            let sleep_timer = time.NewTimer(sleep_before_start);
-            // todo sleep
-        }
-
-        let querier = self.create_querier(querier_builder);
-        let mut e = Executor::new(nts, &self.notifier_headers, write_queue, querier);
-
-        info!("started rule group \"{}\"", self.name);
-
-        self.eval(eval_ts, &mut e);
-
-        let t = time.NewTicker(g.Interval);
-        defer!{
-          t.stop();
-        }
-
-        // restore the rules state after the first evaluation
-        // so only active alerts can be restored.
-        if let Some(rr) = rr {
-            if let Err(err) = self.restore(rr, eval_ts, remoteReadLookBack) {
-                error!("error while restoring ruleState for group {}: {:?}", self.name, err)
-            }
-        }
-    }
-
-    //////////////////////////////////////////////
-
     pub fn close(&mut self) {
         self.interrupt_eval();
         self.metrics.iteration_total.store(0, Ordering::Relaxed);
@@ -385,7 +339,7 @@ impl Group {
             .is_some()
     }
 
-    pub(super) fn eval<'a>(&mut self, e: &mut Executor, ts: Timestamp) {
+    pub(super) fn eval(&mut self, ctx: &Context, e: &mut Executor, ts: Timestamp) {
         self.metrics.iteration_total.fetch_add(1, Ordering::Relaxed);
 
         let start = current_time_millis();
@@ -399,7 +353,7 @@ impl Group {
         let ts = self.adjust_req_timestamp(ts);
 
         // todo: rayon
-        let errs = e.exec_concurrently(&mut self.recording_rules, ts, resolve_duration, self.limit);
+        let errs = e.exec_concurrently(ctx, &mut self.recording_rules, ts, resolve_duration, self.limit);
         for err in errs {
             if err != nil {
                 let msg = format!("group {}: {:?}", self.name, err);
@@ -411,9 +365,10 @@ impl Group {
 
     pub fn run<'a>(&mut self,
                    ctx: &'a EvalContext,
-                   nts: fn() -> Vec<dyn Notifier>,
+                   nts: Arc<Vec<Box<dyn Notifier>>>,
                    write_queue: Arc<WriteQueue>,
                    qb: impl QuerierBuilder) {
+
         let settings = get_global_settings();
         let eval_ts = current_time_millis();
 
@@ -422,8 +377,7 @@ impl Group {
 
         // restore the rules state after the first evaluation so only active alerts can be restored.
         // todo: i doubt we need atomics here
-        if self.first_run.fetch_or(false, Ordering::Relaxed) {
-            self.first_run.store(false, Ordering::Acquire);
+        if self.first_run.swap(false, Ordering::Relaxed) {
             if let Err(err) = self.restore(ctx, qb, eval_ts, settings.look_back) {
                 let msg = format!("error while restoring ruleState for group {}: {:?}", &self.name, err);
                 tracing::warn!("{}", msg);
@@ -446,10 +400,10 @@ impl Group {
             self.metrics.iteration_missed.fetch_add(missed as u64, Ordering::Relaxed);
         }
         let eval_ts = eval_ts.add((missed + 1) * self.interval.as_millis());
-        self.eval(&mut e, eval_ts)
+        self.eval(&ctx.redis_ctx, &mut e, eval_ts)
     }
 
-    pub(super) fn on_tick(&mut self, e: &mut Executor, eval_ts: Timestamp) {
+    pub(super) fn on_tick(&mut self, ctx: &Context, e: &mut Executor, eval_ts: Timestamp) {
         self.metrics.iteration_interval.fetch_add(1, Ordering::Relaxed);
         let current = current_time_millis();
         let elapsed = eval_ts - self.last_evaluation;
@@ -463,7 +417,7 @@ impl Group {
             self.metrics.iteration_missed.fetch_add(missed as u64, Ordering::Relaxed);
         }
         let eval_ts = current.add((missed + 1) * self.interval.as_millis());
-        self.eval(e, eval_ts)
+        self.eval(ctx, e, eval_ts)
     }
 
     pub(super) fn on_update(&mut self, ng: &Group, e: &mut Executor) -> AlertsResult<()> {
@@ -532,7 +486,9 @@ pub(crate) fn merge_labels(group_name: &str, rule_name: &str, set1: &Vec<Label>,
 
     for label in set2.iter() {
         let prev_v = r.iter().find(|x| x.name == label.name);
-        if prev_v.is_some() {
+        if let Some(prev) = prev_v {
+            let k = &label.name;
+            let v = &label.value;
             info!("label {k}={prev_v} for rule {}.{} overwritten with external label {k}={v}",
                   group_name,
                   rule_name);
@@ -560,7 +516,7 @@ fn get_resolve_duration(group_interval: Duration, delta: &Duration,
 /// delay_before_start returns a duration on the interval between [ts..ts+interval].
 /// delay_before_start accounts for `offset`, so returned duration should be always
 /// bigger than the `offset`.
-fn delay_before_start(ts: Timestamp, key: u64, interval: Duration, offset: Option<&Duration>) -> Duration {
+pub(super) fn delay_before_start(ts: Timestamp, key: u64, interval: Duration, offset: Option<&Duration>) -> Duration {
     let mut rand_sleep = interval * (key / (1 << 64)) as u32;
     let sleep_offset = Duration::from_millis((ts % interval.as_millis() as u64) as u64);
     if rand_sleep < sleep_offset {

@@ -76,7 +76,7 @@ fn replay_group<'a>(
     ctx: &'a EvalContext,
     options: &ReplayOptions,
     rw: &WriteQueue,
-) -> usize {
+) -> AlertsResult<usize> {
     let ReplayOptions {
         from: start,
         to: end,
@@ -117,7 +117,7 @@ fn replay_group<'a>(
         total += replay_range(ctx, rule, start, *end, step, *rule_retry_attempts, rw)?;
     }
 
-    total
+    Ok(total)
 }
 
 fn replay_range<'a>(
