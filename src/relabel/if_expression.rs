@@ -124,12 +124,7 @@ impl Display for IfExpressionMatcher {
 }
 
 fn match_label_filters(lfs: &[LabelFilter], labels: &[Label]) -> bool {
-    for lf in lfs {
-        if !lf.matches(labels) {
-            return false;
-        }
-    }
-    true
+    lfs.iter().all(|lf| lf.matches(labels))
 }
 
 fn metric_expr_to_label_filter_list(me: &MetricExpr) -> AlertsResult<Vec<LabelMatchers>> {
