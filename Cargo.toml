@@ -8,9 +8,11 @@ edition = "2021"
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }
 arc-interner = "0.7"
+async-trait = "0.1"
 binary-merge = "0.1"
 bincode = { version = "2.0.0-rc.3", features = ["alloc", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
+croaring = "2.0"
 dynamic-lru-cache = "0.2.1"
 enquote = "1.1.0"
 get-size = { version = "^0.1", features = ["derive"] }
@@ -37,6 +39,7 @@ regex = "1.10"
 regex-syntax = { version = "0.8", features = [] }
 roaring = { version = "0.10", features = ["serde"]}
 timer = "0.2.0"
+titlecase = "3.3.0"
 tsz = "0.1.4"
 url = { version = "2.5", features = ["serde"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
@@ -49,6 +52,7 @@ dashmap = "6.1"
 bytes = "1.7.1"
 tokio = "1.40.0"
 prometheus = "0.13.4"
+tinyvec = "1.8.0"
 log = "0.4.22"
 [lib]
 crate-type=["rlib", "cdylib"]

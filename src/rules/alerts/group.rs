@@ -89,7 +89,7 @@ impl Clone for Group {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, Eq)]
 pub struct GroupMetrics {
     iteration_total: AtomicU64,
     iteration_duration: AtomicU64,
@@ -240,17 +240,17 @@ impl Group {
         let mut to_delete: Vec<usize> = vec![];
 
         for ar in new_group.alerting_rules.iter() {
-            alert_rules_registry.insert(ar.ID(), ar);
+            alert_rules_registry.insert(ar.id(), ar);
         }
 
         for rr in new_group.recording_rules.iter() {
-            recording_rules_registry.insert(rr.ID(), rr);
+            recording_rules_registry.insert(rr.id(), rr);
         }
 
         for (i, ar) in self.alerting_rules.iter_mut().enumerate() {
             let id = ar.id();
             if let Some(rule) = alert_rules_registry.get(&id) {
-                ar.update_with(rule)?;
+                ar.update_with(rule);
                 continue;
             }
             to_delete.push(i);
@@ -265,7 +265,7 @@ impl Group {
         for (i, rr) in self.recording_rules.iter_mut().enumerate() {
             let id = rr.id();
             if let Some(rule) = recording_rules_registry.get(&id) {
-                rr.update_with(rule)?;
+                rr.update_with(rule);
                 continue;
             }
             to_delete.push(i);
@@ -301,18 +301,11 @@ impl Group {
     }
 
     pub fn close(&mut self) {
-        self.interrupt_eval();
         self.metrics.iteration_total.store(0, Ordering::Relaxed);
         self.metrics.iteration_duration.store(0, Ordering::Relaxed);
         self.metrics.iteration_missed.store(0, Ordering::Relaxed);
         self.metrics.iteration_interval.store(0, Ordering::Relaxed);
         self.last_evaluation = 0;
-        for rule in self.alerting_rules.iter_mut() {
-            let _ = rule.close();
-        }
-        for rule in self.recording_rules.iter_mut() {
-            let _ = rule.close();
-        }
     }
 
 
@@ -399,7 +392,7 @@ impl Group {
         if missed > 0 {
             self.metrics.iteration_missed.fetch_add(missed as u64, Ordering::Relaxed);
         }
-        let eval_ts = eval_ts.add((missed + 1) * self.interval.as_millis());
+        let eval_ts = eval_ts.add((missed + 1) * self.interval.as_millis() as i64);
         self.eval(&ctx.redis_ctx, &mut e, eval_ts)
     }
 
@@ -407,7 +400,8 @@ impl Group {
         self.metrics.iteration_interval.fetch_add(1, Ordering::Relaxed);
         let current = current_time_millis();
         let elapsed = eval_ts - self.last_evaluation;
-        let mut missed = elapsed / (self.interval.as_millis() - 1) as u64 as i64;
+        let interval_millis = self.interval.as_millis() as i64;
+        let mut missed = elapsed / (interval_millis - 1) as u64 as i64;
         if missed < 0 {
             // missed can become < 0 due to irregular delays during evaluation
             // which can result in time.since(eval_ts) < g.interval
@@ -416,7 +410,7 @@ impl Group {
         if missed > 0 {
             self.metrics.iteration_missed.fetch_add(missed as u64, Ordering::Relaxed);
         }
-        let eval_ts = current.add((missed + 1) * self.interval.as_millis());
+        let eval_ts = current.add((missed + 1) * interval_millis);
         self.eval(ctx, e, eval_ts)
     }
 
@@ -517,8 +511,9 @@ fn get_resolve_duration(group_interval: Duration, delta: &Duration,
 /// delay_before_start accounts for `offset`, so returned duration should be always
 /// bigger than the `offset`.
 pub(super) fn delay_before_start(ts: Timestamp, key: u64, interval: Duration, offset: Option<&Duration>) -> Duration {
-    let mut rand_sleep = interval * (key / (1 << 64)) as u32;
-    let sleep_offset = Duration::from_millis((ts % interval.as_millis() as u64) as u64);
+    let interval_millis = interval.as_millis() as u64;
+    let mut rand_sleep = interval_millis * (key / (1 << 64)) as u32;
+    let sleep_offset = Duration::from_millis((ts % interval_millis) as u64);
     if rand_sleep < sleep_offset {
         rand_sleep += interval
     }

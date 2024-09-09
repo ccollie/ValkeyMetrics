@@ -72,12 +72,14 @@ impl StreamNotifier {
             // Prepare the arguments for the XADD command
             let xtrim_args = vec![self.key.as_str(), "MAXLEN", &max];
             // Call the XADD command
-            let result: ValkeyValue = ctx.call("XTRIM", &xtrim_args)?;
+            let result: ValkeyValue = ctx.call("XTRIM", &*xtrim_args)
+                .map_err(|_| TsdbError::General("Error adding pushing alert to stream".to_string()))?;
 
             // The result will be the ID of the new entry in the stream
             match result {
                 ValkeyValue::SimpleString(id) => {
-                    ctx.reply_string(format!("Added message to stream with ID: {}", id))?;
+                    let msg = format!("Added message to stream with ID: {}", id);
+                    ctx.log_warning(&msg);
                 }
                 _ => {
                     return Err(TsdbError::General("Unexpected response from XTRIM".into()));
@@ -110,7 +112,8 @@ impl Notifier for StreamNotifier {
             let result: ValkeyValue = ctx.call("XADD", &xadd_args)?;
             match result {
                 ValkeyValue::SimpleString(id) => {
-                    ctx.reply_string(format!("Added message to stream with ID: {}", id))?;
+                    let msg = format!("Added message to stream with ID: {}", id);
+                    ctx.log_debug(&msg);
                 }
                 _ => {
                     return Err(TsdbError::General("Unexpected response from XADD".into()));

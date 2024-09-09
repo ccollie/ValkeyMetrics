@@ -1,5 +1,4 @@
 use crate::common::current_time_millis;
-use crate::common::hash::hash_labels_without_metric_name;
 use crate::rules::alerts::datasource::datasource::Querier;
 use crate::rules::alerts::template::QueryFn;
 use crate::rules::alerts::{
@@ -51,8 +50,19 @@ impl Clone for AlertingRuleMetrics {
     }
 }
 
+impl Eq for AlertingRuleMetrics {}
+impl PartialEq for AlertingRuleMetrics {
+    fn eq(&self, other: &Self) -> bool {
+        self.errors.load(Ordering::Relaxed) == other.errors.load(Ordering::Relaxed)
+            && self.pending.load(Ordering::Relaxed) == other.pending.load(Ordering::Relaxed)
+            && self.active.load(Ordering::Relaxed) == other.active.load(Ordering::Relaxed)
+            && self.sample.load(Ordering::Relaxed) == other.sample.load(Ordering::Relaxed)
+            && self.series_fetched.load(Ordering::Relaxed) == other.series_fetched.load(Ordering::Relaxed)
+    }
+}
+
 /// AlertingRule is basic alert entity
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct AlertingRule {
     pub rule_type: RuleType,
     rule_id: u64,
@@ -221,7 +231,7 @@ impl AlertingRule {
             origin: Default::default(),
             processed: Default::default(),
         };
-        for Label { name, value } in m.labels {
+        for Label { name, value } in m.labels.iter() {
             ls.origin.insert(name.clone(), value.clone());
             // drop __name__ to be consistent with Prometheus alerting
             if name == METRIC_NAME_LABEL {
@@ -249,7 +259,7 @@ impl AlertingRule {
             ls.origin
                 .insert(ALERT_NAME_LABEL.to_string(), self.name.clone());
         }
-        if !*DISABLE_ALERT_GROUP_LABEL && !self.group_name.is_empty() {
+        if !DISABLE_ALERT_GROUP_LABEL && !self.group_name.is_empty() {
             ls.processed.insert(
                 ALERT_GROUP_NAME_LABEL.to_string(),
                 self.group_name.to_string(),
@@ -526,10 +536,10 @@ impl Rule for AlertingRule {
         let mut num_active_pending = 0;
 
         let mut to_delete = Vec::new();
-        for (h, alert) in alerts {
+        for (h, alert) in alerts.iter_mut() {
             // if alert wasn't updated in this iteration means it is resolved already
             if updated.contains(h) {
-                if alert.State == AlertState::Pending {
+                if alert.state == AlertState::Pending {
                     // alert was in Pending state - it is not active anymore
                     to_delete.push(h);
                     // ar.logDebugf(ts, a, "PENDING => DELETED: is absent in current evaluation round")
@@ -537,9 +547,9 @@ impl Rule for AlertingRule {
                 }
                 // check if alert should keep Firing if rule has
                 // `keep_firing_for` field
-                if alert.State == AlertState::Firing {
+                if alert.state == AlertState::Firing {
                     if !self.keep_firing_for.is_zero() {
-                        if alert.keep_firing_since.is_zero() {
+                        if alert.keep_firing_since == 0 {
                             alert.keep_firing_since = ts
                         }
                     }

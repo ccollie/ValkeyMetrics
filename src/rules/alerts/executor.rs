@@ -54,7 +54,7 @@ impl Executor {
     /// get_stale_series checks whether there are stale series from previously sent ones.
     fn get_stale_series(&self, rule: impl Rule, tss: &[RawTimeSeries], timestamp: Timestamp) -> Vec<RawTimeSeries> {
         let mut rule_labels: HashMap<String, &Vec<Label>> = HashMap::with_capacity(tss.len());
-        for ts in tss.inter() {
+        for ts in tss.iter() {
             // convert labels to strings, so we can compare with previously sent series
             let key = labels_to_string(&ts.labels);
             rule_labels.insert(key, &ts.labels);
@@ -120,7 +120,7 @@ impl Executor {
         self.push_to_rw(&rule, tss)?;
         self.push_to_rw(&rule, stale_series)?;
 
-        if rule.rule_type() == RuleType::Alerting {
+        if matches!(rule.rule_type(), RuleType::Alerting) {
             let settings = get_global_settings();
             let alerting_rule = rule.downcast_ref::<AlertingRule>().unwrap();
             return self.send_notifications(ctx, alerting_rule, ts, resolve_duration, settings.resend_delay);

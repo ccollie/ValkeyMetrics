@@ -11,8 +11,8 @@ impl PubSubNotifier {
     pub fn new(topic: String) -> Self {
         PubSubNotifier { topic }
     }
-    fn publish(&self, ctx: &Context, msg: String) {
-        match ctx.call("PUBLISH", &[&self.topic, &msg]) {
+    fn publish(&self, ctx: &Context, msg: &str) {
+        match ctx.call("PUBLISH", &[&self.topic, msg]) {
             Ok(_) => {}
             Err(e) => {
                 let msg = format!("failed to publish message to pubsub: {:?}", e);
@@ -30,14 +30,14 @@ impl Notifier for PubSubNotifier {
         &self,
         ctx: &Context,
         alerts: &[Alert],
-        notifier_headers: &[Label],
+        _notifier_headers: &[Label],
     ) -> TsdbResult<()> {
         let mut msg = String::with_capacity(128);
         for alert in alerts {
             // PUBLISH channel alert:<alert_name>:<alert_state>
             msg.push_str(ALERT_PREFIX);
             msg.push(':');
-            msg.push_str(&alert.name());
+            msg.push_str(&alert.name);
             msg.push(':');
             msg.push_str(&alert.state.name());
 
@@ -49,7 +49,7 @@ impl Notifier for PubSubNotifier {
             msg.push(':');
             msg.push_str(&alert.state.name());
             msg.push(':');
-            msg.push_str(&alert.name());
+            msg.push_str(&alert.name);
 
             self.publish(ctx, &msg);
             msg.clear();

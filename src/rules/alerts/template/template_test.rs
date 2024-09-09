@@ -1,5 +1,6 @@
 use gtmpl::{Template, Value};
-use crate::rules::alerts::template::{template_funcs, TextTemplate};
+use crate::rules::template::template::template_funcs;
+use crate::rules::TextTemplate;
 
 // see also https://github.com/prometheus/prometheus/blob/main/template/template_test.go
 // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmalert/templates/template_test.go
@@ -353,7 +354,7 @@ fn test_templates_reload() {
 
 	for tc in test_cases {
 		let master_tmpl = tc.initial_template;
-		Reload()
+		//Reload()
 		if !equal_templates(master_tmpl.replacement, tc.expectedTemplate.replacement) {
 			panic!("replacement template is not as expected")
 		}

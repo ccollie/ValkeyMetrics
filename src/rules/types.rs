@@ -27,8 +27,8 @@ pub fn new_time_series(key: &str, values: &[f64], timestamps: &[i64], labels: AH
 }
 
 pub fn get_changed_label_names(prev: &[Label], current: &[Label]) -> AHashSet<String> {
-    let mut in_map = get_label_map(prev);
-    let mut out_map = get_label_map(current);
+    let in_map = get_label_map(prev);
+    let out_map = get_label_map(current);
     let mut changed = AHashSet::with_capacity(prev.len());
     for (k, v) in out_map.iter() {
         if let Some(inV) = in_map.get(k) {

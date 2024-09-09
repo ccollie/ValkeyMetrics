@@ -1,4 +1,5 @@
 use ahash::AHashMap;
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
@@ -8,15 +9,15 @@ use gtmpl::{Context, Template};
 use gtmpl_derive::Gtmpl;
 use serde::{Deserialize, Serialize};
 
+use crate::relabel::ParsedRelabelConfig;
 use crate::rules::alerts::template::{
     clone_template, funcs_with_query, get_template, get_with_funcs, QueryFn,
 };
 use crate::rules::alerts::{AlertsError, AlertsResult, ErrorGroup};
-use crate::relabel::ParsedRelabelConfig;
 use crate::storage::Label;
 
 /// AlertState is the state of an alert.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, Eq)]
 pub enum AlertState {
     #[default]
     /// Inactive is the state of an alert that is neither firing nor pending.
@@ -61,7 +62,7 @@ impl FromStr for AlertState {
 
 /// the triggered alert
 // TODO: Looks like alert name isn't unique
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Alert {
     /// id is the unique identifier for the Alert
     pub id: u64,
@@ -95,14 +96,13 @@ pub struct Alert {
     pub restored: bool,
     /// for defines for how long Alert needs to be active to become StateFiring
     pub r#for: Duration,
-
     pub external_url: String,
 }
 
 /// alert_tpl_data is used to execute templating
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize, Gtmpl)]
 pub struct AlertTplData {
-    pub labels: AHashMap<String, String>,
+    pub labels: HashMap<String, String>,
     pub value: f64,
     pub expr: String,
     pub alert_id: u64,
@@ -111,18 +111,17 @@ pub struct AlertTplData {
     pub r#for: Duration,
 }
 
-const TPL_HEADERS: String = [
-    "{{ $value := .value }}",
-    "{{ $labels := .labels }}",
-    "{{ $expr := .expr }}",
-    "{{ $externalLabels := .external_labels }}",
-    "{{ $externalURL := .external_url }}",
-    "{{ $alertID := .alertID }}",
-    "{{ $groupID := .group_id }}",
-    "{{ $activeAt := .active_id }}",
-    "{{ $for := .for }}",
-]
-.join("");
+const TPL_HEADERS: &str = r#"
+{{ $value := .value }}
+{{ $labels := .labels }}
+{{ $expr := .expr }}
+{{ $externalLabels := .external_labels }}
+{{ $externalURL := .external_url }}
+{{ $alertID := .alertID }}
+{{ $groupID := .group_id }}
+{{ $activeAt := .active_id }}
+{{ $for := .for }}"#;
+
 
 impl Alert {
     /// exec_template executes the Alert template for given map of annotations.
@@ -136,7 +135,7 @@ impl Alert {
     ) -> AlertsResult<AHashMap<String, String>> {
         let tpl_data = AlertTplData {
             value: self.value,
-            labels: labels.clone(),  // ??? why not use ref ?
+            labels: labels.into(),  // ??? why not use ref ?
             expr: self.expr.clone(), // todo(perf) why not use ref ?
             alert_id: self.id,
             active_at: self.active_at,
@@ -154,7 +153,7 @@ impl Alert {
                 value: v.clone(),
             });
         }
-        if let Some(mut relabelCfg) = relabel_cfg {
+        if let Some(relabelCfg) = relabel_cfg {
             relabelCfg.apply(&mut labels, 0);
         }
         labels.sort();
@@ -232,7 +231,7 @@ fn template_annotation(text: &str, data: &AlertTplData, tmpl: &Template) -> Aler
         return AlertsError::TemplateParseError(format!("{:?}", err));
     })?;
 
-    let context = Context::from(data);
+    let context = Context::from(*data);
     tpl.render(&context).map_err(|err| {
         AlertsError::Generic(format!("error evaluating annotation template: {}", err))
     })

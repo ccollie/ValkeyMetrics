@@ -1,5 +1,6 @@
 use std::fmt;
 use std::fmt::Display;
+use std::str::FromStr;
 use std::sync::{LazyLock, OnceLock};
 
 use dynamic_lru_cache::DynamicCache;
@@ -12,9 +13,96 @@ use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::xxh3_64;
 use crate::common::PromRegex;
 use crate::relabel::{DEFAULT_ORIGINAL_REGEX_FOR_RELABEL_CONFIG, GraphiteLabelRule, GraphiteMatchTemplate, IfExpression, is_default_regex_for_config};
-use crate::relabel::actions::RelabelActionType;
 use crate::relabel::utils::{are_equal_label_values, concat_label_values, contains_all_label_values, get_label_value, set_label_value};
 use crate::storage::Label;
+
+pub trait Action {
+    fn apply(&self, labels: &mut Vec<Label>, labels_offset: usize);
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum RelabelActionType {
+    Drop,
+    DropEqual,
+    DropIfContains,
+    DropIfEqual,
+    DropMetrics,
+    Graphite,
+    HashMod,
+    Keep,
+    KeepEqual,
+    KeepIfContains,
+    KeepIfEqual,
+    KeepMetrics,
+    Lowercase,
+    LabelMap,
+    LabelMapAll,
+    LabelDrop,
+    LabelKeep,
+    #[default]
+    Replace,
+    ReplaceAll,
+    Uppercase,
+}
+
+impl Display for RelabelActionType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use RelabelActionType::*;
+        match self {
+            Graphite => write!(f, "graphite"),
+            Replace => write!(f, "replace"),
+            ReplaceAll => write!(f, "replace_all"),
+            KeepIfEqual => write!(f, "keep_if_equal"),
+            DropIfEqual => write!(f, "drop_if_equal"),
+            KeepEqual => write!(f, "keepequal"),
+            DropEqual => write!(f, "dropequal"),
+            Keep => write!(f, "keep"),
+            Drop => write!(f, "drop"),
+            DropIfContains => write!(f, "drop_if_contains"),
+            DropMetrics => write!(f, "drop_metrics"),
+            HashMod => write!(f, "hashmod"),
+            KeepMetrics => write!(f, "keep_metrics"),
+            Uppercase => write!(f, "uppercase"),
+            Lowercase => write!(f, "lowercase"),
+            LabelMap => write!(f, "labelmap"),
+            LabelMapAll => write!(f, "labelmap_all"),
+            LabelDrop => write!(f, "labeldrop"),
+            LabelKeep => write!(f, "labelkeep"),
+            KeepIfContains => write!(f, "keep_if_contains"),
+        }
+    }
+}
+
+impl FromStr for RelabelActionType {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use RelabelActionType::*;
+        match s.to_lowercase().as_str() {
+            "graphite" => Ok(Graphite),
+            "replace" => Ok(Replace),
+            "replace_all" => Ok(ReplaceAll),
+            "keep_if_equal" => Ok(KeepIfEqual),
+            "drop" => Ok(Drop),
+            "drop_equal" | "dropequal" => Ok(DropEqual),
+            "drop_if_equal" => Ok(DropIfEqual),
+            "drop_if_contains" => Ok(DropIfContains),
+            "drop_metrics" => Ok(DropMetrics),
+            "keep_equal" | "keepequal" => Ok(KeepEqual),
+            "keep" => Ok(Keep),
+            "hashmod" => Ok(HashMod),
+            "keep_metrics" => Ok(KeepMetrics),
+            "keep_if_contains" => Ok(KeepIfContains),
+            "lowercase" => Ok(Lowercase),
+            "labelmap" => Ok(LabelMap),
+            "labelmap_all" => Ok(LabelMapAll),
+            "labeldrop" | "label_drop" => Ok(LabelDrop),
+            "labelkeep" | "label_keep" => Ok(LabelKeep),
+            "uppercase" => Ok(Uppercase),
+            _ => Err(format!("unknown action: {}", s)),
+        }
+    }
+}
+
 
 /// DebugStep contains debug information about a single relabeling rule step
 #[derive(Debug, Clone, PartialEq, Default, Deserialize, Serialize)]
@@ -32,7 +120,7 @@ pub(super) struct DebugStep {
 /// ParsedRelabelConfig contains parsed `relabel_config`.
 ///
 /// See https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone)]
 pub struct ParsedRelabelConfig {
     /// rule_original contains the original relabeling rule for the given ParsedRelabelConfig.
     pub rule_original: String,
@@ -40,13 +128,13 @@ pub struct ParsedRelabelConfig {
     pub source_labels: Vec<String>,
     pub separator: String,
     pub target_label: String,
-    pub regex_anchored: Regex,
     pub modulus: u64,
     pub replacement: String,
     pub action: RelabelActionType,
     pub r#if: Option<IfExpression>,
 
     pub regex: PromRegex,
+    pub regex_anchored: Regex,
     pub regex_original: Regex,
 
     pub has_capture_group_in_target_label: bool,
@@ -82,12 +170,12 @@ impl ParsedRelabelConfig {
             graphite_label_rules: vec![],
             regex: PromRegex::default(),
             regex_original: regex_original_compiled,
-            submatch_cache: Default::default(),
+            submatch_cache: DynamicCache::new(16),
             has_capture_group_in_target_label: target_label.contains("$"),
             has_capture_group_in_replacement: replacement.contains("$"),
             has_label_reference_in_replacement: replacement.contains("{{"),
             replacement: replacement.to_string(),
-            string_replacer_cache: Default::default(),
+            string_replacer_cache: DynamicCache::new(16),
         };
         prc
     }
@@ -380,7 +468,7 @@ impl ParsedRelabelConfig {
         let res = self.string_replacer_cache.get_or_insert(&key, || {
             self.replace_full_string_slow(val)
         });
-        res.into()
+        res.to_string()
     }
 
     /// replaces s with the replacement if s matches '^regex$'.
@@ -397,7 +485,7 @@ impl ParsedRelabelConfig {
         let res = self.submatch_cache.get_or_insert(&key, || {
             self.replace_string_submatches_slow(val)
         });
-        res.into()
+        res.to_string()
     }
 
     /// replaces all the regex matches with the replacement in s.
@@ -447,7 +535,7 @@ impl Display for ParsedRelabelConfig {
 
 fn handle_replace(prc: &ParsedRelabelConfig, labels: &mut Vec<Label>, labels_offset: usize) {
     // Store `replacement` at `target_label` if the `regex` matches `source_labels` joined with `separator`
-    let mut replacement = if prc.has_label_reference_in_replacement {
+    let replacement = if prc.has_label_reference_in_replacement {
         let mut buf: String = String::with_capacity(128);
         // Fill {{labelName}} references in the replacement
         fill_label_references(&mut buf, &prc.replacement, &labels[labels_offset..]);
@@ -499,7 +587,15 @@ fn handle_replace(prc: &ParsedRelabelConfig, labels: &mut Vec<Label>, labels_off
 
 fn remove_empty_labels(labels: &[Label], labels_offset: usize) -> Vec<Label> {
     let src = &labels[labels_offset..];
-    src.iter().filter(|label| !label.name.is_empty() && !label.value.is_empty()).collect()
+    src.iter()
+        .filter_map(|label| {
+            if !label.name.is_empty() && !label.value.is_empty() {
+                Some(label.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// removes labels with "__" in the beginning (except "__name__").

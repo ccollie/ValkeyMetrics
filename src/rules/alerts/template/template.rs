@@ -11,19 +11,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::common;
-use crate::common::humanize::humanize_bytes;
 use crate::rules::alerts::{AlertsError, AlertsResult, DatasourceMetric};
-use crate::storage::Label;
+use crate::rules::template::models::Metric;
+use crate::rules::template::utils::{ensure_single_arg, ensure_single_f64, ensure_single_string_arg, ensure_string_arg, get_array_arg, get_metric_arg};
 use chrono::{DateTime, Duration, Utc};
 use enquote::enquote;
 use gtmpl::{gtmpl_fn, Func, FuncError, Template, Value};
-use gtmpl_derive::Gtmpl;
 use htmlescape::encode_minimal;
+use metricsql_common::humanize::humanize_bytes;
 use metricsql_runtime::METRIC_NAME_LABEL;
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
+use titlecase::titlecase;
 use url::Url;
 
 pub type FuncMap = HashMap<String, Func>;
@@ -95,29 +95,7 @@ pub fn reload() {
     }
 }
 
-/// metric is private copy of provider.Metric,
-/// it is used for templating annotations,
-/// Labels as map simplifies templates evaluation.
-#[derive(Gtmpl, Clone, Default)]
-struct Metric {
-    labels: Vec<Label>,
-    timestamp: i64,
-    value: f64,
-}
 
-impl Metric {
-    fn new(labels: Vec<Label>, timestamp: i64, value: f64) -> Self {
-        Metric {
-            labels,
-            timestamp,
-            value
-        }
-    }
-
-    fn get_label(&self, key: &str) -> &str {
-        self.labels.get(key).unwrap_or("")
-    }
-}
 
 /// converts Metrics from provider package to private copy for templating.
 fn datasource_metrics_to_template_metrics(ms: &[DatasourceMetric]) -> Vec<Metric> {
@@ -134,6 +112,10 @@ fn datasource_metrics_to_template_metrics(ms: &[DatasourceMetric]) -> Vec<Metric
 
 /// QueryFn is used to wrap a call to provider into simple-to-use function for templating functions.
 pub type QueryFn = fn(query: &str) -> AlertsResult<Vec<DatasourceMetric>>;
+
+pub static QUERY_FUNCTION: QueryFn = |query: &str| -> AlertsResult<Vec<DatasourceMetric>> {
+    Err(AlertsError::Generic(format!("query function is not set: {}", query)))
+};
 
 /// update_with_funcs updates existing or sets a new function map for a template
 pub(crate) fn update_with_funcs(funcs: &FuncMap) {
@@ -160,11 +142,8 @@ pub(crate) fn get_template() -> Template {
 }
 
 pub(crate) fn make_query_fn(query: QueryFn) -> Func {
-    move |args: &[Value]| -> Result<Value, FuncError> {
-        if args.len() != 1 {
-            return Err(FuncError::ExactlyXArgs("query".to_string(), 1))
-        }
-        let arg = &args[0];
+    |args: &[Value]| -> Result<Value, FuncError> {
+        let arg = ensure_single_arg(args, "query")?;
         if let Value::String(q) = arg {
             let result = query(&q)
                 .map_err(|e| FuncError::Generic(format!("query failed: {}", e)))?;
@@ -200,67 +179,86 @@ pub(crate) fn funcs_with_external_url(external_url: Url) -> FuncMap {
 // title returns a copy of the string s with all Unicode letters
 // that begin words mapped to their Unicode title case.
 // alias for https://golang.org/pkg/strings/#Title
-gtmpl_fn!(fn title_case(s: &str) -> Result<String, FuncError> {
-    Ok(s.to_title_case())
-});
+fn title_case(args: &[Value]) -> Result<Value, FuncError> {
+    let s = ensure_single_arg(args, "titleCase")?.to_string();
+    Ok(Value::from(titlecase(&s)))
+}
 
 // crlf_escape replaces '\n' and '\r' chars with `\\n` and `\\r`.
 // This function is deprecated.
 //
 // It is better to use quotesEscape, jsonEscape, queryEscape or pathEscape instead -
 // these functions properly escape `\n` and `\r` chars according to their purpose.
-gtmpl_fn!(
-fn crlf_escape(q: &str) -> Result<String, FuncError>  {
+fn crlf_escape(args: &[Value]) -> Result<Value, FuncError>  {
+    let q = ensure_single_arg(args, "crlfEscape")?.to_string();
     let q = q.replace( "\\n", "\n");
-    Ok(q.replace( "\\r", "\r"))
-});
-
+    Ok(q.replace( "\\r", "\r").into())
+}
 
 // to_upper returns s with all Unicode letters mapped to their upper case.
-gtmpl_fn!(fn to_upper(s: &str) -> Result<String, FuncError> {
-    Ok(s.to_uppercase())
-});
+fn to_upper(args: &[Value]) -> Result<Value, FuncError> {
+    let s = ensure_single_arg(args, "toUpper")?.to_string();
+    Ok(s.to_uppercase().into())
+}
 
 // to_lower returns s with all Unicode letters mapped to their lower case.
-gtmpl_fn!(fn to_lower(s: &str) -> Result<String, FuncError> {
-    Ok(s.to_lowercase())
-});
+fn to_lower(args: &[Value]) -> Result<Value, FuncError> {
+    let s = ensure_single_arg(args, "toLower")?.to_string();
+    Ok(s.to_lowercase().into())
+}
+
+fn trim_spaces(args: &[Value]) -> Result<Value, FuncError> {
+    let s = ensure_single_arg(args, "trimSpaces")?;
+    match s {
+        Value::String(s) => Ok(s.trim().into()),
+        _ => Err(FuncError::Generic(format!("expected string for trimSpaces, got {s}")))
+    }
+}
 
 // parseDuration parses a duration string such as "1h" into the number of seconds it represents
-gtmpl_fn!(fn parse_duration(s: &str) -> Result<f64, FuncError> {
-    match metricsql_parser::prelude::parse_duration_value(s, 1) {
-        Ok(d) => Ok((d / 1000) as f64),
-        Err(_e) => Ok(0f64)
+fn parse_duration(args: &[Value]) -> Result<Value, FuncError> {
+    let s = ensure_single_arg(args, "parseDuration")?.to_string();
+    match metricsql_parser::prelude::parse_duration_value(&s, 1) {
+        Ok(d) => Ok(((d / 1000) as f64).into()),
+        Err(_e) => Ok(Value::from(0f64))
     }
-});
+}
 
 // same with parseDuration but returns a std::time::Duration
-gtmpl_fn!(fn parse_duration_time(s: &str) -> Result<Duration, FuncError> {
-    match metricsql_parser::prelude::parse_duration_value(s, 1) {
+fn parse_duration_time(args: &[Value]) -> Result<Duration, FuncError> {
+    let s = ensure_single_arg(args, "parseDurationTime")?.to_string();
+    match metricsql_parser::prelude::parse_duration_value(&s, 1) {
         Ok(d) => Ok(Duration::milliseconds(d)),
         Err(_e) => Ok(Duration::milliseconds(0))
     }
-});
+}
 
 // re_replace_all returns a copy of src, replacing matches of the Regexp with
 // the replacement string repl. Inside repl, $ signs are interpreted as in Expand,
 // so for instance $1 represents the text of the first submatch.
 // alias for https://golang.org/pkg/regexp/#Regexp.ReplaceAllString
-gtmpl_fn!(
-    fn re_replace_all(pattern: &str, repl: &str, text: &str) -> Result<String, FuncError> {
+fn re_replace_all(args: &[Value]) -> Result<Value, FuncError> {
+    let pattern = ensure_string_arg(args, 0, "reReplaceAll")?;
+    let repl = ensure_string_arg(args, 1, "reReplaceAll")?;
+    let text = ensure_string_arg(args, 2, "reReplaceAll")?;
     let re = Regex::new(pattern)
         .map_err(|e| FuncError::Generic(format!("Invalid regex {pattern}")))?;
-    Ok(re.replace_all(text, repl).to_string())
-});
+    Ok(re.replace_all(text, repl).into())
+}
+
 
 // first returns the first by order element from the given metrics list.
 // usually used alongside with `query` template function.
-gtmpl_fn!(fn first(metrics: &Vec<Metric>) -> Result<Metric, FuncError> {
-    if !metrics.is_empty() {
-        return Ok(metrics[0].clone())
+fn first(args: &[Value]) -> Result<Value, FuncError> {
+    if let Value::Array(metrics) = ensure_single_arg(args, "first")? {
+        if !metrics.is_empty() {
+            return Ok(metrics[0].clone())
+        }
+        Err(FuncError::Generic("first() called on vector with no elements".to_string()))
+    } else {
+        Err(FuncError::Generic("first() called on non-array".to_string()))
     }
-    Err(FuncError::Generic("first() called on vector with no elements".to_string()))
-});
+}
 
 // toTime converts given timestamp to a time.Time.
 gtmpl_fn!(fn to_time(v: u64) -> Result<DateTime<Utc>, FuncError> {
@@ -274,175 +272,212 @@ gtmpl_fn!(fn to_time(v: u64) -> Result<DateTime<Utc>, FuncError> {
 // match reports whether the string s
 // contains any match of the regular expression pattern.
 // alias for https://golang.org/pkg/regexp/#MatchString
-gtmpl_fn!(fn regex_match(pattern: &str, text: &str) -> Result<bool, FuncError> {
-    let re = Regex::new(pattern)
-        .map_err(|e| FuncError::Generic(format!("Invalid regex {pattern}")))?;
-    Ok(re.is_match(text))
-});
+fn regex_match(args: &[Value]) -> Result<Value, FuncError> {
+    if args.len() != 2 {
+        return Err(FuncError::ExactlyXArgs("match".to_string(), 2))
+    }
+    let pattern = ensure_string_arg(args, 0, "match")?;
+    let text = ensure_string_arg(args, 1, "match")?;
+
+    let re = Regex::new(&pattern)
+        .map_err(|_e| FuncError::Generic(format!("Invalid regex {pattern}")))?;
+    Ok(re.is_match(&text).into())
+}
 
 // quotesEscape escapes the string, so it can be safely put inside JSON string.
 //
 // See also jsonEscape.
-gtmpl_fn!(fn quotes_escape(s: &str) -> Result<String, FuncError> {
-    Ok(enquote('"', s))
-});
+fn quotes_escape(args: &[Value]) -> Result<Value, FuncError> {
+    let s = ensure_single_arg(args, "quotesEscape")?.to_string();
+    Ok(enquote('"', &s).into())
+}
 
 static EMPTY_STRING: &str = "";
 fn get_metric_label_value<'a>(metric: &'a Metric, label: &str) -> &'a str {
-    metric.labels
-        .get(label)
-        .map_or(EMPTY_STRING, |s| &s)
+    metric.labels.iter().find(|l| l.name == label)
+        .map_or(EMPTY_STRING, |s| &s.value)
 }
 
 // returns metric name.
-gtmpl_fn!(fn str_value(m: &Metric) -> Result<String, FuncError> {
-    let value = get_metric_label_value(m, METRIC_NAME_LABEL);
-    Ok(value.to_string())
-});
+fn str_value(args: &[Value]) -> Result<Value, FuncError> {
+    match get_metric_arg(args, 0, "strValue") {
+        Ok(metric) => Ok(get_metric_label_value(&metric, METRIC_NAME_LABEL).into()),
+        _ => Ok(Value::NoValue)
+    }
+}
 
-// label returns the value of the given label name for the given metric.
-// usually used alongside with `query` template function.
-gtmpl_fn!(fn get_label(label: &str, m: &Metric) -> Result<String, FuncError> {
-    let value = get_metric_label_value(m, label);
-    Ok(value.to_string())
-});
+/// label returns the value of the given label name for the given metric.
+/// usually used alongside with `query` template function.
+fn get_label(args: &[Value]) -> Result<Value, FuncError> {
+    if args.len() != 2 {
+        return Err(FuncError::ExactlyXArgs("getLabel".to_string(), 2))
+    }
+    let label = if let Ok(s) = ensure_string_arg(args, 0, "getLabel") {
+        s
+    } else {
+        return Ok(Value::NoValue)
+    };
+    match get_metric_arg(args, 1, "getLabel") {
+        Ok(metric) => Ok(get_metric_label_value(&metric, label).into()),
+        _=> Ok(Value::NoValue)
+    }
+}
 
 // value returns the value of the given metric.
 // usually used alongside with `query` template function.
-gtmpl_fn!(fn get_value(m: &Metric) -> Result<f64, FuncError> {
-    Ok(m.value)
-});
+fn get_value(args: &[Value]) -> Result<Value, FuncError> {
+    let m = ensure_single_arg(args, "value")?;
+    if let Value::Map(m) = m {
+        if let Some(v) = m.get("value") {
+            return Ok(v.clone())
+        }
+    }
+    Ok(Value::NoValue)
+}
 
-// sortByLabel sorts the given metrics by provided label key
-gtmpl_fn!(fn sort_by_label(label: &str, metrics: &[Metric]) -> Result<Vec<Metric>, FuncError> {
-    let mut metrics = metrics.to_vec();
+/// sortByLabel sorts the given metrics by provided label key
+fn sort_by_label(args: &[Value]) -> Result<Value, FuncError> {
+    if args.len() != 2 {
+        return Err(FuncError::ExactlyXArgs("sortByLabel".to_string(), 2))
+    }
+    let label = if let Ok(s) = ensure_string_arg(args, 0, "sortByLabel") {
+        s
+    } else {
+        return Ok(Value::NoValue)
+    };
+    let arr = get_array_arg(args, 1, "sortByLabel")?;
+    let mut metrics = Vec::with_capacity(arr.len());
+    for m in arr.iter() {
+        let metric = m.try_into()?;
+        metrics.push(metric)
+    }
     metrics.sort_by(|a, b| {
-        let a_value = get_metric_label_value(a, label);
-        let b_value = get_metric_label_value(b, label);
+        let a_value = get_metric_label_value(a, &label);
+        let b_value = get_metric_label_value(b, &label);
         a_value.cmp(&b_value)
     });
-    Ok(metrics)
-});
+
+    let values = metrics.iter().map(|m| m.into()).collect();
+    Ok(Value::Array(values))
+}
 
 // Converts a list of objects to a map with keys arg0, arg1 etc.
 // This is intended to allow multiple arguments to be passed to templates.
-gtmpl_fn!(fn args(args: &[Value]) -> Result<Value, FuncError> {
+fn args(args: &[Value]) -> Result<Value, FuncError> {
     let mut result = HashMap::with_capacity(args.len());
     for (i, a) in args.iter().enumerate() {
         result.insert(format!("arg{}", i), a.clone());
     }
     Ok(Value::Map(result))
-});
+}
 
 
 // pathEscape escapes the string, so it can be safely placed inside a URL path segment.
 //
 // See also queryEscape.
-gtmpl_fn!(fn path_escape(s: &str) -> Result<String, FuncError> {
+fn path_escape(s: &[Value]) -> Result<Value, FuncError> {
+    let mut s = ensure_single_arg(s, "pathEscape")?.to_string();
     let base = "example.com";
     let mut url = parse_url(base)?;
-    url.set_path(s);
+    url.set_path(&mut s);
     let result = url.path();
-    Ok(result.to_string())
-});
+    Ok(result.into())
+}
 
-gtmpl_fn!(fn query_escape(s: &str) -> Result<String, FuncError> {
+fn query_escape(args: &[Value]) -> Result<Value, FuncError> {
+    let s = ensure_single_arg(args, "queryEscape")?.to_string();
     let base = "example.com";
     let mut url = parse_url(base)?;
-    url.set_query(Some(s));
+    url.set_query(Some(&s));
     let result = url.query().unwrap_or("");
-    Ok(result.to_string())
-});
+    Ok(result.into())
+}
 
 fn parse_url(s: &str) -> Result<Url, FuncError> {
     Url::parse(s)
         .map_err(|e| FuncError::Generic(format!("Invalid URL {s}: {e}")))
 }
 
-// path_prefix returns a Path segment from the URL value in `external.url` flag
-gtmpl_fn!(fn path_prefix() -> Result<String, FuncError> {
-    // pathPrefix function supposed to be substituted at FuncsWithExteralURL().
-    // it is present here only for validation purposes, when there is no
-    // provided provider.
-    //
-    // return non-empty slice to pass validation with chained functions in template
-    Ok("".to_string())
-});
 
 // stripPort splits the url and returns only the host.
-gtmpl_fn!(fn strip_port(host_port: &str) -> Result<String, FuncError> {
-    // todo:
-    let url = parse_url(host_port)?;
+fn strip_port(args: &[Value]) -> Result<Value, FuncError> {
+    let host_port = ensure_single_arg(args, "stripPort")?.to_string();
+    let url = parse_url(&host_port)?;
     let host = url.host_str().unwrap_or("");
-    Ok(host.to_string())
-});
+    Ok(host.to_string().into())
+}
 
 // strip_domain removes the domain part of a FQDN. Leaves port untouched.
-gtmpl_fn!(fn strip_domain(host_port: &str) -> Result<String, FuncError> {
-    let mut url = parse_url(host_port)?;
+fn strip_domain(args: &[Value]) -> Result<Value, FuncError> {
+    let host_port = ensure_single_arg(args, "stripDomain")?.to_string();
+    let mut url = parse_url(&host_port)?;
     let domain = url.domain();
     if domain.is_none() {
-        return Ok(host_port.to_string())
+        return Ok(host_port.into())
     }
     let domain = domain.unwrap();
     let port = url.port();
     let host = url.host_str().unwrap_or("");
     let host = host.split('.').next().unwrap_or(host);
     if port.is_some() {
-        return Ok(format!("{}:{}", host, port.unwrap()))
+        return Ok(format!("{}:{}", host, port.unwrap()).into())
     }
-    Ok(host.to_string())
-});
+    Ok(host.to_string().into())
+}
 
 // html_escape applies html-escaping to q, so it can be safely embedded as plaintext into html.
 //
 // See also safeHtml.
-gtmpl_fn!(fn html_escape(q: &str) -> Result<String, FuncError> {
-    Ok( encode_minimal(q) )
-});
+fn html_escape(args: &[Value]) -> Result<Value, FuncError> {
+    let q = ensure_single_arg(args, "htmlEscape")?.to_string();
+    Ok( encode_minimal(&q).into() )
+}
 
 
 // jsonEscape converts the string to properly encoded JSON string.
 //
 // See also quotesEscape.
-gtmpl_fn!(fn json_escape(s: &str) -> Result<String, FuncError> {
-    let value = serde_json::to_string(s)
+fn json_escape(args: &[Value]) -> Result<Value, FuncError> {
+    let s = ensure_single_arg(args, "jsonEscape")?.to_string();
+    let value = serde_json::to_string(&s)
         .map_err(|e| FuncError::Generic(format!("cannot convert {s} to JSON: {e}")))?;
-    Ok(value)
-});
+    Ok(Value::from(value))
+}
 
-// externalURL returns value of `external.url` flag
-gtmpl_fn!(fn external_url() -> Result<String, FuncError> {
-    // externalURL function supposed to be substituted at FuncsWithExteralURL().
-    // it is present here only for validation purposes, when there is no
-    // provided provider.
-    //
-    // return non-empty slice to pass validation with chained functions in template
-    Ok("".to_string())
-});
-
-// humanize converts given number to a human-readable format
+// converts given number to a human-readable format
 // by adding metric prefixes https://en.wikipedia.org/wiki/Metric_prefix
-gtmpl_fn!(fn humanize(v: f64) -> Result<String, FuncError> {
-    Ok(common::humanize::humanize(v))
-});
-
-// humanize1024 converts given number to a human-readable format with 1024 as base
-gtmpl_fn!(fn humanize1024(v: f64) -> Result<String, FuncError> {
-    if v.abs() <= 1.0 || v.is_nan() || v.is_infinite() {
-        return Ok(format!("{:.4}", v))
+fn humanize(args: &[Value]) -> Result<Value, FuncError> {
+    match ensure_single_f64(args, "humanize") {
+        Ok(n) => Ok(humanize_bytes(n).into()),
+        Err(_e) => Ok(Value::NoValue)
     }
-    Ok(humanize_bytes(v))
-});
+}
+
+/// humanize1024 converts given number to a human-readable format with 1024 as base
+fn humanize1024(args: &[Value]) -> Result<Value, FuncError> {
+    match ensure_single_f64(args, "humanize1024") {
+        Ok(v) => {
+            if v.abs() <= 1.0 || v.is_nan() || v.is_infinite() {
+                return Ok(format!("{:.4}", v).into())
+            }
+            Ok(humanize_bytes(v).into())
+        },
+        Err(_e) => Ok(Value::NoValue)
+    }
+}
 
 // humanize_duration converts given seconds to a human-readable duration
-gtmpl_fn!(fn humanize_duration(v: f64) -> Result<String, FuncError> {
-    let mut v = v;
+fn humanize_duration(args: &[Value]) -> Result<Value, FuncError> {
+    let mut v = if let n = ensure_single_f64(args, "humanizeDuration")? {
+        n
+    } else {
+        return Ok(Value::NoValue)
+    };
     if v.is_nan() || v.is_infinite() {
-        return Ok(format!("{:.4}", v));
+        return Ok(format!("{:.4}", v).into());
     }
     if v == 0.0 {
-        return Ok(format!("{:.4}s", v));
+        return Ok(format!("{:.4}s", v).into());
     }
     if v.abs() >= 1.0 {
         let mut sign = "";
@@ -457,16 +492,16 @@ gtmpl_fn!(fn humanize_duration(v: f64) -> Result<String, FuncError> {
         let days = v_int / 60 / 60 / 24;
         // For days to minutes, we display seconds as an integer.
         if days != 0 {
-            return Ok(format!("{sign}{days}d {hours}h {minutes}m {seconds}s"));
+            return Ok(format!("{sign}{days}d {hours}h {minutes}m {seconds}s").into());
         }
         if hours != 0 {
-            return Ok(format!("{sign}{hours}h {minutes}m {seconds}s"));
+            return Ok(format!("{sign}{hours}h {minutes}m {seconds}s").into());
         }
         if minutes != 0 {
-            return Ok(format!("{sign}{minutes}m {seconds}s"));
+            return Ok(format!("{sign}{minutes}m {seconds}s").into());
         }
         // For seconds, we display 4 significant digits.
-        return Ok(format!("{sign}{:.4}s", v))
+        return Ok(format!("{sign}{:.4}s", v).into())
     }
 
     let mut prefix = "";
@@ -477,40 +512,46 @@ gtmpl_fn!(fn humanize_duration(v: f64) -> Result<String, FuncError> {
         prefix = p;
         v *= 1000.0
     }
-    Ok(format!("{:.4}{prefix}s", v))
-});
+    Ok(format!("{:.4}{prefix}s", v).into())
+}
 
 // humanize_percentage converts given ratio value to a fraction of 100
-gtmpl_fn!(fn humanize_percentage(v: f64) -> Result<String, FuncError> {
-    Ok(format!("{:.4}%", v*100.0))
-});
+fn humanize_percentage(args: &[Value]) -> Result<Value, FuncError> {
+    if let v = ensure_single_f64(args, "humanizePercentage")? {
+        return Ok(format!("{:.4}%", v*100.0).into())
+    }
+    Ok(Value::NoValue)
+}
 
 // humanize_timestamp converts given timestamp to a human readable time equivalent
-gtmpl_fn!(fn humanize_timestamp(v: i64) -> Result<String, FuncError> {
-    if v == i64::MAX || v == i64::MIN {
-        return Ok(format!("{:.4}", v))
-    }
-    if let Some(t) = DateTime::from_timestamp(v, 0) {
-        Ok(t.to_string())
+fn humanize_timestamp(args: &[Value]) -> Result<Value, FuncError> {
+    if let v= ensure_single_f64(args, "humanizeTimestamp")? {
+        let v = v as i64;
+        if v == i64::MAX || v == i64::MIN {
+            return Ok(format!("{:.4}", v).into())
+        }
+        if let Some(t) = DateTime::from_timestamp(v, 0) {
+            Ok(t.to_string().into())
+        } else {
+            Ok("".to_string().into())
+        }
     } else {
-        Ok("".to_string())
+        Ok(Value::NoValue)
     }
-});
+}
 
 // query executes the MetricsQL/PromQL query against
 // configured `provider.url` address.
 // For example, {{ query "foo" | first | value }} will
 // execute "/api/v1/query?query=foo" request and will return
 // the first value in response.
-gtmpl_fn!(fn query(_q: &str) -> Result<Value, FuncError> {
-    // query function supposed to be substituted at funcs_with_query().
-    // it is present here only for validation purposes, when there is no
-    // provided provider.
-    //
-    // return non-empty slice to pass validation with chained functions in template
-    // see issue #989 for details
-    Ok(Value::Array(vec![]))
-});
+fn query(args: &[Value]) -> Result<Value, FuncError> {
+    let query = ensure_single_string_arg(args, "query")?;
+    let result = query(&query)
+        .map_err(|e| FuncError::Generic(format!("query failed: {}", e)))?;
+    let mss = datasource_metrics_to_template_metrics(&result).into();
+    Ok(Value::Array(mss))
+}
 
 /// template_funcs initiates template helper functions
 pub fn template_funcs() -> FuncMap {
@@ -525,6 +566,7 @@ pub fn template_funcs() -> FuncMap {
     funcs.insert("quotesEscape".to_string(), quotes_escape);
     funcs.insert("jsonEscape".to_string(), json_escape);
     funcs.insert("htmlEscape".to_string(), html_escape);
+    funcs.insert("trimSpaces".to_string(), trim_spaces);
 
     funcs.insert("stripPort".to_string(), strip_port);
     funcs.insert("stripDomain".to_string(), strip_domain);
@@ -543,8 +585,6 @@ pub fn template_funcs() -> FuncMap {
     funcs.insert("toTime".to_string(), to_time);
 
     /* URLs */
-    funcs.insert("externalURL".to_string(), external_url);
-    funcs.insert("pathPrefix".to_string(), path_prefix);
     funcs.insert("pathEscape".to_string(), path_escape);
     funcs.insert("queryEscape".to_string(), query_escape);
     funcs.insert("query".to_string(), query);

@@ -13,7 +13,7 @@ use std::sync::{Arc, LazyLock, OnceLock};
 static USE_REGEXP_CACHE: LazyLock<bool> = LazyLock::new(|| false);
 
 /// TagFilters represents filters used for filtering tags.
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, PartialEq)]
 pub struct TagFilters(pub Vec<TagFilter>);
 
 impl TagFilters {
@@ -261,7 +261,6 @@ impl Display for TagFilter {
         write!(f, "{}{}{}", self.key, op, value)
     }
 }
-
 
 fn matcher_size_bytes(m: &StringMatchHandler) -> usize {
     use StringMatchHandler::*;

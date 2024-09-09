@@ -40,7 +40,7 @@ pub fn concat_label_values(labels: &[Label], label_names: &[String], separator: 
 }
 
 pub fn set_label_value(labels: &mut Vec<Label>, labels_offset: usize, name: &str, value: String) {
-    let mut sub = &labels[labels_offset..];
+    let mut sub = &mut labels[labels_offset..];
     for label in sub.iter_mut() {
         if label.name == name {
             label.value = value;

@@ -10,6 +10,8 @@ mod ts_db;
 pub mod arg_parse;
 pub(crate) mod commands;
 
+pub use result::*;
+
 pub(crate) fn with_timeseries(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&TimeSeries) -> ValkeyResult) -> ValkeyResult {
     let redis_key = ctx.open_key(key);
     let series = redis_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE)?;

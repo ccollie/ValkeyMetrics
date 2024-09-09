@@ -62,7 +62,7 @@ impl Manager {
                 }
             }
             let ng = Group::from_config(cfg.clone(), self.evaluation_interval, &self.labels);
-            groups_registry.insert(ng.ID(), ng)
+            groups_registry.insert(ng.id(), ng);
         }
 
         if ar_present && self.notifiers.is_empty() {
@@ -78,15 +78,18 @@ impl Manager {
         let mut groups = self.groups.write().unwrap();
         let to_delete = vec![];
         for (_, og) in groups.iter_mut() {
-            let ng = groups_registry.get(og.ID());
+            let og_id = og.id();
+
+            let ng = groups_registry.get(&og_id);
             if ng.is_none() {
                 // old group is not present in new list,
                 // so must be stopped and deleted
-                self.remove(og.ID());
+                self.labels.remove(og_id);
                 continue
             }
             let ng = ng.unwrap();
-            groups_registry.remove(ng.ID());
+            let ng_id = ng.id();
+            groups_registry.remove(&ng_id);
             if og.checksum != ng.checksum {
                 to_update.push(UpdateItem{old: &og, new: ng})
             }
@@ -97,7 +100,6 @@ impl Manager {
         if !to_update.is_empty() {
             for item in to_update.iter_mut() {
                 item.old.update_with(item.new)?;
-                item.old.interrupt_eval();
             }
         }
         Ok(())

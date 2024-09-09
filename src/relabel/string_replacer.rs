@@ -97,7 +97,7 @@ impl StringReplacer {
         let res = self.cache.get_or_insert(&key, || {
             self.replace_slow(val)
         });
-        res.into()
+        res.to_string()
     }
 
     /// replaces s with the replacement if s matches '^regex$'.

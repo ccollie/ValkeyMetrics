@@ -13,7 +13,7 @@ use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
 use crate::rules::alerts::{AlertsError, AlertsResult};
 use crate::rules::RuleType;
 
-#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Serialize, Deserialize, Eq)]
 #[non_exhaustive]
 pub enum DataSourceType {
     #[default]
@@ -142,7 +142,7 @@ impl Display for RuleConfig {
         keys.sort();
 
         for (i, key) in keys.iter().enumerate() {
-            let value = self.labels.get(key).unwrap();
+            let value = self.labels.get(&key).unwrap();
             if i == 0 {
                 write!(f, "; labels:")?;
             }
@@ -247,6 +247,18 @@ impl Default for Headers {
     }
 }
 
+impl From<&Headers> for HashMap<String, String> {
+    fn from(h: &Headers) -> Self {
+        let map: HashMap<String, String> = h.0.iter().map(|h| (h.key.clone(), h.value.clone())).into();
+        map
+    }
+}
+
+impl From<Headers> for HashMap<String, String> {
+    fn from(h: Headers) -> Self {
+         h.into()
+    }
+}
 impl GroupConfig {
     pub fn validate(&self, validate_tpl_fn: ValidateTplFn, validate_expressions: bool) -> AlertsResult<()> {
         fn err(msg: &str) -> AlertsResult<()> {

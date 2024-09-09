@@ -47,7 +47,7 @@ impl RecordingRule {
             name: cfg.name().to_string(),
             expr: cfg.expr.clone(),
             labels: cfg.labels.clone(),
-            group_id: group.ID(),
+            group_id: group.id(),
             state: RuleState::new(cfg.update_entries_limit()),
             eval_alignment: None,
             metrics: Default::default(),

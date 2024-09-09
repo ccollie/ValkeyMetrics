@@ -2,10 +2,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 use std::time::Duration;
-use valkey_module::{ContextGuard, ValkeyString, ThreadSafeContext};
-use crate::index::RedisContext;
+use valkey_module::{ContextGuard, Context, ValkeyString, ThreadSafeContext};
 use crate::module::commands::create_series_ex;
-use crate::module::get_timeseries_mut;
 use crate::rules::alerts::{AlertsError, AlertsResult};
 use crate::rules::RawTimeSeries;
 use crate::storage::time_series::TimeSeries;
@@ -169,7 +167,7 @@ impl WriteQueue {
         writer.append(&mut remainder);
     }
 
-    fn create_series<'a>(&self, ctx: &'a RedisContext, key: &ValkeyString) -> AlertsResult<&'a mut TimeSeries> {
+    fn create_series<'a>(&self, ctx: &'a Context, key: &ValkeyString) -> AlertsResult<&'a mut TimeSeries> {
         let options = TimeSeriesOptions::default();
         create_series_ex(ctx, key, options)
             .map_err(|e| AlertsError::Generic(format!("failed to create series: {:?}", e)))?;

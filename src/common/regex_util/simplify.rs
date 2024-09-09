@@ -1,11 +1,10 @@
-use metricsql_common::prelude::{remove_start_end_anchors, match_handlers::StringMatchHandler, FastRegexMatcher};
-use regex::{Regex, Error as RegexError};
+use metricsql_common::prelude::remove_start_end_anchors;
+use regex::{Error as RegexError, Regex};
+use regex_syntax::hir::Class::{Bytes, Unicode};
 use regex_syntax::{
-    escape as escape_regex,
-    parse as parse_regex,
-    hir::{Hir, HirKind}
+    hir::{Hir, HirKind},
+    parse as parse_regex
 };
-use regex_syntax::hir::Class::{Unicode, Bytes};
 
 const MAX_OR_VALUES: usize = 10;
 
@@ -52,16 +51,6 @@ pub fn get_or_values(expr: &str) -> Vec<String> {
     }
 }
 
-pub(crate) fn get_match_func_for_or_suffixes(or_values: Vec<String>) -> StringMatchHandler {
-    if or_values.len() == 1 {
-        let mut or_values = or_values;
-        let v = or_values.remove(0);
-        StringMatchHandler::equals(v)
-    } else {
-        // aho-corasick ?
-        StringMatchHandler::Alternates(or_values, true)
-    }
-}
 
 fn get_or_values_ext(sre: &Hir) -> Option<Vec<String>> {
     use HirKind::*;
@@ -377,46 +366,6 @@ fn literal_to_string(sre: &Hir) -> String {
     "".to_string()
 }
 
-fn dot_plus_matcher() -> StringMatchHandler {
-    let match_fn = |needle, haystack| !needle.is_empty();
-    StringMatchHandler::MatchFn(match_fn)
-}
-
-pub(super) fn get_prefix_matcher(prefix: &str) -> StringMatchHandler {
-    if prefix == ".*" {
-        return StringMatchHandler::MatchAll;
-    }
-    if prefix == ".+" {
-        return dot_plus_matcher();
-    }
-    StringMatchHandler::StartsWith(prefix.to_string())
-}
-
-pub(super) fn get_suffix_matcher(suffix: &str) -> Result<StringMatchHandler, RegexError> {
-    if !suffix.is_empty() {
-        if suffix == ".*" {
-            return Ok(StringMatchHandler::MatchAll);
-        }
-        if suffix == ".+" {
-            return Ok(dot_plus_matcher());
-        }
-        if escape_regex(suffix) == suffix {
-            // Fast path - pr contains only literal prefix such as 'foo'
-            return Ok(StringMatchHandler::equals(suffix.to_string()));
-        }
-        let or_values = get_or_values(suffix);
-        if !or_values.is_empty() {
-            // Fast path - pr contains only alternate strings such as 'foo|bar|baz'
-            return Ok(StringMatchHandler::Alternates(or_values));
-        }
-    }
-    // It is expected that optimize returns valid regexp in suffix, so raise error if not.
-    // Anchor suffix to the beginning and the end of the matching string.
-    let suffix_expr = format!("^(?:{suffix})$");
-    let re_suffix = Regex::new(&suffix_expr)?;
-    Ok(StringMatchHandler::FastRegex(FastRegexMatcher::new(re_suffix)))
-}
-
 fn is_empty_regexp(sre: &Hir) -> bool {
     matches!(sre.kind(), HirKind::Empty)
 }
@@ -460,7 +409,8 @@ fn build_hir(pattern: &str) -> Result<Hir, RegexError> {
 
 #[cfg(test)]
 mod test {
-    use crate::common::simplify::{get_or_values, remove_start_end_anchors, simplify};
+    use crate::common::{get_or_values, simplify};
+    use metricsql_common::prelude::remove_start_end_anchors;
 
     #[test]
     fn test_get_or_values() {

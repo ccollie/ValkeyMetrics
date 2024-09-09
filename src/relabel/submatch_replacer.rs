@@ -1,3 +1,4 @@
+use crate::common::PromRegex;
 use dynamic_lru_cache::DynamicCache;
 use regex::Regex;
 use crate::relabel::regex_parse::parse_regex;
@@ -34,7 +35,7 @@ impl SubmatchReplacer {
         let res = self.cache.get_or_insert(&key, || {
             self.replace_slow(val)
         });
-        res.into()
+        res.to_string()
     }
 
     /// replaces all the regex matches with the replacement in s.

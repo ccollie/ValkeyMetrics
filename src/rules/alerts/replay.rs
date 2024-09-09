@@ -3,7 +3,7 @@ use crate::rules::{EvalContext, Rule};
 use metricsql_runtime::{Timestamp, TimestampTrait};
 use std::thread;
 use std::time::Duration;
-use crate::common::humanize::humanize_duration;
+use metricsql_common::humanize::humanize_duration;
 use crate::config::get_global_settings;
 
 /**
@@ -67,7 +67,7 @@ pub(crate) fn replay(
 
     ctx.log_info(&msg);
 
-    let total: usize = replay_group(group, ctx, options, rw);
+    let total: usize = replay_group(group, ctx, options, rw)?;
     Ok(total)
 }
 
@@ -133,7 +133,7 @@ fn replay_range<'a>(
     let mut total: usize = 0;
 
     ctx.log_info(&format!("> Rule {:?} (ID: {})\n", rule, rule.id()));
-    for ri in RangeIterator::new(*start, *end, step) {
+    for ri in RangeIterator::new(start, end, step) {
         match replay_rule(ctx, rule, ri.start, ri.end, retry_attempts, rw) {
             Ok(n) => {
                 let msg = format!("{} samples imported", n);
@@ -165,7 +165,7 @@ fn replay_rule(
     let mut err: Option<AlertsError> = None;
 
     for i in 0..rule_retry_attempts {
-        match rule.exec_range(&ctx.querier, *start, *end) {
+        match rule.exec_range(&ctx.querier, start, end) {
             Ok(res) => {
                 for ts in res.into_iter() {
                     tss.push(ts);

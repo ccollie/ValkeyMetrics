@@ -1,8 +1,8 @@
-
+use std::ops::Add;
 use std::sync::atomic::{Ordering, AtomicBool};
 use std::sync::{Arc, mpsc, RwLock};
 use std::time::Duration;
-use ahash::{AHashMap, HashMapExt};
+use ahash::{AHashMap, HashMap, HashMapExt};
 use metricsql_common::hash::IntMap;
 use metricsql_runtime::Timestamp;
 use valkey_module::{Context, RedisModuleTimerID};
@@ -20,6 +20,7 @@ use crate::rules::alerts::{
     WriteQueue
 };
 use crate::rules::alerts::executor::Executor;
+use crate::rules::GroupConfig;
 
 /// Control messages sent to Group channel during evaluation
 enum GroupMessage {
@@ -63,13 +64,13 @@ struct CallbackData {
 fn interval_callback(ctx: &Context, data: CallbackData) {
     ctx.log_debug(format!("Interval callback for group: {}", data.group_id).as_str());
     if data.sender.send(GroupMessage::Tick(data.group_id)).is_err() {
-        ctx.log_error("failed to send start group message");
+        ctx.log_warning("failed to send start group message");
     }
 }
 
 fn delay_callback(ctx: &Context, data: CallbackData) {
     if data.sender.send(GroupMessage::StartGroup(data.group_id)).is_err() {
-        ctx.log_error("failed to send start group message");
+        ctx.log_warning("failed to send start group message");
     }
 }
 
@@ -137,7 +138,8 @@ impl GroupProcessor {
         if self.is_stopped() {
             return;
         }
-        let group = self.groups.read().unwrap().get_mut(&group_id).unwrap();
+        let binding = self.groups.read().unwrap();
+        let group = binding.get_mut(&group_id).unwrap();
         self.start_group(group).unwrap()
     }
 
@@ -217,21 +219,87 @@ impl GroupProcessor {
         //     }
         // }
 
-        match self.redis_ctx.create_timer(group.interval, interval_callback, callback_data) {
-            Ok(timer_id) => {
-                group_meta.timer_id = timer_id;
-                Ok(())
-            }
-            Err(err) => {
-                self.redis_ctx.log_warning(format!("failed to start group timer: {}", err).as_str());
-                // todo: more specific error enum
-                Err(AlertsError::Generic(format!("failed to start group timer: {}", err)))
-            }
-        }
+        group_meta.timer_id = self.redis_ctx.create_timer(group.interval, interval_callback, callback_data);
+        Ok(())
     }
 
     fn stop_group(&mut self, group: &Group, restore: bool) {
         // stop group
+    }
+
+    fn update_group(&mut self, group: Group) -> AlertsResult<()> {
+        // update group
+        let group_id = group.id;
+        let mut groups = self.groups.write().unwrap();
+        if let Some(old_group) = groups.get_mut(&group_id) {
+            if old_group == &group {
+                return Ok(());
+            }
+            self.stop_group(old_group, false);
+        }
+        groups.insert(group_id, group.clone());
+        self.prep_group_start(&group, current_time_millis())
+    }
+
+    pub fn update(&mut self, ctx: &Context, groups_cfg: &[GroupConfig], restore: bool) -> AlertsResult<()> {
+        let mut rr_present = false;
+        let mut ar_present = false;
+
+        let mut groups_registry: HashMap<u64, Group> = HashMap::default();
+        for cfg in groups_cfg {
+            for r in cfg.rules {
+                if rr_present && ar_present {
+                    continue
+                }
+                if !r.record.is_empty() {
+                    rr_present = true
+                }
+                if !r.alert.is_empty() {
+                    ar_present = true
+                }
+            }
+            let ng = Group::from_config(cfg.clone(), self.evaluation_interval, &self.labels);
+            groups_registry.insert(ng.id(), ng);
+        }
+
+        if ar_present && self.notifiers.is_empty() {
+            return Err(AlertsError::Configuration("config contains alerting rules but neither `-notifier.url` nor `-notifier.config` nor `-notifier.blackhole` aren't set".to_string()))
+        }
+        struct UpdateItem<'a> {
+            old: &'a Group,
+            new: &'a Group
+        }
+
+        let mut to_update = vec![];
+
+        let mut groups = self.groups.write().unwrap();
+        let to_delete = vec![];
+        for (_, og) in groups.iter_mut() {
+            let og_id = og.id();
+
+            let ng = groups_registry.get(&og_id);
+            if ng.is_none() {
+                // old group is not present in new list,
+                // so must be stopped and deleted
+                self.labels.remove(og_id);
+                continue
+            }
+            let ng = ng.unwrap();
+            let ng_id = ng.id();
+            groups_registry.remove(&ng_id);
+            if og.checksum != ng.checksum {
+                to_update.push(UpdateItem{old: &og, new: ng})
+            }
+        }
+        for (_, ng) in groups_registry.iter_mut() {
+            self.start_group(ctx, ng, restore)?;
+        }
+        if !to_update.is_empty() {
+            for item in to_update.iter_mut() {
+                item.old.update_with(item.new)?;
+            }
+        }
+        Ok(())
     }
 
     fn handle_stop(&mut self) {
@@ -243,7 +311,7 @@ impl GroupProcessor {
         for (_, meta) in self.metas.iter_mut() {
             // stop timer
             if meta.timer_id != 0 {
-                if let Some(err) = self.redis_ctx.stop_timer(meta.timer_id) {
+                if let Ok(Some(err)) = self.redis_ctx.stop_timer(meta.timer_id) {
                     self.redis_ctx.log_warning(format!("failed to stop timer: {}", err).as_str());
                 }
             }
@@ -271,7 +339,7 @@ impl GroupProcessor {
                 self.redis_ctx.log_warning(format!("failed to stop timer: {}", err).as_str());
                 false
             }
-            None => true
+            Ok(None) => true
         }
     }
 

@@ -1,13 +1,13 @@
 use crate::common::METRIC_NAME_LABEL;
 use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::{parse_series_selector, MetadataFunctionArgs, TimestampRangeValue};
-use crate::module::result::{format_array_result, get_ts_metric_selector};
 use crate::module::{normalize_range_args, parse_timestamp_arg, VALKEY_PROMQL_SERIES_TYPE};
 use crate::storage::time_series::TimeSeries;
 use std::collections::BTreeSet;
 use valkey_module::{
     Context as RedisContext, Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue,
 };
+use crate::module::result::get_ts_metric_selector;
 // todo: series count
 
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#finding-series-by-label-matchers

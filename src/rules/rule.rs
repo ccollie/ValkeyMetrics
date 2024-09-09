@@ -8,7 +8,7 @@ use crate::common::types::{Timestamp};
 use crate::rules::alerts::{AlertingRule, AlertsError, AlertsResult, Querier, RecordingRule};
 use crate::rules::types::RawTimeSeries;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum RuleType {
     Recording,
     Alerting,
@@ -72,7 +72,7 @@ impl<'a> EvalContext<'a> {
     }
 
     pub fn log_info(&self, msg: &str) {
-        self.redis_ctx.log_info(msg);
+        self.redis_ctx.log_debug(msg);
     }
 
     pub fn log_warning(&self, msg: &str) {
@@ -149,7 +149,7 @@ impl Rule for PromRule {
 }
 // var errDuplicate = "result contains metrics with the same labelset after applying rule labels. See https://docs.victoriametrics.com/vmalert.html#series-with-the-same-labelset for details";
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Eq)]
 pub struct RuleState(pub VecDeque<RuleStateEntry>);
 
 impl RuleState {

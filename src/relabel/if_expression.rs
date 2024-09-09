@@ -1,4 +1,3 @@
-use crate::rules::alerts::{AlertsError, AlertsResult};
 use crate::relabel::label_filter::to_canonical_label_name;
 use crate::relabel::{LabelFilter, LabelFilterOp, LabelMatchers};
 use metricsql_parser::ast::Expr;
@@ -6,6 +5,8 @@ use metricsql_parser::prelude::MetricExpr;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use metricsql_common::prelude::get_optimized_re_match_func;
+use crate::common::TagFilters;
+use crate::rules::{AlertsError, AlertsResult};
 use crate::storage::Label;
 
 /// `IfExpression` represents PromQL-like label filters such as `metric_name{filters...}`.
@@ -79,6 +80,7 @@ type BaseLabelFilter = metricsql_parser::prelude::LabelFilter;
 pub struct IfExpressionMatcher {
     s: String,
     matchers_list: Vec<LabelMatchers>,
+    filter_list: TagFilters,
 }
 
 impl IfExpressionMatcher {

@@ -22,6 +22,8 @@ mod storage;
 #[cfg(test)]
 mod tests;
 mod gorilla;
+mod rules;
+mod relabel;
 
 use crate::globals::{clear_timeseries_index, with_timeseries_index};
 use module::*;

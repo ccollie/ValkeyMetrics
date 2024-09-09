@@ -16,7 +16,7 @@ mod slice;
 pub mod time_series;
 mod uncompressed_chunk;
 pub(crate) mod utils;
-pub(crate) mod series_data;
+pub mod series_data;
 mod defrag;
 mod types;
 mod timestamps_filter_iterator;
@@ -27,6 +27,7 @@ pub(super) use chunk::*;
 pub(crate) use constants::*;
 pub(crate) use slice::*;
 pub(crate) use defrag::*;
+pub(crate) use series_data::*;
 use crate::aggregators::Aggregator;
 use crate::module::arg_parse::TimestampRangeValue;
 
