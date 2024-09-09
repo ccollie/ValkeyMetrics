@@ -3,7 +3,6 @@ use std::sync::atomic::{Ordering, AtomicBool};
 use std::sync::{Arc, mpsc, RwLock};
 use std::time::Duration;
 use ahash::{AHashMap, HashMap, HashMapExt};
-use metricsql_common::hash::IntMap;
 use metricsql_runtime::Timestamp;
 use valkey_module::{Context, RedisModuleTimerID};
 use tracing::info;
@@ -58,21 +57,23 @@ impl GroupMeta {
 
     fn stop(&mut self, ctx: &Context) {
         self.group.close();
-        self.stop_timer(ctx, &mut self.timer_id);
-        self.stop_timer(ctx, &mut self.delay_timer_id);
+        self.stop_timer(ctx, self.timer_id);
+        self.stop_timer(ctx, self.delay_timer_id);
+        self.timer_id = 0;
+        self.delay_timer_id = 0;
     }
 
     fn stop_delay_timer(&mut self, ctx: &Context) {
-        self.stop_timer(ctx, &mut self.delay_timer_id);
+        self.stop_timer(ctx, self.delay_timer_id);
+        self.delay_timer_id = 0;
     }
 
-    fn stop_timer(&mut self, ctx: &Context, id: &mut RedisModuleTimerID) -> bool {
-        if *id == 0 {
+    fn stop_timer(&mut self, ctx: &Context, id: RedisModuleTimerID) -> bool {
+        if id == 0 {
             return false;
         }
         match ctx.stop_timer(*id) {
             Some(err) => {
-                *id = 0;
                 ctx.log_warning(format!("failed to stop timer: {}", err).as_str());
                 false
             }
@@ -148,14 +149,10 @@ impl GroupProcessor {
                     break;
                 }
                 Ok(GroupMessage::StartGroup(id)) => {
-                    self.handle_group_start_message(id)
+                    self.handle_group_start(id)
                 }
             }
         }
-    }
-
-    fn get_group(&self, group_id: u64) -> Option<&Group> {
-        self.groups.read().unwrap().get(&group_id)
     }
 
     fn on_tick(&mut self, id: u64) {
@@ -165,14 +162,14 @@ impl GroupProcessor {
         }
     }
 
-    fn handle_group_start_message(&mut self, group_id: u64) {
+    fn handle_group_start(&mut self, group_id: u64) {
         // handle group start message
         if self.is_stopped() {
             return;
         }
         let mut groups = self.groups.write().unwrap();
-        if let Some(group) = groups.get_mut(&group_id) {
-            self.start_group(&mut group).unwrap();
+        if let Some(meta) = groups.get_mut(&group_id) {
+            self.start_group(&mut meta.group).unwrap();
         }
     }
 
@@ -214,7 +211,7 @@ impl GroupProcessor {
             Ok(())
         } else {
             groups.insert(group_id, meta);
-            self.start_group(group)
+            self.start_group(&mut group)
         }
     }
 
@@ -258,6 +255,17 @@ impl GroupProcessor {
         Ok(())
     }
 
+    pub fn stop_group(&mut self, group_id: u64) -> bool {
+        // stop group
+        let mut groups = self.groups.write().unwrap();
+        if let Some(meta) = groups.get_mut(&group_id) {
+            meta.stop(&self.redis_ctx);
+            meta.started = false;
+            return true
+        }
+        false
+    }
+
     fn update_group(&mut self, group: Group) -> AlertsResult<()> {
         // update group
         let group_id = group.id;
@@ -276,8 +284,8 @@ impl GroupProcessor {
         // delete group
         let mut groups = self.groups.write().unwrap();
         if let Some(meta) = groups.get_mut(&group_id) {
-            self.stop_group(&meta, false);
-            self.groups.remove(&group_id);
+            meta.stop(&self.redis_ctx);
+            groups.remove(&group_id);
         }
         Ok(())
     }
@@ -299,7 +307,7 @@ impl GroupProcessor {
                     ar_present = true
                 }
             }
-            let ng = Group::from_config(cfg.clone(), self.evaluation_interval, &self.labels);
+            let ng = Group::from_config(cfg.clone(), cfg.interval, &self.labels);
             groups_registry.insert(ng.id(), ng);
         }
 

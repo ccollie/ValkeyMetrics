@@ -578,7 +578,7 @@ fn handle_replace(prc: &ParsedRelabelConfig, labels: &mut Vec<Label>, labels_off
     if prc.has_capture_group_in_target_label {
         // Slow path - target_label contains regex capture groups, so the target_label
         // must be calculated from the regex match.
-        name_str = &prc.expand_capture_groups(name_str, source_str);
+        name_str = prc.expand_capture_groups(name_str, source_str);
     }
 
     set_label_value(labels, labels_offset, name_str, value_str)

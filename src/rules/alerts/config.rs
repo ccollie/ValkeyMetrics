@@ -142,7 +142,7 @@ impl Display for RuleConfig {
         keys.sort();
 
         for (i, key) in keys.iter().enumerate() {
-            let value = self.labels.get(&key).unwrap();
+            let value = self.labels.get(key).unwrap();
             if i == 0 {
                 write!(f, "; labels:")?;
             }
@@ -304,20 +304,20 @@ impl GroupConfig {
                 validate_expr(&r.expr)
                     .map_err(|err| {
                         let msg = format!("invalid expression for rule {}: {:?}", rule_name, err);
-                        Err(AlertsError::InvalidRule(msg))
+                        AlertsError::InvalidRule(msg)
                     })?;
             }
 
             validate_tpl_fn(&r.annotations)
                 .map_err(|err| {
                     let msg = format!("invalid annotations for rule {}: {:?}", rule_name, err);
-                    Err(AlertsError::InvalidRule(msg))
+                    AlertsError::InvalidRule(msg)
                 })?;
 
             validate_tpl_fn(&r.labels)
                 .map_err(|err| {
                     let msg = format!("invalid labels for rule {}: {:?}", rule_name, err);
-                    Err(AlertsError::InvalidRule(msg))
+                    AlertsError::InvalidRule(msg)
                 })?;
         }
         Ok(())

@@ -32,16 +32,7 @@ impl Manager {
     }
 
     fn start_group(&mut self, ctx: &Context, group: Group, restore: bool) -> AlertsResult<()> {
-        let id = group.id();
-        let mut group = group;
-        if restore {
-            group.start(ctx, self.notifiers, Arc::clone(&self.rw), self.querier_builder)
-        } else {
-            group.start(ctx, self.notifiers, Arc::clone(&self.rw), None)
-        }
-        let mut groups = self.groups.write().unwrap();
-        groups.insert(id, group);
-        Ok(())
+        todo!("start_group")
     }
 
     fn update(&mut self, ctx: &Context, groups_cfg: &[GroupConfig], restore: bool) -> AlertsResult<()> {

@@ -171,8 +171,6 @@ pub(crate) fn funcs_with_query(query: QueryFn) -> FuncMap {
 /// returns a function map that depends on external_url value
 pub(crate) fn funcs_with_external_url(external_url: Url) -> FuncMap {
     let mut funcs = FuncMap::new();
-    funcs.insert("external_url".to_string(), make_const_function(external_url.to_string()));
-    funcs.insert("pathPrefix".to_string(), make_const_function(external_url.path()));
     funcs
 }
 

@@ -149,7 +149,7 @@ impl Rule for PromRule {
 }
 // var errDuplicate = "result contains metrics with the same labelset after applying rule labels. See https://docs.victoriametrics.com/vmalert.html#series-with-the-same-labelset for details";
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RuleState(pub VecDeque<RuleStateEntry>);
 
 impl RuleState {

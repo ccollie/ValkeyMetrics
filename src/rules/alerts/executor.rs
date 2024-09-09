@@ -117,8 +117,8 @@ impl Executor {
 
         let stale_series = self.get_stale_series(rule, &tss, ts);
 
-        self.push_to_rw(&rule, tss)?;
-        self.push_to_rw(&rule, stale_series)?;
+        self.push_to_rw(rule, tss)?;
+        self.push_to_rw(rule, stale_series)?;
 
         if matches!(rule.rule_type(), RuleType::Alerting) {
             let settings = get_global_settings();
@@ -160,8 +160,5 @@ impl Executor {
             }
         }
         Ok(err_gr)
-    }
-
-    pub(super) fn on_tick(&mut self) {
     }
 }
