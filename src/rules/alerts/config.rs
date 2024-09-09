@@ -173,8 +173,6 @@ pub(crate) fn should_skip_rand_sleep_on_group_start() -> bool {
 pub struct GroupConfig {
     #[serde(rename = "type")]
     pub datasource_type: DataSourceType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file: Option<String>,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]

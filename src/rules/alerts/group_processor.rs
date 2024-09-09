@@ -32,21 +32,58 @@ enum GroupMessage {
 
 struct GroupMeta {
     id: u64,
+    group: Group,
     started: bool,
     timer_id: RedisModuleTimerID,
     delay_timer_id: RedisModuleTimerID,
     executor: Executor
 }
 
-struct GroupInner {
-    group: Group,
-    meta: GroupMeta
+impl GroupMeta {
+    fn new(id: u64, group: Group, executor: Executor) -> Self {
+        Self {
+            id,
+            group,
+            started: false,
+            timer_id: 0,
+            delay_timer_id: 0,
+            executor
+        }
+    }
+
+    fn on_tick(&mut self, ctx: &Context) {
+        let current = current_time_millis();
+        self.group.eval(ctx, &mut self.executor, current);
+    }
+
+    fn stop(&mut self, ctx: &Context) {
+        self.group.close();
+        self.stop_timer(ctx, &mut self.timer_id);
+        self.stop_timer(ctx, &mut self.delay_timer_id);
+    }
+
+    fn stop_delay_timer(&mut self, ctx: &Context) {
+        self.stop_timer(ctx, &mut self.delay_timer_id);
+    }
+
+    fn stop_timer(&mut self, ctx: &Context, id: &mut RedisModuleTimerID) -> bool {
+        if *id == 0 {
+            return false;
+        }
+        match ctx.stop_timer(*id) {
+            Some(err) => {
+                *id = 0;
+                ctx.log_warning(format!("failed to stop timer: {}", err).as_str());
+                false
+            }
+            Ok(None) => true
+        }
+    }
 }
 
 pub struct GroupProcessor {
     redis_ctx: Context,
-    pub groups: RwLock<AHashMap<u64, Group>>,
-    pub metas: IntMap<u64, GroupMeta>,
+    pub groups: RwLock<AHashMap<u64, GroupMeta>>,
     pub notifiers: Arc<Vec<Box<dyn Notifier>>>,
     pub notifier_headers: AHashMap<String, String>,
     pub write_queue: Arc<WriteQueue>,
@@ -82,7 +119,6 @@ impl GroupProcessor {
         Self {
             redis_ctx: ctx,
             groups: Default::default(),
-            metas: IntMap::new(),
             notifiers: Default::default(),
             notifier_headers: Default::default(),
             write_queue: Arc::clone(&write_queue),
@@ -105,8 +141,8 @@ impl GroupProcessor {
                     // push to worker ???
                     let _ = self.update(group);
                 }
-                Ok(GroupMessage::Tick(ts)) => {
-                    self.handle_tick(ts);
+                Ok(GroupMessage::Tick(gid)) => {
+                    self.on_tick(gid);
                 }
                 Err(_) => {
                     break;
@@ -122,14 +158,10 @@ impl GroupProcessor {
         self.groups.read().unwrap().get(&group_id)
     }
 
-    fn handle_tick(&mut self, id: u64) {
-        // handle tick
-        // get group by id
+    fn on_tick(&mut self, id: u64) {
         let mut groups = self.groups.write().unwrap();
-        if let Some(group) = groups.get_mut(&id) {
-            let _ts = current_time_millis();
-            let meta = self.metas.get_mut(&id).unwrap();
-            group.on_tick(&self.redis_ctx, &mut meta.executor, _ts);
+        if let Some(meta) = groups.get_mut(&id) {
+            meta.on_tick(&self.redis_ctx);
         }
     }
 
@@ -138,15 +170,17 @@ impl GroupProcessor {
         if self.is_stopped() {
             return;
         }
-        let binding = self.groups.read().unwrap();
-        let group = binding.get_mut(&group_id).unwrap();
-        self.start_group(group).unwrap()
+        let mut groups = self.groups.write().unwrap();
+        if let Some(group) = groups.get_mut(&group_id) {
+            self.start_group(&mut group).unwrap();
+        }
     }
 
     fn prep_group_start(&mut self, group: &Group, eval_ts: Timestamp) -> AlertsResult<()> {
         // prep group start
         let group_id = group.id;
-        let group_meta = self.metas.get(&group_id).unwrap();
+        let mut groups = self.groups.write().unwrap();
+        let group_meta = groups.get(&group_id);
         if group_meta.is_some() {
             // stop group
             self.stop_group(group, true);
@@ -176,10 +210,10 @@ impl GroupProcessor {
 
             meta.started = false;
             meta.delay_timer_id = self.redis_ctx.create_timer(sleep_before_start, delay_callback, callback_data);
-            self.metas.insert(group_id, meta);
+            groups.insert(group_id, meta);
             Ok(())
         } else {
-            self.metas.insert(group_id, meta);
+            groups.insert(group_id, meta);
             self.start_group(group)
         }
     }
@@ -191,7 +225,8 @@ impl GroupProcessor {
             return Ok(());
         }
         let group_id = group.id;
-        let mut group_meta = self.metas.get_mut(&group_id);
+        let mut groups = self.groups.write().unwrap();
+        let mut group_meta = groups.get_mut(&group_id);
         if group_meta.is_none() {
             // todo: more specific error enum
             return Err(AlertsError::Generic(format!("group {} is not found", group_id)));
@@ -223,10 +258,6 @@ impl GroupProcessor {
         Ok(())
     }
 
-    fn stop_group(&mut self, group: &Group, restore: bool) {
-        // stop group
-    }
-
     fn update_group(&mut self, group: Group) -> AlertsResult<()> {
         // update group
         let group_id = group.id;
@@ -239,6 +270,16 @@ impl GroupProcessor {
         }
         groups.insert(group_id, group.clone());
         self.prep_group_start(&group, current_time_millis())
+    }
+
+    pub fn delete_group(&mut self, group_id: u64) -> AlertsResult<()> {
+        // delete group
+        let mut groups = self.groups.write().unwrap();
+        if let Some(meta) = groups.get_mut(&group_id) {
+            self.stop_group(&meta, false);
+            self.groups.remove(&group_id);
+        }
+        Ok(())
     }
 
     pub fn update(&mut self, ctx: &Context, groups_cfg: &[GroupConfig], restore: bool) -> AlertsResult<()> {
@@ -305,16 +346,8 @@ impl GroupProcessor {
     fn handle_stop(&mut self) {
         self.is_stopped.store(true, Ordering::SeqCst);
         let mut groups = self.groups.write().unwrap();
-        for (_, group) in groups.iter_mut() {
-            self.stop_group(group, false);
-        }
-        for (_, meta) in self.metas.iter_mut() {
-            // stop timer
-            if meta.timer_id != 0 {
-                if let Ok(Some(err)) = self.redis_ctx.stop_timer(meta.timer_id) {
-                    self.redis_ctx.log_warning(format!("failed to stop timer: {}", err).as_str());
-                }
-            }
+        for (_, meta) in groups.iter_mut() {
+            meta.stop(&self.redis_ctx);
         }
     }
 
@@ -322,25 +355,8 @@ impl GroupProcessor {
         self.is_stopped.load(Ordering::SeqCst)
     }
 
-    fn set_group_timer(&mut self, group: &Group) {
-        // set timer
-    }
-
     pub fn stop(&mut self) {
         self.sender.send(GroupMessage::Stop).unwrap();
-    }
-
-    fn stop_timer(&mut self, id: RedisModuleTimerID) -> bool {
-        if id == 0 {
-            return false;
-        }
-        match self.redis_ctx.stop_timer(id) {
-            Some(err) => {
-                self.redis_ctx.log_warning(format!("failed to stop timer: {}", err).as_str());
-                false
-            }
-            Ok(None) => true
-        }
     }
 
     fn create_executor(&self, group: &Group) -> Executor {

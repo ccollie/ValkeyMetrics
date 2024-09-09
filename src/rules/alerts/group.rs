@@ -89,12 +89,12 @@ impl Clone for Group {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, Eq)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct GroupMetrics {
-    iteration_total: AtomicU64,
-    iteration_duration: AtomicU64,
-    iteration_missed: AtomicU64,
-    iteration_interval: AtomicU64,
+    pub iteration_total: AtomicU64,
+    pub iteration_duration: AtomicU64,
+    pub iteration_missed: AtomicU64,
+    pub iteration_interval: AtomicU64,
 }
 
 impl Clone for GroupMetrics {
@@ -289,17 +289,6 @@ impl Group {
         Ok(())
     }
 
-    fn create_querier(&self, qb: impl QuerierBuilder) -> Box<dyn Querier> {
-        qb.build_with_params(QuerierParams {
-            data_source_type: self.source_type.clone(),
-            evaluation_interval: self.interval,
-            eval_offset: self.eval_offset,
-            query_params: Default::default(),
-            headers: Default::default(),
-            debug: false,
-        })
-    }
-
     pub fn close(&mut self) {
         self.metrics.iteration_total.store(0, Ordering::Relaxed);
         self.metrics.iteration_duration.store(0, Ordering::Relaxed);
@@ -354,46 +343,6 @@ impl Group {
             }
         }
         self.last_evaluation = start
-    }
-
-    pub fn run<'a>(&mut self,
-                   ctx: &'a EvalContext,
-                   nts: Arc<Vec<Box<dyn Notifier>>>,
-                   write_queue: Arc<WriteQueue>,
-                   qb: impl QuerierBuilder) {
-
-        let settings = get_global_settings();
-        let eval_ts = current_time_millis();
-
-        let querier = self.create_querier(qb);
-        let mut e = Executor::new(nts, &self.notifier_headers, write_queue, querier);
-
-        // restore the rules state after the first evaluation so only active alerts can be restored.
-        // todo: i doubt we need atomics here
-        if self.first_run.swap(false, Ordering::Relaxed) {
-            if let Err(err) = self.restore(ctx, qb, eval_ts, settings.look_back) {
-                let msg = format!("error while restoring ruleState for group {}: {:?}", &self.name, err);
-                tracing::warn!("{}", msg);
-            }
-        }
-
-        // ensure that staleness is tracked for existing rules only
-        e.purge_stale_series(&self.recording_rules);
-        e.purge_stale_series(&self.alerting_rules);
-
-        e.notifier_headers = self.notifier_headers.clone();
-
-        let mut missed = (self.last_evaluation - eval_ts) / (self.interval.as_millis() - 1) as u64 as i64;
-        if missed < 0 {
-            // missed can become < 0 due to irregular delays during evaluation
-            // which can result in time.since(eval_ts) < g.interval
-            missed = 0;
-        }
-        if missed > 0 {
-            self.metrics.iteration_missed.fetch_add(missed as u64, Ordering::Relaxed);
-        }
-        let eval_ts = eval_ts.add((missed + 1) * self.interval.as_millis() as i64);
-        self.eval(&ctx.redis_ctx, &mut e, eval_ts)
     }
 
     pub(super) fn on_tick(&mut self, ctx: &Context, e: &mut Executor, eval_ts: Timestamp) {
@@ -507,29 +456,6 @@ fn get_resolve_duration(group_interval: Duration, delta: &Duration,
     resolve_duration
 }
 
-/// delay_before_start returns a duration on the interval between [ts..ts+interval].
-/// delay_before_start accounts for `offset`, so returned duration should be always
-/// bigger than the `offset`.
-pub(super) fn delay_before_start(ts: Timestamp, key: u64, interval: Duration, offset: Option<&Duration>) -> Duration {
-    let interval_millis = interval.as_millis() as u64;
-    let mut rand_sleep = interval_millis * (key / (1 << 64)) as u32;
-    let sleep_offset = Duration::from_millis((ts % interval_millis) as u64);
-    if rand_sleep < sleep_offset {
-        rand_sleep += interval
-    }
-    rand_sleep -= sleep_offset;
-    // check if `ts` after rand_sleep is before `offset`,
-    // if it is, add extra eval_offset to rand_sleep.
-    // see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/3409.
-    if let Some(offset) = offset {
-        let tmp_eval_ts = ts.add(rand_sleep);
-        if tmp_eval_ts < tmp_eval_ts.truncate(interval).add(*offset) {
-            rand_sleep += *offset
-        }
-    }
-
-    rand_sleep
-}
 
 pub(super) fn labels_to_string(labels: &[Label]) -> String {
     let capacity = labels.iter().fold(0, |acc, l| acc + l.name.len() + l.value.len() + 2);
