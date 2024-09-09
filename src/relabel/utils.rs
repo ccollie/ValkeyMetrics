@@ -1,3 +1,4 @@
+use metricsql_common::prelude::match_handlers::StringMatchHandler;
 use metricsql_runtime::parse_metric_selector;
 use regex::Regex;
 use crate::storage::Label;
@@ -6,18 +7,35 @@ use crate::common::simplify;
 /// `new_labels_from_string` creates labels from s, which can have the form `metric{labels}`.
 ///
 /// This function must be used only in non performance-critical code, since it allocates too much
-pub fn new_labels_from_string(metric_with_labels: &str) -> Vec<Label> {
-    // add a value to metric_with_labels, so it could be parsed by prometheus protocol parser.
-    let filters = parse_metric_selector(metric_with_labels)
-        .map_err(|err| format!("cannot parse metric selector {:?}: {}", metric_with_labels, err)).unwrap();
-    let mut x: Vec<Label> = vec![];
-    for tag in filters.iter() {
-        x.push(Label{
-            name: tag.label.clone(),
-            value: tag.value.clone(),
-        });
+pub fn new_labels_from_string(metric_with_labels: &str) -> Result<Vec<Label>, String> {
+    let mut metric_with_labels = metric_with_labels.to_string();
+
+    if metric_with_labels.starts_with('{') {
+        metric_with_labels = format!("dummy_metric{}", metric_with_labels);
     }
-    x
+
+    // add a value to metric_with_labels, so it could be parsed by prometheus protocol parser.
+    let filters = parse_metric_selector(&metric_with_labels)
+        .map_err(|err| format!("cannot parse metric selector {:?}: {}", metric_with_labels, err))?;
+
+
+    let mut labels: Vec<Label> = vec![];
+    for tag_list in filters.iter() {
+        for tag in tag_list {
+            labels.push(Label{
+                name: tag.label.clone(),
+                value: tag.value.clone(),
+            });
+        }
+    }
+
+    // if !strip_dummy_metric {
+    //     labels.push(Label {
+    //         name: "__name__"
+    //     });
+    // }
+
+    Ok(labels)
 }
 
 pub fn concat_label_values(labels: &[Label], label_names: &[String], separator: &str) -> String {
@@ -104,4 +122,12 @@ pub(super) fn get_regex_literal_prefix(regex: &Regex) -> (String, bool) {
     let (prefix, suffix) = simplify(regex.as_str())
         .unwrap_or((EMPTY_STRING.into(), EMPTY_STRING.into()));
     (prefix, suffix.is_empty())
+}
+
+
+pub(crate) fn is_regex_matcher(matcher: &StringMatchHandler) -> bool {
+    match matcher {
+        StringMatchHandler::Regex(_) | StringMatchHandler::FastRegex(_) => true,
+        _ => false,
+    }
 }

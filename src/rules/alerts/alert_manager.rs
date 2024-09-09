@@ -75,7 +75,7 @@ impl Manager {
             if ng.is_none() {
                 // old group is not present in new list,
                 // so must be stopped and deleted
-                self.labels.remove(og_id);
+                self.labels.remove(&og_id);
                 continue
             }
             let ng = ng.unwrap();

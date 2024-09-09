@@ -68,7 +68,7 @@ impl GraphiteMatchTemplate {
                     // The '*' cannot match string with dots.
                     return false;
                 }
-                dst.push_str(s);
+                dst.push(s.to_string());
                 return true;
             }
             // Search for the start of the next part.
@@ -81,7 +81,7 @@ impl GraphiteMatchTemplate {
                     // The '*' cannot match string with dots.
                     return false;
                 }
-                dst.push_str(tmp);
+                dst.push(tmp.to_string());
                 s = &s[n + p.len()..];
             } else {
                 // Cannot match the next part
@@ -144,7 +144,7 @@ pub struct GraphiteReplaceTemplate {
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphiteReplaceTemplatePart {
-    n: usize,
+    n: i32,
     s: String,
 }
 
@@ -211,9 +211,9 @@ impl GraphiteReplaceTemplate {
         let capacity = matches.len() * 16;
         let mut dst = String::with_capacity(capacity);
         for part in self.parts.iter() {
-            let mut n: usize = part.n;
-            if n >= 0 && n < matches.len() {
-                dst.push_str(&matches[n]);
+            let n = part.n;
+            if n >= 0 && n < matches.len() as i32 {
+                dst.push_str(&matches[n as usize].to_string());
             } else {
                 dst.push_str(&part.s);
             }

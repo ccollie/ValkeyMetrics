@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::default::Default;
 use std::time::Duration;
 
@@ -16,13 +17,13 @@ const ERR_DUPLICATE: &str =
     "result contains metrics with the same labelset after applying rule labels.";
 
 /// RecordingRule is a Rule that evaluates a configured expression and returns a timeseries as result.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct RecordingRule {
     pub rule_type: RuleType,
     pub rule_id: u64,
     pub name: String,
     pub expr: String,
-    pub labels: AHashMap<String, String>,
+    pub labels: HashMap<String, String>,
     pub group_id: u64,
 
     /// id of created time series id
@@ -41,7 +42,7 @@ type DatasourceMetric = Metric;
 
 impl RecordingRule {
     pub fn new(group: &Group, cfg: &RuleConfig) -> Self {
-        let mut rr = RecordingRule {
+        RecordingRule {
             rule_type: RuleType::Recording,
             rule_id: cfg.hash(),
             name: cfg.name().to_string(),
@@ -52,8 +53,7 @@ impl RecordingRule {
             eval_alignment: None,
             metrics: Default::default(),
             ts_key: Default::default(),
-        };
-        rr
+        }
     }
 
     pub fn update(&mut self, rule: &RecordingRule) {
@@ -69,7 +69,7 @@ impl RecordingRule {
         }
         labels.insert(METRIC_NAME_LABEL.to_string(), self.name.to_string());
         // override existing labels with configured ones
-        for (k, v) in self.labels {
+        for (k, v) in self.labels.iter() {
             labels.insert(k.clone(), v.clone());
         }
         new_time_series(&m.key, &m.values, &m.timestamps, labels)
@@ -78,12 +78,13 @@ impl RecordingRule {
     fn run_query(&self, querier: &impl Querier, ts: Timestamp) -> AlertsResult<Vec<Metric>> {
         let values = querier.query(&self.expr, ts)?;
         let mut metrics = Vec::with_capacity(values.len());
-        for v in values {
+        for metric in values.data.into_iter() {
+            // todo: use std::mem::take
             metrics.push(DatasourceMetric {
-                key: v.key.clone(),
-                labels: v.labels.clone(),
-                timestamps: v.timestamps.clone(),
-                values: v.values.clone(),
+                key: metric.key,
+                labels: metric.labels,
+                timestamps: metric.timestamps,
+                values: metric.values,
             });
         }
         Ok(metrics)
@@ -153,7 +154,7 @@ impl Rule for RecordingRule {
     /// It doesn't update internal states of the Rule and is meant to be used just
     /// to get time series for backfilling.
     fn exec_range(&mut self, querier: &impl Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
-        let mut res = querier
+        let res = querier
             .query_range(&self.expr, start, end)
             .map_err(|e| AlertsError::QueryExecutionError(format!("{}: {:?}", self.expr, e)))?;
 

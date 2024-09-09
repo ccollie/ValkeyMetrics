@@ -130,9 +130,9 @@ impl Alert {
     pub fn exec_template(
         &mut self,
         q: QueryFn,
-        labels: &AHashMap<String, String>,
-        annotations: &AHashMap<String, String>,
-    ) -> AlertsResult<AHashMap<String, String>> {
+        labels: &HashMap<String, String>,
+        annotations: &HashMap<String, String>,
+    ) -> AlertsResult<HashMap<String, String>> {
         let tpl_data = AlertTplData {
             value: self.value,
             labels: labels.into(),  // ??? why not use ref ?
@@ -164,17 +164,17 @@ impl Alert {
 /// exec_template executes the given template for given annotations map.
 pub fn exec_template(
     q: QueryFn,
-    annotations: &AHashMap<String, String>,
+    annotations: &HashMap<String, String>,
     tpl_data: &AlertTplData,
-) -> AlertsResult<AHashMap<String, String>> {
+) -> AlertsResult<HashMap<String, String>> {
     let tmpl = get_with_funcs(funcs_with_query(q))?;
     template_annotations(annotations, tpl_data, &tmpl)
 }
 
 /// validate annotations for possible template error, uses empty data for template population
-pub(crate) fn validate_templates(annotations: &AHashMap<String, String>) -> AlertsResult<()> {
+pub(crate) fn validate_templates(annotations: &HashMap<String, String>) -> AlertsResult<()> {
     let tmpl = get_template();
-    let labels = AHashMap::new();
+    let labels = HashMap::new();
     let _ = template_annotations(
         annotations,
         &AlertTplData {
@@ -192,12 +192,12 @@ pub(crate) fn validate_templates(annotations: &AHashMap<String, String>) -> Aler
 }
 
 fn template_annotations(
-    annotations: &AHashMap<String, String>,
+    annotations: &HashMap<String, String>,
     template_data: &AlertTplData,
     tmpl: &Template,
-) -> AlertsResult<AHashMap<String, String>> {
+) -> AlertsResult<HashMap<String, String>> {
     let mut builder = String::with_capacity(256);
-    let mut r = AHashMap::with_capacity(annotations.len());
+    let mut r = HashMap::with_capacity(annotations.len());
     let mut err_group = Vec::with_capacity(annotations.len());
 
     let header_len = TPL_HEADERS.len();
@@ -231,7 +231,7 @@ fn template_annotation(text: &str, data: &AlertTplData, tmpl: &Template) -> Aler
         return AlertsError::TemplateParseError(format!("{:?}", err));
     })?;
 
-    let context = Context::from(*data);
+    let context = Context::from(data);
     tpl.render(&context).map_err(|err| {
         AlertsError::Generic(format!("error evaluating annotation template: {}", err))
     })

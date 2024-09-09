@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::xxh3_64;
 use crate::common::PromRegex;
 use crate::relabel::{DEFAULT_ORIGINAL_REGEX_FOR_RELABEL_CONFIG, GraphiteLabelRule, GraphiteMatchTemplate, IfExpression, is_default_regex_for_config};
-use crate::relabel::utils::{are_equal_label_values, concat_label_values, contains_all_label_values, get_label_value, set_label_value};
+use crate::relabel::utils::{are_equal_label_values, concat_label_values, contains_all_label_values, get_label_value, is_regex_matcher, set_label_value};
 use crate::storage::Label;
 
 pub trait Action {
@@ -490,21 +490,9 @@ impl ParsedRelabelConfig {
 
     /// replaces all the regex matches with the replacement in s.
     pub(crate) fn replace_string_submatches_fast(&self, s: &str) -> String {
-        if !self.has_capture_group_in_replacement {
-            match &self.regex.matcher {
-                StringMatchHandler::Contains(_) |
-                StringMatchHandler::Literal(_) |
-                StringMatchHandler::StartsWith(_) |
-                StringMatchHandler::EndsWith(_) => {
-                    if !self.regex.is_match(s) {
-                        // Fast path - zero regex matches in s.
-                        return s.to_string();
-                    }
-                }
-                _ => {}
-            }
-            // Fast path - no capture groups in replacement.
-            return self.replace_string_submatches(s);
+        if !self.has_capture_group_in_replacement && !is_regex_matcher(&self.regex.matcher) && !self.regex.is_match(s) {
+            // Fast path - no regex matches in s.
+            return s.to_string();
         }
 
         // Slow path - replace all the regex matches in s with the replacement.
@@ -578,7 +566,7 @@ fn handle_replace(prc: &ParsedRelabelConfig, labels: &mut Vec<Label>, labels_off
     if prc.has_capture_group_in_target_label {
         // Slow path - target_label contains regex capture groups, so the target_label
         // must be calculated from the regex match.
-        name_str = prc.expand_capture_groups(name_str, source_str);
+        name_str = &prc.expand_capture_groups(name_str, source_str);
     }
 
     set_label_value(labels, labels_offset, name_str, value_str)

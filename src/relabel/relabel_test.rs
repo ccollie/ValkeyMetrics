@@ -67,9 +67,9 @@ mod test {
             .unwrap()
     }
 
-    fn check_apply_debug(config: &str, metric: &str, dss_expected: Vec<DebugStep>) {
+    fn check_apply_debug(config: &str, metric: &str, dss_expected: Vec<DebugStep>) -> Result<(), String> {
         let pcs = parse_config(config);
-        let mut labels = new_labels_from_string(metric);
+        let mut labels = new_labels_from_string(metric)?;
         let dss = pcs.apply_debug(&mut labels);
         assert_eq!(dss, dss_expected,
             "unexpected result; got\n{:?}\nwant\n{:?}", dss, dss_expected);

@@ -25,7 +25,6 @@ use crate::rules::alerts::{
     DataSourceType,
     GroupConfig,
     RecordingRule,
-    WriteQueue
 };
 use crate::rules::alerts::datasource::datasource::{QuerierBuilder, QuerierParams};
 use crate::rules::alerts::executor::Executor;
@@ -45,9 +44,9 @@ pub struct Group {
     pub limit: usize,
     pub last_evaluation: Timestamp,
     pub labels: Vec<Label>,
-    pub params: AHashMap<String, String>,
+    pub params: HashMap<String, String>,
     pub headers: Vec<Label>,
-    pub notifier_headers: AHashMap<String, String>,
+    pub notifier_headers: HashMap<String, String>,
     pub metrics: GroupMetrics,
     #[serde(skip)]
     first_run: AtomicBool,
@@ -137,11 +136,14 @@ impl Group {
         if let Some(eval_offset) = cfg.eval_offset {
             g.eval_offset = eval_offset.clone()
         }
-        for h in cfg.headers {
-            g.headers.insert(h.key, h.value);
+        for h in cfg.headers.iter() {
+            g.headers.push(Label {
+                name: h.key.clone(),
+                value: h.value.clone(),
+            });
         }
-        for h in cfg.notifier_headers {
-            g.notifier_headers.insert(h.key, h.value);
+        for h in cfg.notifier_headers.iter() {
+            g.notifier_headers.insert(h.key.clone(), h.value.clone());
         }
         g.metrics = new_group_metrics(&g);
 
@@ -187,10 +189,8 @@ impl Group {
         hasher.write(b"\xff");
         hasher.write(self.source_type.to_string().as_bytes());
         hasher.write_u128(self.interval.as_millis());
-        if let Some(offset) = self.eval_offset {
-            let millis = offset.as_millis();
-            hasher.write_i128(millis);
-        }
+        let millis = self.eval_offset.as_millis();
+        hasher.write_u128(millis);
         hasher.digest()
     }
 
@@ -308,7 +308,7 @@ impl Group {
     }
 
     pub fn remove_rule(&mut self, name: &str) -> bool {
-        let mut rule = self.alerting_rules.iter().position(|ar| ar.name == name)
+        let rule = self.alerting_rules.iter().position(|ar| ar.name == name)
             .map(|i| self.alerting_rules.remove(i));
         if rule.is_none() {
             return false;
@@ -389,17 +389,19 @@ impl Group {
     }
 
     pub(super) fn adjust_req_timestamp(&self, timestamp: Timestamp) -> Timestamp {
-        if let Some(offset) = self.eval_offset {
+        if !self.eval_offset.is_zero() {
+            let offset = self.eval_offset.as_millis() as i64; // todo: make sure it doesn't overflow
             // calculate the min timestamp on the evaluationInterval
             let interval_start = timestamp.truncate(self.interval);
-            let ts = interval_start.add(offset);
+            let ts = interval_start + offset;
             if timestamp < ts {
                 // if passed timestamp is before the expected evaluation offset,
                 // then we should adjust it to the previous evaluation round.
                 // E.g. request with evaluationInterval=1h and evaluationOffset=30m
                 // was evaluated at 11:20. Then the timestamp should be adjusted
                 // to 10:30, to the previous evaluationInterval.
-                return ts.add(-self.interval)
+                let interval = self.interval.as_millis().max(i64::MAX as u128) as i64;
+                return ts.add(-interval) // todo: wrapping sub
             }
             // eval_offset shouldn't interfere with eval_alignment, so we return it immediately
             return ts
@@ -415,7 +417,7 @@ impl Group {
 }
 
 fn new_group_metrics(g: &Group) -> GroupMetrics {
-    let mut m = GroupMetrics::default();
+    let m = GroupMetrics::default();
     m
 }
 
@@ -429,7 +431,7 @@ pub(crate) fn merge_labels(group_name: &str, rule_name: &str, set1: &Vec<Label>,
         if let Some(prev) = prev_v {
             let k = &label.name;
             let v = &label.value;
-            info!("label {k}={prev_v} for rule {}.{} overwritten with external label {k}={v}",
+            info!("label {k}={prev} for rule {}.{} overwritten with external label {k}={v}",
                   group_name,
                   rule_name);
         }
@@ -440,15 +442,16 @@ pub(crate) fn merge_labels(group_name: &str, rule_name: &str, set1: &Vec<Label>,
 
 
 /// get_resolve_duration returns the duration after which firing alert can be considered as resolved.
-fn get_resolve_duration(group_interval: Duration, delta: &Duration,
+fn get_resolve_duration(group_interval: Duration,
+                        delta: &Duration,
                         max_duration: &Duration) -> Duration {
     let mut delta = *delta;
     if group_interval > delta {
         delta = group_interval
     }
-    let mut resolve_duration = *delta * 4;
-    if !max_duration.is_zero() && resolve_duration > max_duration {
-        resolve_duration = max_duration
+    let mut resolve_duration = delta * 4;
+    if !max_duration.is_zero() && resolve_duration > *max_duration {
+        resolve_duration = *max_duration
     }
     resolve_duration
 }

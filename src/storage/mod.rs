@@ -68,6 +68,12 @@ impl Ord for Label {
     }
 }
 
+impl Display for Label {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{name}={value}", name = self.name, value = self.value)
+    }
+}
+
 #[non_exhaustive]
 #[derive(Clone, Debug, Default, Hash, PartialEq, Serialize, Deserialize)]
 #[derive(GetSize)]

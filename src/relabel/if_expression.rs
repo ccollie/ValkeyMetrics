@@ -1,13 +1,11 @@
 use crate::relabel::label_filter::to_canonical_label_name;
 use crate::relabel::{LabelFilter, LabelFilterOp, LabelMatchers};
-use metricsql_parser::ast::Expr;
-use metricsql_parser::prelude::MetricExpr;
-use serde::{Deserialize, Serialize};
-use std::fmt::Display;
-use metricsql_common::prelude::get_optimized_re_match_func;
-use crate::common::TagFilters;
 use crate::rules::{AlertsError, AlertsResult};
 use crate::storage::Label;
+use metricsql_common::prelude::get_optimized_re_match_func;
+use metricsql_parser::ast::Expr;
+use metricsql_parser::prelude::MetricExpr;
+use std::fmt::Display;
 
 /// `IfExpression` represents PromQL-like label filters such as `metric_name{filters...}`.
 ///
@@ -20,7 +18,7 @@ use crate::storage::Label;
 /// if:
 /// - 'foo{bar="baz"}'
 /// - '{x=~"y"}'
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct IfExpression(Vec<IfExpressionMatcher>);
 
 impl IfExpression {
@@ -76,11 +74,10 @@ impl TryFrom<MetricExpr> for IfExpression {
 
 type BaseLabelFilter = metricsql_parser::prelude::LabelFilter;
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct IfExpressionMatcher {
     s: String,
     matchers_list: Vec<LabelMatchers>,
-    filter_list: TagFilters,
 }
 
 impl IfExpressionMatcher {

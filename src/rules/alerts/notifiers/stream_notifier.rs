@@ -1,8 +1,7 @@
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::rules::alerts::{Alert, Notifier};
-use crate::storage::Label;
-use ahash::AHashMap;
+use ahash::{AHashMap, HashMap};
 use std::time::Duration;
 use valkey_module::{Context, ValkeyValue};
 
@@ -92,14 +91,17 @@ impl StreamNotifier {
 }
 
 impl Notifier for StreamNotifier {
-    fn send(&self, ctx: &Context, alerts: &[Alert], notifier_headers: &[Label]) -> TsdbResult<()> {
+    fn send(&self, ctx: &Context, alerts: &[Alert], notifier_headers: &HashMap<String, String>) -> TsdbResult<()> {
         let mut keys: Vec<String> = Vec::new();
 
         keys.push(self.key.clone());
         keys.push("*".to_string());
 
         if !notifier_headers.is_empty() {
-            let headers = notifier_headers.iter().map(|label| format!("{}={}", label.name, label.value)).collect::<Vec<String>>();
+            let headers = notifier_headers.iter()
+                .map(|(name, value)| format!("{}={}", name, value))
+                .collect::<Vec<String>>();
+
             let headers_str = headers.join(",");
             keys.push("headers".to_string());
             keys.push(headers_str);

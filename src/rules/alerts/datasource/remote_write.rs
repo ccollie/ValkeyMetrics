@@ -2,8 +2,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 use std::time::Duration;
-use valkey_module::{ContextGuard, Context, ValkeyString, ThreadSafeContext};
+use valkey_module::{ContextGuard, Context, ValkeyString, ThreadSafeContext, ValkeyError};
 use crate::module::commands::create_series_ex;
+use crate::module::VALKEY_PROMQL_SERIES_TYPE;
 use crate::rules::alerts::{AlertsError, AlertsResult};
 use crate::rules::RawTimeSeries;
 use crate::storage::time_series::TimeSeries;
@@ -206,4 +207,14 @@ impl WriteQueue {
         Ok(())
     }
 
+}
+
+
+fn get_timeseries_mut<'a>(ctx: &'a ContextGuard, key: &ValkeyString, must_exist: bool) -> Result<Option<&'a mut TimeSeries>, String> {
+    let key = ctx.open_key_writable(key);
+    let series = key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE)?;
+    match series {
+        Some(series) => Ok(Some(series)),
+        None => Err("ERR TSDB: the key is not a timeseries".to_string()),
+    }
 }

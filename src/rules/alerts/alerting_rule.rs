@@ -14,7 +14,7 @@ use metricsql_runtime::METRIC_NAME_LABEL;
 use scopeguard::defer;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::ops::{Add, Sub};
+use std::ops::{Sub};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 use std::time::Duration;
@@ -70,8 +70,8 @@ pub struct AlertingRule {
     pub expr: String,
     pub r#for: Duration,
     pub keep_firing_for: Duration,
-    pub labels: AHashMap<String, String>,
-    pub annotations: AHashMap<String, String>,
+    pub labels: HashMap<String, String>,
+    pub annotations: HashMap<String, String>,
     pub group_id: u64,
     pub group_name: String,
     pub eval_interval: Duration,
@@ -194,7 +194,6 @@ impl AlertingRule {
                 .query(&expr, ts)
                 .map_err(|e| AlertsError::QueryExecutionError(format!("{}: {:?}", expr, e)))?;
 
-            let q_metrics = res.data;
             if res.data.is_empty() {
                 ctx.log_debug("no response was received from restore query");
                 continue;
@@ -302,6 +301,7 @@ impl AlertingRule {
     ) -> AlertsResult<()>
     where F: Fn(Vec<&mut Alert>) -> AlertsResult<()>
     {
+        let delay = resend_delay.as_millis() as i64;
         let needs_sending = |a: &Alert| -> bool {
             if a.state == AlertState::Pending {
                 return false;
@@ -309,17 +309,19 @@ impl AlertingRule {
             if a.resolved_at > a.last_sent {
                 return true;
             }
-            a.last_sent.add(resend_delay) < ts
+            a.last_sent.saturating_add(delay) < ts
         };
 
         let mut alerts = Vec::with_capacity(10); // ?????
         let mut alerts_inner = self.alerts.write().unwrap();
 
+        let resolve_duration = resolve_duration.as_millis() as i64;
+
         for (_, alert) in alerts_inner.iter_mut() {
             if !needs_sending(alert) {
                 continue;
             }
-            alert.end = ts.add(resolve_duration.as_millis() as i64);
+            alert.end = ts.saturating_add(resolve_duration);
             if alert.state == AlertState::Inactive {
                 alert.end = alert.resolved_at;
             }
@@ -548,10 +550,8 @@ impl Rule for AlertingRule {
                 // check if alert should keep Firing if rule has
                 // `keep_firing_for` field
                 if alert.state == AlertState::Firing {
-                    if !self.keep_firing_for.is_zero() {
-                        if alert.keep_firing_since == 0 {
-                            alert.keep_firing_since = ts
-                        }
+                    if !self.keep_firing_for.is_zero() && alert.keep_firing_since == 0 {
+                        alert.keep_firing_since = ts
                     }
                     // alerts with ar.keep_firing_for > 0 may remain FIRING
                     // even if their expression isn't true anymore
@@ -612,7 +612,7 @@ impl Rule for AlertingRule {
 
             // if alert with For > 0
             let mut prev_t = current_time_millis();
-            for (ts, v) in s.timestamps.iter().zip(s.values.iter()) {
+            for (ts, _v) in s.timestamps.iter().zip(s.values.iter()) {
                 let at = *ts;
                 if at.sub(prev_t) > self.eval_interval.as_millis() as i64 {
                     // reset to Pending if there are gaps > eval_interval between DPs

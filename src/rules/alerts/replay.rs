@@ -90,7 +90,7 @@ fn replay_group<'a>(
     let step_millis = (group.interval.as_millis() * *max_data_points as u128) as u64;
     let step = Duration::from_millis(step_millis);
     let start = group.adjust_req_timestamp(*start);
-    let iterations = ((end - start) / step_millis) + 1;
+    let iterations = ((end - start).abs() as u64 / step_millis) + 1;
     let msg = format!(
         "\nGroup {}\ninterval: \t{}\nrequests to make: \t{}\nmax range per request: \t{}\n",
         group.name,
@@ -168,7 +168,7 @@ fn replay_rule(
         match rule.exec_range(&ctx.querier, start, end) {
             Ok(res) => {
                 for ts in res.into_iter() {
-                    tss.push(ts);
+                    tss.push(ts.into());
                 }
                 break;
             }
@@ -193,10 +193,11 @@ fn replay_rule(
         return Ok(0);
     }
     let mut n: usize = 0;
-    for ts in tss.iter() {
-        match rw.push(ts) {
+    for ts in tss.into_iter() {
+        let len = ts.timestamps.len();
+        match rw.push(ts.into()) {
             Ok(_) => {
-                n += ts.timestamps.len();
+                n += len;
             }
             Err(err) => {
                 let msg = format!("remote write failure: {}", err);
@@ -247,7 +248,7 @@ impl Iterator for RangeIterator {
         if self.start_cursor > self.end {
             return None;
         }
-        self.end_cursor = self.start_cursor.add(self.step_ms.into());
+        self.end_cursor = self.start_cursor + self.step_ms as i64;
         if self.end_cursor > self.end {
             self.end_cursor = self.end;
         }

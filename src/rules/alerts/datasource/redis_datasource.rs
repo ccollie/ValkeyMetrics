@@ -105,9 +105,10 @@ impl RedisDatasource {
     fn get_range_req_params(&self, query: String, start: Timestamp, end: Timestamp) -> QueryParams {
         let mut start = start;
         if !self.evaluation_offset.is_zero() {
+            let offset = self.evaluation_offset.as_millis() as i64; // todo: check for overflow
             start = start
                 .truncate(self.evaluation_interval)
-                .add(&self.evaluation_offset);
+                .add(offset);
         }
 
         let mut params = QueryParams::default();
@@ -119,8 +120,7 @@ impl RedisDatasource {
             // set step as evaluationInterval by default
             // always convert to seconds to keep compatibility with older
             // Prometheus versions. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1943
-            let step = duration_to_chrono(&self.evaluation_interval);
-            params.step = Some(step);
+            params.step = duration_to_chrono(&self.evaluation_interval);
         }
         params
     }
@@ -128,16 +128,19 @@ impl RedisDatasource {
     fn adjust_req_timestamp(&self, timestamp: Timestamp) -> Timestamp {
         let mut timestamp = timestamp;
         if self.evaluation_offset.is_zero() {
+            let eval_interval = self.evaluation_interval.as_millis() as i64; // todo: check for overflow
+            let evaluation_offset = self.evaluation_offset.as_millis() as i64; // todo: check for overflow
+
             // calculate the min timestamp on the evaluationInterval
             let interval_start = timestamp.truncate(self.evaluation_interval);
-            let ts = interval_start.add(&self.evaluation_offset);
+            let ts = interval_start.saturating_add(evaluation_offset);
             if timestamp < ts {
                 // if passed timestamp is before the expected evaluation offset,
                 // then we should adjust it to the previous evaluation round.
                 // E.g. request with evaluationInterval=1h and evaluationOffset=30m
                 // was evaluated at 11:20. Then the timestamp should be adjusted
                 // to 10:30, to the previous evaluationInterval.
-                return ts.add(-self.evaluation_interval);
+                return ts.saturating_add(eval_interval);
             }
             // evaluationOffset shouldn't interfere with QUERY_TIME_ALIGNMENT or lookBack,
             // so we return it immediately
@@ -147,8 +150,9 @@ impl RedisDatasource {
             // see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1232
             timestamp = timestamp.truncate(self.evaluation_interval);
         }
-        if self.look_back.as_millis() > 0 {
-            timestamp = timestamp.add(-self.look_back)
+        if !self.look_back.is_zero() {
+            let look_back = self.look_back.as_millis() as i64; // todo: check for overflow
+            timestamp = timestamp.saturating_sub(look_back)
         }
 
         timestamp

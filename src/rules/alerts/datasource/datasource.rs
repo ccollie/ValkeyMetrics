@@ -1,12 +1,11 @@
-use std::collections::HashMap;
-use std::time::Duration;
-use ahash::AHashMap;
-use serde::{Deserialize, Serialize};
 use crate::common::types::Timestamp;
 use crate::rules::alerts::{AlertsResult, DataSourceType};
 use crate::rules::RawTimeSeries;
-use crate::storage::Label;
 use crate::storage::series_data::SeriesData;
+use crate::storage::Label;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::time::Duration;
 
 /// Querier trait wraps query and query_range methods
 pub trait Querier {
@@ -29,6 +28,21 @@ pub struct QueryResult {
     pub series_fetched: usize
 }
 
+impl QueryResult {
+    /// new creates a new QueryResult with given data
+    pub fn new(data: Vec<Metric>) -> QueryResult {
+        QueryResult {
+            data,
+            series_fetched: 0
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+}
+
+
 /// QuerierBuilder builds Querier with given params.
 pub trait QuerierBuilder {
     /// build_with_params creates a new Querier object with the given params
@@ -41,8 +55,8 @@ pub struct QuerierParams {
     pub data_source_type: DataSourceType,
     pub evaluation_interval: Duration,
     pub eval_offset: Duration,
-    pub query_params: AHashMap<String, String>,
-    pub headers: AHashMap<String, String>,
+    pub query_params: HashMap<String, String>,
+    pub headers: HashMap<String, String>,
     pub debug: bool
 }
 
@@ -127,6 +141,17 @@ impl Into<RawTimeSeries> for Metric {
                 timestamps: self.timestamps
             },
             labels: self.labels,
+        }
+    }
+}
+
+impl From<RawTimeSeries> for Metric {
+    fn from(ts: RawTimeSeries) -> Self {
+        Metric {
+            key: ts.key,
+            labels: ts.labels,
+            timestamps: ts.data.timestamps,
+            values: ts.data.values
         }
     }
 }

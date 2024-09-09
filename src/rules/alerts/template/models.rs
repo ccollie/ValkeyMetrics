@@ -55,8 +55,8 @@ impl TryFrom<&Value> for Label {
 
     fn try_from(value: &Value) -> Result<Self, Self::Error> {
         match &value {
-            Value::Map(map) |
-            Value::Object(map) => {
+            Value::Map(_map) |
+            Value::Object(_map) => {
                 let name = get_hash_string_value(&value, "name", true)?.unwrap();
                 let value = get_hash_string_value(&value, "value", true)?.unwrap();
                 Ok(Label::new(name.to_string(), value.to_string()))
@@ -162,7 +162,8 @@ pub fn label_to_template_value(label: &Label) -> Value {
 
 pub fn template_value_to_label(value: &Value) -> Result<Label, FuncError> {
     match value {
-        Value::Object(map) => {
+        Value::Map(_) |
+        Value::Object(_) => {
             let name = get_hash_string_value(value, "name", true)?.unwrap();
             let value = get_hash_string_value(value, "value", true)?.unwrap();
             Ok(Label::new(name.to_string(), value.to_string()))

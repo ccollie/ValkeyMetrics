@@ -1,9 +1,11 @@
+use std::collections::hash_map::Entry;
+use std::collections::hash_map::Entry::Occupied;
 use std::ops::Add;
 use std::sync::atomic::{Ordering, AtomicBool};
 use std::sync::{Arc, mpsc, RwLock};
 use std::time::Duration;
-use ahash::{AHashMap, HashMap, HashMapExt};
-use metricsql_runtime::Timestamp;
+use ahash::{AHashMap, HashMap};
+use metricsql_runtime::{Timestamp, TimestampTrait};
 use valkey_module::{Context, RedisModuleTimerID};
 use tracing::info;
 use crate::common::current_time_millis;
@@ -52,7 +54,7 @@ impl GroupMeta {
 
     fn on_tick(&mut self, ctx: &Context) {
         let current = current_time_millis();
-        self.group.eval(ctx, &mut self.executor, current);
+        self.group.on_tick(ctx, &mut self.executor, current);
     }
 
     fn stop(&mut self, ctx: &Context) {
@@ -72,12 +74,16 @@ impl GroupMeta {
         if id == 0 {
             return false;
         }
-        match ctx.stop_timer(*id) {
-            Some(err) => {
+        match ctx.stop_timer::<Option<_>>(id) {
+            Ok(Some(err)) => {
                 ctx.log_warning(format!("failed to stop timer: {}", err).as_str());
                 false
             }
-            Ok(None) => true
+            Ok(None) => true,
+            Err(_) => {
+                ctx.log_warning("failed to stop timer");
+                false
+            }
         }
     }
 }
@@ -86,7 +92,7 @@ pub struct GroupProcessor {
     redis_ctx: Context,
     pub groups: RwLock<AHashMap<u64, GroupMeta>>,
     pub notifiers: Arc<Vec<Box<dyn Notifier>>>,
-    pub notifier_headers: AHashMap<String, String>,
+    pub notifier_headers: HashMap<String, String>,
     pub write_queue: Arc<WriteQueue>,
     pub querier_builder: Arc<dyn QuerierBuilder>,
     is_stopped: AtomicBool,
@@ -177,18 +183,16 @@ impl GroupProcessor {
         // prep group start
         let group_id = group.id;
         let mut groups = self.groups.write().unwrap();
-        let group_meta = groups.get(&group_id);
-        if group_meta.is_some() {
-            // stop group
-            self.stop_group(group, true);
-        }
-        let executor = self.create_executor(group);
-        let mut meta = GroupMeta {
-            id: group_id,
-            started: true,
-            timer_id: 0,
-            delay_timer_id: 0,
-            executor
+        let mut meta = match groups.entry(group_id) {
+            Occupied(o) => {
+                let meta = o.into_mut();
+                meta.stop(&self.redis_ctx);
+                meta
+            },
+            Entry::Vacant(v) => {
+                let meta = GroupMeta::new(group_id, group.clone(), self.create_executor(group));
+                v.insert(meta)
+            }
         };
 
         // sleep random duration to spread group rules evaluation
@@ -207,41 +211,31 @@ impl GroupProcessor {
 
             meta.started = false;
             meta.delay_timer_id = self.redis_ctx.create_timer(sleep_before_start, delay_callback, callback_data);
-            groups.insert(group_id, meta);
             Ok(())
         } else {
-            groups.insert(group_id, meta);
-            self.start_group(&mut group)
+            self.start_group_internal(&mut meta)
         }
     }
 
-
-    pub fn start_group(&mut self, group: &mut Group) -> AlertsResult<()> {
+    fn start_group_internal(&mut self, meta: &mut GroupMeta) -> AlertsResult<()> {
         // start group
         if self.is_stopped() {
             return Ok(());
         }
-        let group_id = group.id;
-        let mut groups = self.groups.write().unwrap();
-        let mut group_meta = groups.get_mut(&group_id);
-        if group_meta.is_none() {
-            // todo: more specific error enum
-            return Err(AlertsError::Generic(format!("group {} is not found", group_id)));
-        }
-        let group_meta = group_meta.unwrap();
-        self.stop_timer(group_meta.delay_timer_id);
-        group_meta.started = true;
+        let group_id = meta.group.id;
+        meta.stop_delay_timer(&self.redis_ctx);
+        meta.started = true;
         // start group
         let callback_data = CallbackData {
             group_id,
             sender: self.sender.clone()
         };
 
-        info!("started rule group \"{}\"", group.name);
+        info!("started rule group \"{}\"",  meta.group.name);
 
         // run the first evaluation immediately
         let _ts = current_time_millis();
-        group.eval(&self.redis_ctx, &mut group_meta.executor, _ts);
+        meta.group.eval(&self.redis_ctx, &mut meta.executor, _ts);
 
         // restore the rules state after the first evaluation
         // so only active alerts can be restored.
@@ -251,8 +245,21 @@ impl GroupProcessor {
         //     }
         // }
 
-        group_meta.timer_id = self.redis_ctx.create_timer(group.interval, interval_callback, callback_data);
+        let interval = meta.group.interval;
+        meta.timer_id = self.redis_ctx.create_timer(interval, interval_callback, callback_data);
         Ok(())
+    }
+
+    pub fn start_group(&mut self, group: &mut Group) -> AlertsResult<()> {
+        // start group
+        if self.is_stopped() {
+            return Err(AlertsError::Configuration("group processor is stopped".to_string()))
+        }
+        let group_id = group.id;
+        if let Some(meta) = self.groups.write().unwrap().get_mut(&group_id) {
+            return self.start_group_internal(meta)
+        }
+        Err(AlertsError::Configuration(format!("group with id {} not found", group_id)))
     }
 
     pub fn stop_group(&mut self, group_id: u64) -> bool {
@@ -271,10 +278,10 @@ impl GroupProcessor {
         let group_id = group.id;
         let mut groups = self.groups.write().unwrap();
         if let Some(old_group) = groups.get_mut(&group_id) {
-            if old_group == &group {
+            if old_group.eq(&group) {
                 return Ok(());
             }
-            self.stop_group(old_group, false);
+            self.stop_group(group_id);
         }
         groups.insert(group_id, group.clone());
         self.prep_group_start(&group, current_time_millis())
@@ -307,7 +314,8 @@ impl GroupProcessor {
                     ar_present = true
                 }
             }
-            let ng = Group::from_config(cfg.clone(), cfg.interval, &self.labels);
+            let interval = cfg.interval.unwrap_or_default(); //
+            let ng = Group::from_config(cfg.clone(), interval, &self.labels);
             groups_registry.insert(ng.id(), ng);
         }
 
@@ -324,24 +332,24 @@ impl GroupProcessor {
         let mut groups = self.groups.write().unwrap();
         let to_delete = vec![];
         for (_, og) in groups.iter_mut() {
-            let og_id = og.id();
+            let og_id = og.group.id();
 
             let ng = groups_registry.get(&og_id);
             if ng.is_none() {
                 // old group is not present in new list,
                 // so must be stopped and deleted
-                self.labels.remove(og_id);
+                self.stop_group(og_id);
                 continue
             }
             let ng = ng.unwrap();
             let ng_id = ng.id();
             groups_registry.remove(&ng_id);
-            if og.checksum != ng.checksum {
+            if og.group.checksum != ng.checksum {
                 to_update.push(UpdateItem{old: &og, new: ng})
             }
         }
         for (_, ng) in groups_registry.iter_mut() {
-            self.start_group(ctx, ng, restore)?;
+            self.start_group(&mut ng, restore)?;
         }
         if !to_update.is_empty() {
             for item in to_update.iter_mut() {
@@ -391,7 +399,8 @@ impl GroupProcessor {
 /// bigger than the `offset`.
 fn delay_before_start(ts: crate::storage::Timestamp, key: u64, interval: Duration, offset: Option<&Duration>) -> Duration {
     let mut rand_sleep = interval * (key / (1 << 64)) as u32;
-    let sleep_offset = Duration::from_millis((ts % interval.as_millis() as u64) as u64);
+    let interval_millis = interval.as_millis() as u64;
+    let sleep_offset = Duration::from_millis((ts % interval_millis) as u64);
     if rand_sleep < sleep_offset {
         rand_sleep += interval
     }
@@ -400,8 +409,10 @@ fn delay_before_start(ts: crate::storage::Timestamp, key: u64, interval: Duratio
     // if it is, add extra eval_offset to rand_sleep.
     // see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/3409.
     if let Some(offset) = offset {
-        let tmp_eval_ts = ts.add(rand_sleep);
-        if tmp_eval_ts < tmp_eval_ts.truncate(interval).add(*offset) {
+        let offset_millis = offset.as_millis() as i64; // todo: handle overflow
+        let sleep_millis = rand_sleep.as_millis() as i64;
+        let tmp_eval_ts: Timestamp = ts.add(sleep_millis);
+        if tmp_eval_ts < tmp_eval_ts.truncate(interval).saturating_add(offset_millis) {
             rand_sleep += *offset
         }
     }

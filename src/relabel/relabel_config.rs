@@ -104,9 +104,8 @@ impl FromStr for RelabelAction {
 /// RelabelConfig represents relabel config.
 ///
 /// See https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct RelabelConfig {
-    #[serde(rename = "if")]
     pub if_expr: Option<IfExpression>,
     pub action: RelabelActionType,
     pub source_labels: Vec<String>,
@@ -122,7 +121,6 @@ pub(crate) struct RelabelConfig {
     ///   labels:
     ///     job: '$1'
     ///     instance: '${2}:8080'
-    #[serde(rename = "match")]
     pub r#match: String,
 
     /// Labels is used together with match for `action: graphite`. For example:
@@ -240,6 +238,11 @@ pub fn parse_relabel_configs(rcs: Vec<RelabelConfig>) -> Result<ParsedConfigs, S
     Ok(ParsedConfigs(prcs))
 }
 
+const DEFAULT_REGEX_STR_FOR_RELABEL_CONFIG: &str = "^(?:(.*))$";
+const DEFAULT_ORIGINAL_REGEX_STR_FOR_RELABEL_CONFIG: &str = "(.*)" ;
+//const DEFAULT_REGEX_STR_FOR_RELABEL_CONFIG: &'static str = "^(.*)$";
+
+
 // todo: use OnceLock
 lazy_static! {
     pub static ref DEFAULT_ORIGINAL_REGEX_FOR_RELABEL_CONFIG: Regex = Regex::new(".*").unwrap();
@@ -267,8 +270,6 @@ fn validate_labels(
 pub fn parse_relabel_config(rc: RelabelConfig) -> Result<ParsedRelabelConfig, String> {
     use RelabelActionType::*;
 
-    let mut rc = rc;
-
     let mut source_labels = rc.source_labels;
     let mut separator = ";";
 
@@ -276,18 +277,19 @@ pub fn parse_relabel_config(rc: RelabelConfig) -> Result<ParsedRelabelConfig, St
         separator = &rc.separator;
     }
 
-    let mut target_label = rc.target_label;
-    let reg_str = rc.regex.to_string();
+    let target_label = rc.target_label;
+    let reg_str = rc.regex.unwrap_or_default();
     let (regex_anchored, regex_original_compiled, prom_regex) =
         if !is_empty_regex(&rc.regex) && !is_default_regex(&reg_str) {
             let mut regex = &reg_str[0..];
-            let mut regex_orig = Regex::new(&rc.regex.unwrap())
-                .map_err(|e| format!("cannot parse `regex` {regex}: {:?}", e))?;
+
+            let mut regex_orig = regex;
             if rc.action != ReplaceAll && rc.action != LabelMapAll {
                 let stripped = remove_start_end_anchors(&regex);
-                regex_orig = &stripped.to_string();
-                regex = format!("^(?:{stripped})$").as_str();
+                regex = format!("^(?:{})$", stripped).as_str();
+                regex_orig = stripped;
             }
+
             let regex_anchored =
                 Regex::new(&regex).map_err(|e| format!("cannot parse `regex` {regex}: {:?}", e))?;
 
@@ -312,7 +314,7 @@ pub fn parse_relabel_config(rc: RelabelConfig) -> Result<ParsedRelabelConfig, St
 
 
     let modulus = rc.modulus;
-    let mut replacement = if !rc.replacement.is_empty() {
+    let replacement = if !rc.replacement.is_empty() {
         rc.replacement.clone()
     } else {
         "$1".to_string()

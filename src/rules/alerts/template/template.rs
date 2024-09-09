@@ -22,7 +22,7 @@ use metricsql_common::humanize::humanize_bytes;
 use metricsql_runtime::METRIC_NAME_LABEL;
 use regex::Regex;
 use std::collections::HashMap;
-use std::sync::{OnceLock, RwLock};
+use std::sync::{LazyLock, Mutex, OnceLock, RwLock};
 use titlecase::titlecase;
 use url::Url;
 
@@ -44,15 +44,6 @@ impl Clone for TextTemplate {
             replacement: clone_template(&self.replacement)
         }
     }
-}
-
-fn clone_base_template(tpl: &Template) -> Template {
-    let mut result = Template::default();
-    result.name = tpl.name.clone();
-    result.tree_set = tpl.tree_set.clone();
-    result.funcs = tpl.funcs.clone();
-    result.text = tpl.text.clone();
-    result
 }
 
 static MASTER_TEMPLATE: OnceLock<RwLock<TextTemplate>> = OnceLock::new();
@@ -113,9 +104,10 @@ fn datasource_metrics_to_template_metrics(ms: &[DatasourceMetric]) -> Vec<Metric
 /// QueryFn is used to wrap a call to provider into simple-to-use function for templating functions.
 pub type QueryFn = fn(query: &str) -> AlertsResult<Vec<DatasourceMetric>>;
 
-pub static QUERY_FUNCTION: QueryFn = |query: &str| -> AlertsResult<Vec<DatasourceMetric>> {
-    Err(AlertsError::Generic(format!("query function is not set: {}", query)))
-};
+fn not_set_query_fn(_query: &str) -> AlertsResult<Vec<DatasourceMetric>> {
+    Err(AlertsError::Generic("query function is not set".to_string()))
+}
+pub static QUERY_FUNCTION: LazyLock<Mutex<QueryFn>> = LazyLock::new(|| Mutex::new(not_set_query_fn));
 
 /// update_with_funcs updates existing or sets a new function map for a template
 pub(crate) fn update_with_funcs(funcs: &FuncMap) {
@@ -127,7 +119,7 @@ pub(crate) fn update_with_funcs(funcs: &FuncMap) {
 /// returns a copy of current template with additional FuncMap provided with funcs argument
 pub(crate) fn get_with_funcs(funcs: FuncMap) -> AlertsResult<Template> {
     let master_template = get_master_template_ref();
-    let mut reader = master_template.read().unwrap();
+    let reader = master_template.read().unwrap();
     let mut tmpl = clone_template(&reader.current);
 
     tmpl.funcs = funcs;
@@ -155,23 +147,12 @@ pub(crate) fn make_query_fn(query: QueryFn) -> Func {
     }
 }
 
-pub fn make_const_function<T: Into<Value>>(val: T) -> Func {
-    move |_args: &[Value]| -> Result<Value, FuncError> {
-        Ok(val.into())
-    }
-}
-
 /// returns a function map that depends on metric data
 pub(crate) fn funcs_with_query(query: QueryFn) -> FuncMap {
     let mut map = FuncMap::new();
+    *QUERY_FUNCTION.lock().unwrap() = query;
     map.insert("query".to_string(), make_query_fn(query));
     map
-}
-
-/// returns a function map that depends on external_url value
-pub(crate) fn funcs_with_external_url(external_url: Url) -> FuncMap {
-    let mut funcs = FuncMap::new();
-    funcs
 }
 
 // title returns a copy of the string s with all Unicode letters
@@ -408,7 +389,7 @@ fn strip_port(args: &[Value]) -> Result<Value, FuncError> {
 // strip_domain removes the domain part of a FQDN. Leaves port untouched.
 fn strip_domain(args: &[Value]) -> Result<Value, FuncError> {
     let host_port = ensure_single_arg(args, "stripDomain")?.to_string();
-    let mut url = parse_url(&host_port)?;
+    let url = parse_url(&host_port)?;
     let domain = url.domain();
     if domain.is_none() {
         return Ok(host_port.into())
@@ -515,26 +496,27 @@ fn humanize_duration(args: &[Value]) -> Result<Value, FuncError> {
 
 // humanize_percentage converts given ratio value to a fraction of 100
 fn humanize_percentage(args: &[Value]) -> Result<Value, FuncError> {
-    if let v = ensure_single_f64(args, "humanizePercentage")? {
-        return Ok(format!("{:.4}%", v*100.0).into())
+    match ensure_single_f64(args, "humanizePercentage") {
+        Ok(v) => Ok(format!("{:.4}%", v*100.0).into()),
+        Err(_e) => Ok(Value::NoValue)
     }
-    Ok(Value::NoValue)
 }
 
 // humanize_timestamp converts given timestamp to a human readable time equivalent
 fn humanize_timestamp(args: &[Value]) -> Result<Value, FuncError> {
-    if let v= ensure_single_f64(args, "humanizeTimestamp")? {
-        let v = v as i64;
-        if v == i64::MAX || v == i64::MIN {
-            return Ok(format!("{:.4}", v).into())
-        }
-        if let Some(t) = DateTime::from_timestamp(v, 0) {
-            Ok(t.to_string().into())
-        } else {
-            Ok("".to_string().into())
-        }
-    } else {
-        Ok(Value::NoValue)
+    match ensure_single_f64(args, "humanizeTimestamp") {
+        Ok(v) => {
+            let v = v.clamp(i64::MIN as f64, i64::MAX as f64) as i64;
+            if v == i64::MAX || v == i64::MIN {
+                return Ok(format!("{:.4}", v).into())
+            }
+            if let Some(t) = DateTime::from_timestamp(v, 0) {
+                Ok(t.to_string().into())
+            } else {
+                Ok("".to_string().into())
+            }
+        },
+        Err(_e) => Ok(Value::NoValue)
     }
 }
 
@@ -544,8 +526,8 @@ fn humanize_timestamp(args: &[Value]) -> Result<Value, FuncError> {
 // execute "/api/v1/query?query=foo" request and will return
 // the first value in response.
 fn query(args: &[Value]) -> Result<Value, FuncError> {
-    let query = ensure_single_string_arg(args, "query")?;
-    let result = query(&query)
+    let query_str = ensure_single_string_arg(args, "query")?;
+    let result = QUERY_FUNCTION.lock().unwrap()(query_str)
         .map_err(|e| FuncError::Generic(format!("query failed: {}", e)))?;
     let mss = datasource_metrics_to_template_metrics(&result).into();
     Ok(Value::Array(mss))

@@ -1,7 +1,7 @@
-use valkey_module::Context;
 use crate::error::TsdbResult;
 use crate::rules::alerts::{Alert, Notifier};
-use crate::storage::Label;
+use ahash::HashMap;
+use valkey_module::Context;
 
 pub struct PubSubNotifier {
     pub topic: String,
@@ -30,7 +30,7 @@ impl Notifier for PubSubNotifier {
         &self,
         ctx: &Context,
         alerts: &[Alert],
-        _notifier_headers: &[Label],
+        _notifier_headers: &HashMap<String, String>,
     ) -> TsdbResult<()> {
         let mut msg = String::with_capacity(128);
         for alert in alerts {

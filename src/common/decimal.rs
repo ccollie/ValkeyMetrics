@@ -1,6 +1,12 @@
 use std::f64::consts::LN_10;
 use std::f64::consts::LN_2;
 
+/// STALE_NAN_BITS is bit representation of Prometheus staleness mark (aka stale NaN).
+/// This mark is put by Prometheus at the end of time series for improving staleness detection.
+/// See https://www.robustperception.io/staleness-and-promql
+/// StaleNaN is a special NaN value, which is used as Prometheus staleness mark.
+pub const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
+
 pub fn round_to_decimal_digits(f: f64, digits: i32) -> f64 {
     if digits <= -100 || digits >= 100 {
         return f;

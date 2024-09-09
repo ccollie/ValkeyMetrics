@@ -2,23 +2,23 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ahash::{AHashMap, AHashSet};
-use metricsql_runtime::TimestampTrait;
-use valkey_module::Context;
-use crate::common::constants::STALE_NAN;
+use crate::common::decimal::STALE_NAN_BITS;
 use crate::common::types::Timestamp;
 use crate::config::get_global_settings;
-use crate::rules::{new_time_series, RawTimeSeries, Rule, RuleType};
-use crate::rules::alerts::{AlertingRule, AlertsError, AlertsResult, Notifier, Querier, WriteQueue};
 use crate::rules::alerts::group::labels_to_string;
+use crate::rules::alerts::{AlertingRule, AlertsError, AlertsResult, Notifier, Querier, WriteQueue};
+use crate::rules::{new_time_series, RawTimeSeries, Rule, RuleType};
 use crate::storage::Label;
+use ahash::AHashSet;
+use metricsql_runtime::TimestampTrait;
+use valkey_module::Context;
 
 pub type PreviouslySentSeries = HashMap<u64, HashMap<String, Vec<Label>>>;
 
 pub struct Executor {
     eval_ts: Timestamp,
     pub notifiers: Arc<Vec<Box<dyn Notifier>>>,
-    pub notifier_headers: AHashMap<String, String>,
+    pub notifier_headers: HashMap<String, String>,
     pub rw: Arc<WriteQueue>,
     pub querier: Arc<dyn Querier>,
 
@@ -36,7 +36,7 @@ static mut SKIP_RAND_SLEEP_ON_GROUP_START: bool = false;
 impl Executor {
     pub fn new(
         notifiers: Arc<Vec<Box<dyn Notifier>>>,
-        notifier_headers: &AHashMap<String, String>,
+        notifier_headers: &HashMap<String, String>,
         rw: Arc<WriteQueue>,
         querier: impl Querier,
     ) -> Self {
@@ -65,15 +65,17 @@ impl Executor {
         // check whether there are series which disappeared and need to be marked as stale
         let mut map = self.previously_sent_series.lock().unwrap();
 
+        let stale_nan: f64 = f64::from_bits(STALE_NAN_BITS);
+
         if let Some(entry) = map.get_mut(&rid) {
             for (key, labels) in entry.iter_mut() {
-                if rule_labels.contains_key(&key) {
+                if rule_labels.contains_key(key) {
                     continue;
                 }
                 let stamps = [timestamp];
-                let values = [STALE_NAN.clone()];
+                let values = [stale_nan];
                 // previously sent series are missing in current series, so we mark them as stale
-                let ss = new_time_series(key.clone(), &values, &stamps, &labels);
+                let ss = new_time_series(key, &values, &stamps, &labels);
                 stales.push(ss)
             }
         }
@@ -148,17 +150,15 @@ impl Executor {
                           ts: Timestamp,
                           resolve_duration: Duration,
                           resend_delay: Duration) -> AlertsResult<()> {
-        let mut alerts = rule.alerts_to_send(ts, resolve_duration, resend_delay);
-        if alerts.is_empty() {
-            return Ok(());
-        }
-        let mut err_gr: Vec<String> = Vec::with_capacity(4);
-        for nt in self.notifiers.iter() {
-            if let Err(err) = nt.send(ctx, &alerts, &self.notifier_headers) {
-                let msg = format!("failed to send alerts to addr {}: {:?}", nt.addr(), err);
-                err_gr.push(msg);
+
+        rule.process_alerts_to_send(ts, resolve_duration, resend_delay, |alerts| {
+            for nt in self.notifiers.iter() {
+                if let Err(err) = nt.send(ctx, &alerts, &self.notifier_headers) {
+                    let msg = format!("failed to send alerts to addr {}: {:?}", nt.addr(), err);
+                    return Err(AlertsError::Generic(msg));
+                }
             }
-        }
-        Ok(err_gr)
+            Ok(())
+        })
     }
 }

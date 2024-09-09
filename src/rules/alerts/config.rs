@@ -5,7 +5,6 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use ahash::AHashMap;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
@@ -52,7 +51,7 @@ impl FromStr for DataSourceType {
 }
 
 /// ValidateTplFn must validate the given annotations
-pub type ValidateTplFn = fn(annotations: &AHashMap<String, String>) -> AlertsResult<()>;
+pub type ValidateTplFn = fn(annotations: &HashMap<String, String>) -> AlertsResult<()>;
 
 /// `RuleConfig` describes entity that represent either recording rule or alerting rule.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -65,8 +64,8 @@ pub struct RuleConfig {
     pub r#for: Duration,
     /// Alert will continue firing for this long even when the alerting expression no longer has results.
     pub keep_firing_for: Duration,
-    pub labels: AHashMap<String, String>,
-    pub annotations: AHashMap<String, String>,
+    pub labels: HashMap<String, String>,
+    pub annotations: HashMap<String, String>,
     pub debug: bool,
     /// update_entries_limit defines max number of rule's state updates stored in memory.
     /// Overrides `-rule.updateEntriesLimit`.
@@ -142,14 +141,15 @@ impl Display for RuleConfig {
         keys.sort();
 
         for (i, key) in keys.iter().enumerate() {
-            let value = self.labels.get(key).unwrap();
-            if i == 0 {
-                write!(f, "; labels:")?;
-            }
-            write!(f, " ")?;
-            write!(f, "{}={}", key, value)?;
-            if i < keys.len() - 1 {
-                write!(f, ",")?;
+            if let Some(value) = self.labels.get(*key) {
+                if i == 0 {
+                    write!(f, "; labels:")?;
+                }
+                write!(f, " ")?;
+                write!(f, "{}={}", key, value)?;
+                if i < keys.len() - 1 {
+                    write!(f, ",")?;
+                }
             }
         }
         Ok(())
@@ -169,39 +169,28 @@ pub(crate) fn should_skip_rand_sleep_on_group_start() -> bool {
 }
 
 /// Group contains list of Rules grouped into an entity with one name and evaluation interval
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct GroupConfig {
-    #[serde(rename = "type")]
     pub datasource_type: DataSourceType,
     pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
     pub interval: Option<Duration>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
     pub eval_offset: Option<Duration>,
     pub limit: usize,
     pub rules: Vec<RuleConfig>,
     pub concurrency: usize,
     /// Labels is a set of label value pairs, that will be added to every rule.
     /// It has priority over the external labels.
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub labels: AHashMap<String, String>,
+    pub labels: HashMap<String, String>,
     /// Checksum stores the hash of yaml definition for this group.
     /// May be used to detect any changes like rules re-ordering etc.
     pub checksum: String,
     /// Optional parameters added to each rule request
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub params: Option<AHashMap<String, String>>,
-    /// Headers contains optional HTTP headers added to each rule request
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub params: Option<HashMap<String, String>>,
+    /// Headers contains optional headers added to each rule request
     pub(crate) headers: Headers,
-    /// optional HTTP headers sent to notifiers for generated notifications
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    /// optional headers sent to notifiers for generated notifications
     pub notifier_headers: Vec<Header>,
     /// eval_alignment will make the timestamp of group query requests be aligned with interval
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub eval_alignment: Option<bool>,
 }
 
@@ -229,16 +218,6 @@ impl Headers {
     }
 }
 
-impl Into<HashMap<String, String>> for Headers {
-    fn into(self) -> HashMap<String, String> {
-        let mut headers = HashMap::new();
-        for header in self.0 {
-            headers.insert(header.key, header.value);
-        }
-        headers
-    }
-}
-
 impl Default for Headers {
     fn default() -> Self {
         Headers(Vec::new())
@@ -247,7 +226,10 @@ impl Default for Headers {
 
 impl From<&Headers> for HashMap<String, String> {
     fn from(h: &Headers) -> Self {
-        let map: HashMap<String, String> = h.0.iter().map(|h| (h.key.clone(), h.value.clone())).into();
+        let mut map = HashMap::with_capacity(h.0.len());
+        for header in h.0.iter() {
+            map.insert(header.key.clone(), header.value.clone());
+        }
         map
     }
 }
@@ -291,7 +273,7 @@ impl GroupConfig {
         }
         let mut unique_rules = HashSet::with_capacity(self.rules.len());
 
-        for r in self.rules {
+        for r in self.rules.iter() {
             let rule_name = r.name();
             let id = r.id;
             if unique_rules.contains(&id) {
@@ -321,16 +303,6 @@ impl GroupConfig {
                 })?;
         }
         Ok(())
-    }
-
-    pub fn from_yaml(yaml: &str) -> AlertsResult<Self> {
-        serde_yaml::from_str(yaml)
-            .map_err(|err| AlertsError::InvalidConfiguration(format!("invalid yaml: {:?}", err)))
-    }
-
-    pub fn to_yaml(&self) -> AlertsResult<String> {
-        serde_yaml::to_string(self)
-            .map_err(|err| AlertsError::CannotSerialize(format!("yaml serialization error : {:?}", err)))
     }
 }
 

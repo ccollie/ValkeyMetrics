@@ -27,7 +27,7 @@ pub struct RecordingRule {
     metrics: RecordingRuleMetrics,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct RecordingRuleMetrics {
     errors: AtomicU64,
     samples: AtomicU64,
@@ -59,23 +59,27 @@ impl RecordingRule {
     }
 
     fn run_query(&self, querier: &impl Querier, ts: Timestamp) -> AlertsResult<Vec<DatasourceMetric>> {
-        let items =  querier.query(&self.expr, ts)?;
-        let metrics = items.into_iter().map(|m| {
+        let result =  querier.query(&self.expr, ts)?;
+        let metrics = result.data.into_iter().map(|m| {
+            let mut dsm: DatasourceMetric = m.into();
             let mut labels = AHashMap::with_capacity(m.labels.len() + 1);
             for label in m.labels.iter() {
                 labels.insert(label.name.clone(), label.value.clone());
             }
-            labels.insert(METRIC_NAME_LABEL.to_string(), self.name.to_string());
+            dsm.labels.push(
+                Label {
+                    name: METRIC_NAME_LABEL.to_string(),
+                    value: self.name.to_string(),
+                }
+            );
+
+            // TODO !!!!!
             // override existing labels with configured ones
             for Label { name, value } in self.labels.iter() {
                 labels.insert(name.clone(), value.clone());
             }
-            DatasourceMetric {
-                key: m.key,
-                labels,
-                timestamps: m.timestamps,
-                values: m.values,
-            }
+
+            dsm
         }).collect();
         Ok(metrics)
     }
@@ -108,7 +112,7 @@ impl Rule for RecordingRule {
 
         // Safety: unwrap is safe because we just checked for an error above
         let q_metrics = res?;
-        let num_series = res.len();
+        let num_series = res?.len();
         cur_state.samples = num_series;
 
         if limit > 0 && num_series > limit {
@@ -123,7 +127,7 @@ impl Rule for RecordingRule {
 
         let mut duplicates: AHashSet<String> = AHashSet::with_capacity(num_series);
         let mut tss: Vec<RawTimeSeries> = Vec::with_capacity(num_series);
-        for (_, r) in q_metrics.iter().enumerate() {
+        for (_, r) in q_metrics.into_iter().enumerate() {
             let ts = self.to_time_series(r);
             let key = stringify_labels(&ts);
             if duplicates.contains(&key) {
@@ -146,14 +150,14 @@ impl Rule for RecordingRule {
     /// It doesn't update internal states of the Rule and meant to be used just
     /// to get time series for backfilling.
     fn exec_range(&mut self, querier: &impl Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
-        let mut res = querier
+        let res = querier
             .query_range(&self.expr, start, end)
             .map_err(|e| AlertsError::QueryExecutionError(format!("{}: {:?}", self.expr, e)))?;
 
         let mut duplicates: AHashSet<String> = AHashSet::with_capacity(res.len());
         let mut tss = Vec::with_capacity(res.len());
         for s in res.data.into_iter() {
-            let ts = self.to_time_series(s);
+            let ts = self.to_time_series(s.clone());
             let key = stringify_labels(&ts);
             if duplicates.contains(&key) {
                 let msg = format!(
@@ -173,9 +177,8 @@ impl Rule for RecordingRule {
 pub fn stringify_labels(ts: &RawTimeSeries) -> String {
     let mut labels = ts.labels.clone();
     let mut b = String::with_capacity(40); // todo: better capacity calculation.
-    let mut i = 0;
     labels.sort();
-    for label in ts.labels {
+    for (i, label) in ts.labels.iter().enumerate() {
         b.push_str(&*format!("{}={}", &label.name, &label.value));
         if i < labels.len() - 1 {
             b.push_str(",")

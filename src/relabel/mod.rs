@@ -10,9 +10,6 @@ mod if_expression_test;
 mod relabel_test;
 mod utils;
 // mod actions;
-mod submatch_replacer;
-mod string_replacer;
-mod regex_parse;
 mod graphite_test;
 
 pub use if_expression::IfExpression;

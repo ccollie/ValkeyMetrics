@@ -10,5 +10,4 @@ mod prom_regex;
 
 pub use prom_regex::*;
 pub use tag_filter::*;
-pub use regexp_cache::*;
 pub use simplify::*;
