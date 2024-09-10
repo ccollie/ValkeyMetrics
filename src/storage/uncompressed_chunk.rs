@@ -1,11 +1,12 @@
-use core::mem::size_of;
-use crate::common::types::{Timestamp};
+use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::storage::chunk::Chunk;
+use crate::storage::slice_iter::SeriesSliceIterator;
 use crate::storage::utils::get_timestamp_index_bounds;
 use crate::storage::{DuplicatePolicy, Sample, SAMPLE_SIZE};
-use serde::{Deserialize, Serialize};
+use std::mem::size_of;
 use get_size::GetSize;
+use serde::{Deserialize, Serialize};
 use valkey_module::raw;
 
 // todo: move to constants
@@ -142,7 +143,31 @@ impl UncompressedChunk {
     }
 
     pub fn iter(&self) -> impl Iterator<Item=Sample> + '_ {
-        UncompressedChunkIterator::new(self)
+        SeriesSliceIterator::new(&self.timestamps, &self.values)
+    }
+
+    pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
+        if self.num_samples() == 0 || timestamps.len() == 0 {
+            return Ok(vec![]);
+        }
+        let first_timestamp = timestamps[0];
+        if first_timestamp > self.last_timestamp() {
+            return Ok(vec![]);
+        }
+
+        let mut samples = Vec::with_capacity(timestamps.len());
+        for ts in timestamps.iter() {
+            match timestamps.binary_search(ts) {
+                Ok(i) => {
+                    samples.push(Sample {
+                        timestamp: *ts,
+                        value: self.values[i],
+                    })
+                }
+                _ => {}
+            }
+        }
+        Ok(samples)
     }
 }
 
@@ -298,38 +323,13 @@ impl Chunk for UncompressedChunk {
     }
 }
 
-pub struct UncompressedChunkIterator<'a> {
-    chunk: &'a UncompressedChunk,
-    index: usize,
-}
-
-impl<'a> UncompressedChunkIterator<'a> {
-    pub fn new(chunk: &'a UncompressedChunk) -> Self {
-        Self { chunk, index: 0 }
-    }
-}
-
-impl<'a> Iterator for UncompressedChunkIterator<'a> {
-    type Item = Sample;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.chunk.timestamps.len() {
-            return None;
-        }
-        let ts = self.chunk.timestamps[self.index];
-        let val = self.chunk.values[self.index];
-        self.index += 1;
-        Some(Sample { timestamp: ts, value: val })
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
     use crate::error::TsdbError;
-    use crate::tests::generators::create_rng;
-    use crate::storage::{Chunk, Sample};
     use crate::storage::uncompressed_chunk::UncompressedChunk;
+    use crate::storage::{Chunk, Sample};
+    use crate::tests::generators::create_rng;
+    use rand::Rng;
 
     pub(crate) fn saturate_uncompressed_chunk(chunk: &mut UncompressedChunk) {
         let mut rng = create_rng(None).unwrap();

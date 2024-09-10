@@ -1,6 +1,6 @@
 use crate::common::METRIC_NAME_LABEL;
 use crate::globals::with_timeseries_index;
-use crate::module::arg_parse::{parse_series_selector, MetadataFunctionArgs, TimestampRangeValue};
+use crate::module::arg_parse::{parse_series_selector};
 use crate::module::result::{format_array_result, get_ts_metric_selector};
 use crate::module::{normalize_range_args, parse_timestamp_arg, VKM_SERIES_TYPE};
 use crate::storage::time_series::TimeSeries;
@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 use valkey_module::{
     Context as RedisContext, Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue,
 };
+use crate::module::types::{MetadataFunctionArgs, TimestampRangeValue};
 // todo: series count
 
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#finding-series-by-label-matchers
@@ -57,7 +58,7 @@ pub fn label_names(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     Ok(format_array_result(labels))
 }
 
-// PROM.LABEL_VALUES <label_name> [MATCH <match>] [START <timestamp_ms>] [END <timestamp_ms>]
+// VKM.LABEL_VALUES <label_name> [MATCH <match>] [START <timestamp_ms>] [END <timestamp_ms>]
 // https://prometheus.io/docs/prometheus/latest/querying/api/#querying-label-values
 pub(crate) fn label_values(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let label_args = parse_metadata_command_args(ctx, args, true)?;

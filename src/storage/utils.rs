@@ -41,18 +41,6 @@ pub(crate) fn get_timestamp_index(timestamps: &[i64], start_ts: Timestamp) -> Op
     Some(idx)
 }
 
-// TODO: test
-pub fn round_to_significant_digits(x: f64, n: u32) -> f64 {
-    if x.is_zero() || x.is_infinite() || x.is_nan() {
-        return x;
-    }
-    if n == 0 || n >= 18 {
-        return x;
-    }
-    let magnitude = x.abs().log10().floor();
-    let power = 10.0_f64.powi(n as i32 - 1 - magnitude as i32);
-    (x * power).round() / power
-}
 
 pub(crate) fn get_timestamp_index_bounds(timestamps: &[i64], start_ts: Timestamp, end_ts: Timestamp) -> Option<(usize, usize)> {
     if timestamps.is_empty() {

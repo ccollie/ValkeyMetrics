@@ -10,7 +10,7 @@ use crate::tests::generators::generators::{
 };
 use std::ops::Range;
 use std::time::Duration;
-use crate::storage::utils::round_to_significant_digits;
+use crate::common::decimal::{round_to_significant_digits, RoundDirection};
 
 #[derive(Debug, Copy, Clone, Default)]
 pub enum RandAlgo {
@@ -125,7 +125,7 @@ pub fn generate_series_data(options: &GeneratorOptions) -> Result<SeriesData, St
 
     if let Some(significant_digits) = options.significant_digits {
         for v in values.iter_mut() {
-            let rounded = round_to_significant_digits(*v, significant_digits as u32);
+            let rounded = round_to_significant_digits(*v, significant_digits as i32, RoundDirection::Up);
             *v = rounded;
         }
     }

@@ -6,6 +6,8 @@ Add your data and query it using [PromQL](https://prometheus.io/docs/prometheus/
 Currently supported are [Instant Queries](https://prometheus.io/docs/prometheus/latest/querying/basics/#instant-vector-selectors) and [Range Queries](https://prometheus.io/docs/prometheus/latest/querying/basics/#range-vector-selectors),
 as well as basic [Metadata](https://prometheus.io/docs/prometheus/latest/querying/api/#querying-metadata) lookups.
 
+Substantially based on the [VictoriaMetrics](https://victoriametrics.com) project, this module is a work-in-progress and not yet ready for production use.
+
 ## Features
 - In-memory storage for time series data
 - Configurable data retention period
@@ -28,9 +30,9 @@ Then you can query the data for a time range on some aggregation rule.
 ### With `redis-cli`
 ```sh
 $ redis-cli
-127.0.0.1:6379> VKM.CREATE temperature:3:east RETENTION 60 LABELS sensor_id 1 area_id 32 __name__ temperature region east
+127.0.0.1:6379> VKM.CREATE temperature:3:east temperature{area_id="32",sensor_id="1",region="east"} RETENTION 2h
 OK
-127.0.0.1:6379> VKM.CREATE temperature:3:west RETENTION 60 LABELS sensor_id 2 area_id 32 __name__ temperature region west
+127.0.0.1:6379> VKM.CREATE temperature:3:west temperature{area_id="32",sensor_id="1",region="west"} RETENTION 2h
 OK
 127.0.0.1:6379> VKM.ADD temperature:3:east 1548149181 30
 OK
@@ -38,9 +40,6 @@ OK
 OK 
 127.0.0.1:6379>  VKM.QUERY-RANGE "avg(temperature) by(area_id)" START 1548149180 END 1548149210   
 ```
-
-**Note**
-- The `__name__` label represents the name of the measurement, and it is required for VKMetrics to work, and allows metric queries across Redis keys.
 
 ## Tests
 
@@ -55,7 +54,14 @@ To run all unit tests, follow these steps:
 
 **Integration tests**
 
-TODO
+```bash
+RLTest --module ./target/debug/libredis_promql.so --module-args
+```
+
+#### MacOSX
+```bash
+RLTest --module ./target/debug/libredis_promql.dylib --module-args
+```
 
 ## Commands
 
@@ -71,17 +77,51 @@ metrics are generally grouped by environment, you could use a key like
 
 https://tech.loveholidays.com/redis-cluster-multi-key-command-optimisation-with-hash-tags-8a2bd7ce12de
 
-```
-
-### VKM.QUERY
+**VKM.CREATE** create a timeseries.
 
 #### Syntax
+```
+VKM.CREATE key metric 
+  [RETENTION retentionPeriod]
+  [ENCODING <COMPRESSED|UNCOMPRESSED>]
+  [CHUNK_SIZE size]
+  [DUPLICATE_POLICY policy]
+  [DEDUPE_INTERVAL duplicateTimediff]
+```
+#### Options
+- **key**: The key for the timeseries.
+- **metric**: The metric name in Prometheus format, e.g. `node_memory_used_bytes{hostname="host1.domain.com"}`
+- **RETENTION**: The retention period for the timeseries in milliseconds.
+- **ENCODING**: The encoding to use for the timeseries. Default is `COMPRESSED`.
+- **CHUNK_SIZE**: The chunk size for the timeseries. Default is `4096`.
+- **DUPLICATE_POLICY**: The policy to use for duplicate samples. Default is `BLOCK`.
+- **DEDUPE_INTERVAL**: The interval to use for deduplication. Default is `0`.
+
+
+```sh
+127.0.0.1:6379> VKM.CREATE req_total:post:handler:{us-east-1} api_http_requests_total{method="POST",handler="/messages"} CHUNK_SIZE 8192 DUPLICATE_POLICY SUM DEDUPE_INTERVAL 2s
+```
+**VKM.ADD** Add a sample to a timeseries.
+
+```
+VKM.ADD key timestamp value
+```
+
+#### Options
+
+- **key**: Prometheus expression query string.
+- **timestamp**: the sample timestamp.
+- **value**: double value of the sample.
+
+#### Return
+The timestamp of the added sample.
+
+
+**VKM.QUERY** evaluates an instant query at a single point in time.
 
 ```
 VKM.QUERY query [TIME timestamp|rfc3339|+|*] [ROUNDING number]
 ```
-
-**VKM.QUERY** evaluates an instant query at a single point in time.
 
 #### Options
 

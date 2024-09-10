@@ -2,9 +2,8 @@ use crate::globals::with_timeseries_index;
 use crate::module::commands::parse_create_options;
 use crate::module::with_timeseries_mut;
 use crate::storage::time_series::TimeSeries;
-use crate::storage::{TimeSeriesOptions};
+use crate::storage::TimeSeriesOptions;
 use valkey_module::{Context, NotifyEvent, ValkeyResult, ValkeyString, VALKEY_OK};
-use crate::common::types::Label;
 
 pub fn alter(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let (parsed_key, options) = parse_create_options(args)?;
@@ -21,7 +20,7 @@ pub fn alter(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         }
 
         ctx.replicate_verbatim();
-        ctx.notify_keyspace_event(NotifyEvent::MODULE, "PROM.ALTER", &parsed_key);
+        ctx.notify_keyspace_event(NotifyEvent::MODULE, "VKM.ALTER", &parsed_key);
         VALKEY_OK
     })
 }
@@ -42,14 +41,8 @@ fn update_series(series: &mut TimeSeries, options: TimeSeriesOptions) -> bool {
     }
 
     let mut labels_changed = false;
-    if let Some(labels) = options.labels {
-        for (k,v) in labels.iter() {
-            series.labels.push( Label{
-                name: k.to_string(),
-                value: v.to_string(),
-            });
-            labels_changed = true;
-        }
+    if !options.labels.is_empty() {
+        labels_changed = true;
     }
 
     labels_changed

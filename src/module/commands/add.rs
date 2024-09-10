@@ -1,9 +1,9 @@
 use crate::arg_parse::{parse_duration_arg, parse_number_with_unit, parse_timestamp};
+use crate::module::arg_parse::parse_metric_name;
 use crate::module::commands::create_series;
-use crate::module::{with_timeseries_mut, VKM_SERIES_TYPE};
+use crate::module::VKM_SERIES_TYPE;
 use crate::storage::time_series::TimeSeries;
 use crate::storage::{DuplicatePolicy, TimeSeriesOptions};
-use ahash::AHashMap;
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
@@ -12,14 +12,15 @@ const CMD_ARG_DUPLICATE_POLICY: &str = "DUPLICATE_POLICY";
 const CMD_ARG_DEDUPE_INTERVAL: &str = "DEDUPE_INTERVAL";
 const CMD_ARG_CHUNK_SIZE: &str = "CHUNK_SIZE";
 const CMD_ARG_LABELS: &str = "LABELS";
+const CMD_ARG_METRIC: &str = "METRIC";
 
 ///
 /// VKM.ADD key timestamp value
-/// [RETENTION duration]
-/// [DUPLICATE_POLICY policy]
-/// [DEDUPE_INTERVAL duration]
-/// [CHUNK_SIZE size]
-/// [LABELS name value ...]
+///     [RETENTION duration]
+///     [DUPLICATE_POLICY policy]
+///     [DEDUPE_INTERVAL duration]
+///     [CHUNK_SIZE size]
+///     [METRIC name]
 ///
 pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1);
@@ -32,20 +33,10 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let series = redis_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE)?;
     if let Some(series) = series {
         args.done()?;
-        if series.add(timestamp, value, None).is_ok() {
-            return Ok(ValkeyValue::Integer(timestamp));
+        return match series.add(timestamp, value, None) {
+            Ok(_) => Ok(ValkeyValue::Integer(timestamp)),
+            Err(e) => Err(ValkeyError::from(e)),
         }
-        todo!("handle error");
-    }
-
-    let existing_result = with_timeseries_mut(ctx, &key, |series| {
-        series.add(timestamp, value, None)?;
-        Ok(ValkeyValue::Integer(timestamp))
-    });
-
-    if let Ok(result) = existing_result {
-        args.done()?;
-        return Ok(result);
     }
 
     let mut options = TimeSeriesOptions::default();
@@ -84,13 +75,8 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
                     return Err(ValkeyError::Str("ERR invalid DUPLICATE_POLICY"));
                 }
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_LABELS) => {
-                let mut labels = AHashMap::new();
-                while let Ok(name) = args.next_str() {
-                    let value = args.next_str()?;
-                    labels.insert(name.to_string(), value.to_string());
-                }
-                options.labels(labels);
+            arg if arg.eq_ignore_ascii_case(CMD_ARG_METRIC) => {
+                options.labels = parse_metric_name(args.next_str()?)?;
             }
             _ => {
                 let msg = format!("ERR invalid argument '{}'", arg);

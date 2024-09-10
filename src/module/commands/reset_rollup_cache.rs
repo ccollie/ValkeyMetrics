@@ -6,7 +6,7 @@ pub fn reset_rollup_cache(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
         return Err(ValkeyError::WrongArity);
     }
 
-    let mut context = get_query_context();
+    let context = get_query_context();
     if context.config.disable_cache {
         return Err(ValkeyError::Str("Cache is already disabled"));
     }

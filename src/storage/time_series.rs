@@ -7,16 +7,18 @@ use super::{
     TimeSeriesChunk,
     TimeSeriesOptions
 };
-use crate::common::types::{Label, PooledTimestampVec, PooledValuesVec, Timestamp};
+use crate::common::decimal::{round_to_significant_digits, RoundDirection};
+use crate::common::types::{Label, Timestamp};
+use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
 use crate::storage::constants::{DEFAULT_CHUNK_SIZE_BYTES, SPLIT_FACTOR};
 use crate::storage::timestamps_filter_iterator::TimestampsFilterIterator;
 use crate::storage::uncompressed_chunk::UncompressedChunk;
-use crate::storage::utils::{format_prometheus_metric_name, round_to_significant_digits};
+use crate::storage::utils::format_prometheus_metric_name;
 use crate::storage::DuplicatePolicy;
 use get_size::GetSize;
-use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
-use std::collections::BinaryHeap;
+use metricsql_common::hash::IntMap;
+use smallvec::SmallVec;
 use std::hash::Hasher;
 use std::mem::size_of;
 use std::time::Duration;
@@ -76,6 +78,7 @@ impl TimeSeries {
     }
 
     pub fn with_options(options: TimeSeriesOptions) -> TsdbResult<Self> {
+        let mut options = options;
         let mut res = Self::new();
         if let Some(chunk_size) = options.chunk_size {
             validate_chunk_size(chunk_size)?;
@@ -93,15 +96,17 @@ impl TimeSeries {
         if let Some(dedupe_interval) = options.dedupe_interval {
             res.dedupe_interval = Some(dedupe_interval);
         }
-        if let Some(labels) = options.labels {
-            for (k, v) in labels.iter() {
-                res.labels.push(Label {
-                    name: k.to_string(),
-                    value: v.to_string(),
-                });
-            }
-            res.labels.sort_by(|a, b| a.name.cmp(&b.name));
-        }
+
+        // todo: make sure labels are sorted and dont contain __name__
+        let label = options.labels
+            .iter()
+            .find(|x| x.name == METRIC_NAME_LABEL)
+            .ok_or(TsdbError::InvalidMetric("NONE".to_string()))?; // better error
+
+        options.metric_name = Some(label.value.clone());
+        options.labels.retain(|x| x.name != METRIC_NAME_LABEL);
+
+        res.labels = options.labels;
         Ok(res)
     }
 
@@ -116,8 +121,18 @@ impl TimeSeries {
     ///
     /// Note that for our internal purposes, we store the metric name and labels separately, and
     /// assume that the labels are sorted by name.
-    pub fn get_prometheus_metric_name(&self) -> String {
+    pub fn prometheus_metric_name(&self) -> String {
         format_prometheus_metric_name(&self.metric_name, &self.labels)
+    }
+
+    pub fn label_value(&self, name: &str) -> Option<&String> {
+        if name == METRIC_NAME_LABEL {
+            return Some(&self.metric_name);
+        }
+        if let Some(label) = self.labels.iter().find(|x| x.name == name) {
+            return Some(&label.value);
+        }
+        None
     }
 
     /// Utility function to create a key for the time series. The key is used to uniquely identify the
@@ -140,7 +155,7 @@ impl TimeSeries {
         if let Some(significant_digits) = self.significant_digits {
             // todo: limit digits to a max, for ex.
             // https://stackoverflow.com/questions/65719216/why-does-rust-only-use-16-significant-digits-for-f64-equality-checks
-            round_to_significant_digits(value, significant_digits as u32)
+            round_to_significant_digits(value, significant_digits as i32, RoundDirection::Up)
         } else {
             value
         }
@@ -346,20 +361,19 @@ impl TimeSeries {
         }
     }
 
+    pub fn chunks_range_indexes(&self, start_timestamp: Timestamp, end_timestamp: Timestamp) -> (usize, usize) {
+        let (first_index, _) = get_chunk_index(&self.chunks, start_timestamp);
+        let (mut last_index, last_found) = get_chunk_index(&self.chunks, end_timestamp);
+        if last_index == self.chunks.len() && !last_found   {
+            last_index = self.chunks.len() - 1;
+        }
+        (first_index, last_index)
+    }
+
     /// Get the time series between given start and end time (both inclusive).
     /// todo: return a SeriesSlice or SeriesData so we don't realloc
-    pub fn get_range(&self, start_time: Timestamp, end_time: Timestamp) -> TsdbResult<Vec<Sample>> {
-        let mut result: BinaryHeap<Sample> = BinaryHeap::new();
-        // todo: possibly used pooled vecs
-        let mut timestamps = Vec::with_capacity(64);
-        let mut values = Vec::with_capacity(64);
-
-        self.select_raw(start_time, end_time, &mut timestamps, &mut values)?;
-        for (ts, value) in timestamps.iter().zip(values.iter()) {
-            result.push(Sample::new(*ts, *value));
-        }
-
-        Ok(result.into_sorted_vec())
+    pub fn get_range(&self, start_time: Timestamp, end_time: Timestamp) -> Vec<Sample> {
+        self.range_iter(start_time, end_time).collect()
     }
 
     pub fn select_raw(
@@ -386,11 +400,39 @@ impl TimeSeries {
         Ok(())
     }
 
+    pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>> {
+        if self.is_empty() || timestamps.is_empty() {
+            Ok(vec![])
+        } else {
+            let mut samples = Vec::with_capacity(timestamps.len());
+
+            // partition timestamps by chunk
+            let mut map: IntMap<usize, SmallVec<Timestamp, 6>> = Default::default();
+            for ts in timestamps.iter() {
+                let (index, _found) = get_chunk_index(&self.chunks, *ts);
+                if index >= self.chunks.len() {
+                    continue;
+                }
+                map.entry(index).or_insert(Default::default()).push(*ts);
+            }
+
+            for (index, ts) in map.iter() {
+                let chunk = &self.chunks[*index];
+                let sub_samples = chunk.samples_by_timestamps(timestamps)?;
+                samples.extend(sub_samples);
+            }
+
+            samples.sort_by(|x, y| x.timestamp.cmp(&y.timestamp));
+
+            Ok(samples)
+        }
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = Sample> + '_ {
         SampleIterator::new(self, self.first_timestamp, self.last_timestamp)
     }
 
-    pub fn iter_range(
+    pub fn range_iter(
         &self,
         start: Timestamp,
         end: Timestamp,
@@ -667,8 +709,8 @@ fn get_chunk_index(chunks: &[TimeSeriesChunk], timestamp: Timestamp) -> (usize, 
     if timestamp <= first {
         return (0, false);
     }
-    if timestamp >= last {
-        return (len - 1, false);
+    if timestamp > last {
+        return (len, false);
     }
     match chunks.binary_search_by(|probe| {
         if timestamp < probe.first_timestamp() {
@@ -684,75 +726,52 @@ fn get_chunk_index(chunks: &[TimeSeriesChunk], timestamp: Timestamp) -> (usize, 
     }
 }
 
+pub type BoxedSampleIterator<'a> = Box<dyn Iterator<Item = Sample> + 'a>;
+
 pub struct SampleIterator<'a> {
+    curr_iter: BoxedSampleIterator<'a>,
     series: &'a TimeSeries,
-    timestamps: PooledTimestampVec,
-    values: PooledValuesVec,
     chunk_index: usize,
-    sample_index: usize,
     start: Timestamp,
     end: Timestamp,
-    err: bool,
-    first_iter: bool,
+    done: bool,
 }
 
 impl<'a> SampleIterator<'a> {
     fn new(series: &'a TimeSeries, start: Timestamp, end: Timestamp) -> Self {
         let (chunk_index, _) = get_chunk_index(&series.chunks, start);
-        // estimate buffer size
-        let size = if chunk_index < series.chunks.len() {
-            series.chunks[chunk_index..]
-                .iter()
-                .take_while(|chunk| chunk.last_timestamp() >= end)
-                .map(|chunk| chunk.num_samples())
-                .min()
-                .unwrap_or(4)
-        } else {
-            4
-        };
-
-        let timestamps = get_pooled_vec_i64(size);
-        let values = get_pooled_vec_f64(size);
+        let (curr_iter, new_start, done) = Self::get_iter(
+            &series.chunks,
+            chunk_index,
+            start,
+            end
+        );
 
         Self {
+            curr_iter,
             series,
-            timestamps,
-            values,
-            chunk_index,
-            sample_index: 0,
-            start,
+            chunk_index: chunk_index + 1,
+            start: new_start,
             end,
-            err: false,
-            first_iter: false,
+            done
         }
     }
 
-    fn next_chunk(&mut self) -> bool {
-        if self.chunk_index >= self.series.chunks.len() {
-            return false;
-        }
-        let chunk = &self.series.chunks[self.chunk_index];
-        if chunk.first_timestamp() > self.end {
-            return false;
-        }
-        self.chunk_index += 1;
-        self.timestamps.clear();
-        self.values.clear();
-        if let Err(_e) =
-            chunk.get_range(self.start, self.end, &mut self.timestamps, &mut self.values)
-        {
-            self.err = true;
-            return false;
-        }
-        self.sample_index = if self.first_iter {
-            self.timestamps.binary_search(&self.start).unwrap_or_else(|idx| idx)
-        } else {
-            0
-        };
+    fn get_iter(
+        chunks: &'a [TimeSeriesChunk],
+        chunk_index: usize,
+        start: Timestamp,
+        end: Timestamp,
+    ) -> (BoxedSampleIterator<'a>, Timestamp, bool) {
+        if let Some(chunk) = chunks.get(chunk_index) {
+            if chunk.first_timestamp() <= end {
+                let new_iter = chunks[chunk_index].range_iter(start, end);
+                let start = chunk.last_timestamp();
 
-        self.start = chunk.last_timestamp();
-        self.first_iter = false;
-        true
+                return (Box::new(new_iter), start, false)
+            }
+        }
+        (Box::new(std::iter::Empty::<Sample>::default()), end, true)
     }
 }
 
@@ -760,13 +779,27 @@ impl<'a> SampleIterator<'a> {
 impl<'a> Iterator for SampleIterator<'a> {
     type Item = Sample;
     fn next(&mut self) -> Option<Self::Item> {
-        if (self.sample_index >= self.timestamps.len() || self.first_iter) && !self.next_chunk() {
-            return None;
+        match self.curr_iter.next() {
+            Some(sample) => {
+                Some(sample)
+            }
+            None => {
+                if self.done {
+                    return None
+                }
+                let (curr_iter, new_start, done) = Self::get_iter(
+                    &self.series.chunks,
+                    self.chunk_index,
+                    self.start,
+                    self.end
+                );
+                self.curr_iter = curr_iter;
+                self.start = new_start;
+                self.chunk_index += 1;
+                self.done = done;
+                self.curr_iter.next()
+            }
         }
-        let timestamp = self.timestamps[self.sample_index];
-        let value = self.values[self.sample_index];
-        self.sample_index += 1;
-        Some(Sample::new(timestamp, value))
     }
 }
 

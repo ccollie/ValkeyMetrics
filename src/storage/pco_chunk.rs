@@ -1,7 +1,7 @@
-use std::mem::size_of;
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use serde::{Deserialize, Serialize};
+use std::mem::size_of;
 
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
@@ -11,7 +11,6 @@ use crate::storage::{DuplicatePolicy, Sample, SeriesSlice, DEFAULT_CHUNK_SIZE_BY
 use metricsql_encoding::encoders::pco::{decode as pco_decode, encode as pco_encode, encode_with_options as pco_encode_with_options, CompressorConfig};
 use pco::DEFAULT_COMPRESSION_LEVEL;
 use valkey_module::raw;
-
 
 /// items above this count will cause value and timestamp encoding/decoding to happen in parallel
 pub(super) const COMPRESSION_PARALLELIZATION_THRESHOLD: usize = 1024;
@@ -140,7 +139,7 @@ impl PcoChunk {
         }
         timestamps.reserve(self.count);
         values.reserve(self.count);
-        // todo: dynamically calculate cutoff
+        // todo: dynamically calculate cutoff or just use chili
         if self.values.len() > 2048 {
             // todo: return errors as appropriate
             let _ = rayon::join(
@@ -242,8 +241,37 @@ impl PcoChunk {
     }
 
     pub fn memory_usage(&self) -> usize {
-        std::mem::size_of::<Self>() +
-        self.get_heap_size()
+        size_of::<Self>() + self.get_heap_size()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = Sample> + '_ {
+        PcoChunkIterator::new(self)
+    }
+
+    pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
+        if self.num_samples() == 0 || timestamps.len() == 0 {
+            return Ok(vec![]);
+        }
+        let mut timestamps = timestamps;
+        let mut state = timestamps;
+        let last_timestamp = timestamps[timestamps.len() - 1] - 1i64;
+        let first_timestamp = timestamps[0];
+
+        self.process_range(first_timestamp, last_timestamp, &mut state, |state, timestamps, values| {
+            let mut samples = Vec::with_capacity(timestamps.len());
+            for ts in state.iter() {
+                match timestamps.binary_search(&ts) {
+                    Ok(i) => {
+                        samples.push(Sample {
+                            timestamp: timestamps[i],
+                            value: values[i],
+                        })
+                    }
+                    _ => {}
+                }
+            }
+            Ok(samples)
+        })
     }
 }
 
@@ -458,6 +486,46 @@ fn decompress_timestamps(compressed: &[u8], dst: &mut Vec<i64>) -> TsdbResult<()
         .map_err(|e| TsdbError::CannotDeserialize(format!("timestamps: {}", e)))
 }
 
+
+pub struct PcoChunkIterator {
+    timestamps: Vec<Timestamp>,
+    values: Vec<f64>,
+    idx: usize,
+}
+
+impl PcoChunkIterator {
+    fn new(chunk: &PcoChunk) -> Self {
+        // todo: make this lazier. ie only decompress afrer first call to next
+        let mut timestamps = Vec::with_capacity(chunk.num_samples());
+        let mut values = Vec::with_capacity(chunk.num_samples());
+
+        match chunk.decompress(&mut timestamps, &mut values) {
+            Ok(_) => {}
+            Err(_idx) => {
+                // todo: log
+            }
+        }
+        Self {
+            timestamps,
+            values,
+            idx: 0
+        }
+    }
+}
+
+impl Iterator for PcoChunkIterator {
+    type Item = Sample;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx >= self.timestamps.len() {
+            return None;
+        }
+        let timestamp = self.timestamps[self.idx];
+        let value = self.values[self.idx];
+        self.idx += 1;
+        Some(Sample { timestamp, value })
+    }
+}
 #[cfg(test)]
 mod tests {
     use std::time::Duration;

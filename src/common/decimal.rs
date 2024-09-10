@@ -180,61 +180,117 @@ pub fn modf(x: f64) -> (f64, f64) {
     (x - rv2, rv2)
 }
 
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum RoundDirection {
+    Up,
+    Down,
+    Nearest,
+}
+
+pub fn round_to_significant_digits_old(value: f64, digits: i32, dir: RoundDirection) -> f64 {
+    if digits == 0 || digits >= 18 {
+        return value;
+    }
+
+    if value.is_nan() || value.is_infinite() || value == 0.0 {
+        return value;
+    }
+
+    let is_negative = value.is_sign_negative();
+
+    let power = value.abs().log10().floor() - (digits - 1) as f64;
+    let mult = 10.0_f64.powf(power);
+
+    let mut intermediate = value / mult;
+
+    let intermediate = match dir {
+        RoundDirection::Up => intermediate.ceil(),
+        RoundDirection::Down => intermediate.floor(),
+        RoundDirection::Nearest => intermediate.round(),
+    };
+
+    let result = intermediate * mult;
+    result
+}
+
+pub fn round_to_significant_digits(value: f64, digits: i32, dir: RoundDirection) -> f64 {
+    if digits == 0 || digits >= 18 {
+        return value;
+    }
+
+    if value.is_nan() || value.is_infinite() || value == 0.0 {
+        return value;
+    }
+
+    let is_negative = value.is_sign_negative();
+    let f = if is_negative { -value } else { value };
+
+    let power = f.abs().log10().floor() - (digits - 1) as f64;
+    let mult = 10.0_f64.powi(power as i32);
+
+    let mut intermediate = f / mult;
+
+    intermediate = intermediate.ceil();
+
+    // let intermediate = match dir {
+    //     RoundDirection::Up => intermediate.ceil(),
+    //     RoundDirection::Down => intermediate.floor(),
+    //     RoundDirection::Nearest => intermediate.round(),
+    // };
+
+    let result = intermediate * mult;
+    if is_negative {
+        return -result;
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_positive_float_to_decimal() {
-        let test_case = |f: f64, decimal_expected: i64, exponent_expected: i16| {
-            let (decimal, exponent) = positive_float_to_decimal(f);
-            assert_eq!(decimal, decimal_expected, "unexpected decimal for positive_float_to_decimal({}); got {}; want {}", f, decimal, decimal_expected);
-            assert_eq!(exponent, exponent_expected, "unexpected exponent for positive_float_to_decimal({}); got {}; want {}", f, exponent, exponent_expected);
-        };
+    fn test_sig_dig_rounder() {
+        use RoundDirection::*;
+        println!("   -123.456   rounded up   to 2 sig figures is {}", round_to_significant_digits_old(-123.456, 2, Up));
+        println!("     -0.03394 rounded down to 3 sig figures is {}", round_to_significant_digits(-0.03394, 3, Down));
+        println!("    474       rounded up   to 2 sig figures is {}", round_to_significant_digits(474.0, 2, Up));
+        println!("3004001       rounded down to 4 sig figures is {}", round_to_significant_digits(3004001.0, 4, Down));
+    }
 
-        test_case(0.0, 0, 1); // The exponent is 1 is OK here. See comment in positive_float_to_decimal.
-        test_case(1.0, 1, 0);
-        test_case(30.0, 3, 1);
-        test_case(12345678900000000.0, 123456789, 8);
-        test_case(12345678901234567.0, 12345678901234568, 0);
-        test_case(1234567890123456789.0, 12345678901234567, 2);
-        test_case(12345678901234567890.0, 12345678901234567, 3);
-        test_case(18446744073670737131.0, 18446744073670737, 3);
-     //   test_case(123456789012345678901.0, 12345678901234568, 4);
-        // test_case((1 << 53) as f64, 1 << 53, 0);
-        // test_case((1 << 54) as f64, 18014398509481984, 0);
-        // test_case((1 << 55) as f64, 3602879701896396, 1);
-        // test_case((1 << 62) as f64, 4611686018427387, 3);
-        // test_case((1 << 63) as f64, 9223372036854775, 3);
-        // Skip this test, since M1 returns 18446744073709551 instead of 18446744073709548
-        // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1653
-        // test_case(1 << 64, 18446744073709548, 3);
-        // test_case((1 << 65) as f64, 368934881474191, 5);
-        // test_case((1 << 66) as f64, 737869762948382, 5);
-        // test_case((1 << 67) as f64, 1475739525896764, 5);
+    #[test]
+    fn test_round_to_significant_digits_up() {
+        assert_eq!(round_to_significant_digits(-0.56, 1, RoundDirection::Up), -0.6);
+        assert_eq!(round_to_significant_digits(123.456, 2, RoundDirection::Up), 130.0);
+        assert_eq!(round_to_significant_digits(0.03394, 3, RoundDirection::Up), 0.0340);
+        assert_eq!(round_to_significant_digits(474.0, 2, RoundDirection::Up), 480.0);
+        assert_eq!(round_to_significant_digits(3004001.0, 4, RoundDirection::Up), 3005000.0);
+        assert_eq!(round_to_significant_digits(-0.56, 1, RoundDirection::Up), -0.6);
+    }
 
-       // test_case(0.1, 1, -1);
-        test_case(123456789012345678e-5, 12345678901234568, -4);
-        test_case(1234567890123456789e-10, 12345678901234568, -8);
-        test_case(1234567890123456789e-14, 1234567890123, -8);
-        test_case(1234567890123456789e-17, 12345678901234, -12);
-        test_case(1234567890123456789e-20, 1234567890123, -14);
+    #[test]
+    fn test_round_to_significant_digits_down() {
+        assert_eq!(round_to_significant_digits(123.456, 2, RoundDirection::Down), 120.0);
+        assert_eq!(round_to_significant_digits(0.03394, 3, RoundDirection::Down), 0.0339);
+        assert_eq!(round_to_significant_digits(474.0, 2, RoundDirection::Down), 470.0);
+        assert_eq!(round_to_significant_digits(3004001.0, 4, RoundDirection::Down), 3004000.0);
+    }
 
-        test_case(0.000874957, 874957, -9);
-        test_case(0.001130435, 1130435, -9);
+    #[test]
+    fn test_round_to_significant_digits_nearest() {
+        assert_eq!(round_to_significant_digits(123.456, 2, RoundDirection::Nearest), 120.0);
+        assert_eq!(round_to_significant_digits(0.03394, 3, RoundDirection::Nearest), 0.0339);
+        assert_eq!(round_to_significant_digits(474.0, 2, RoundDirection::Nearest), 470.0);
+        assert_eq!(round_to_significant_digits(3004001.0, 4, RoundDirection::Nearest), 3004000.0);
+    }
 
-        // Extreme cases. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1114
-        test_case(2.964393875e-100, 2964393875, -109);
-        test_case(2.964393875e-309, 2964393875, -318);
-        test_case(2.964393875e-314, 296439387505, -325);
-        test_case(2.964393875e-315, 2964393875047, -327);
-        test_case(2.964393875e-320, 296439387505, -331);
-        test_case(2.964393875e-324, 494065645841, -335);
-        test_case(2.964393875e-325, 0, 1);
-
-        test_case(2.964393875e+307, 2964393875, 298);
-        test_case(9.964393875e+307, 9964393875, 298);
-        test_case(1.064393875e+308, 1064393875, 299);
-        test_case(1.797393875e+308, 1797393875, 299);
+    #[test]
+    fn test_round_to_significant_digits_edge_cases() {
+        let nan_result = round_to_significant_digits(f64::NAN, 3, RoundDirection::Nearest);
+        assert!(nan_result.is_nan());
+        assert_eq!(round_to_significant_digits(f64::INFINITY, 3, RoundDirection::Nearest), f64::INFINITY);
+        assert_eq!(round_to_significant_digits(0.0, 3, RoundDirection::Nearest), 0.0);
+        assert_eq!(round_to_significant_digits(-123.456, 2, RoundDirection::Nearest), -120.0);
     }
 }

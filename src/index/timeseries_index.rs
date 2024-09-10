@@ -1,11 +1,10 @@
 use super::index_key::*;
-use crate::common::types::Label;
+use crate::common::types::{Label, Timestamp};
 use crate::error::TsdbResult;
 use crate::index::filters::{get_ids_by_matchers_optimized, process_equals_match, process_iterator};
 use crate::module::{with_timeseries, VKM_SERIES_TYPE};
 use crate::storage::time_series::TimeSeries;
 use crate::storage::utils::format_prometheus_metric_name;
-use blart::AsBytes;
 use croaring::Bitmap64;
 use metricsql_common::hash::IntMap;
 use metricsql_parser::prelude::{LabelFilter, LabelFilterOp, Matchers};
@@ -17,7 +16,7 @@ use std::ops::ControlFlow::Continue;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{RwLock, RwLockReadGuard};
 use valkey_module::redisvalue::ValkeyValueKey;
-use valkey_module::{Context, ValkeyString, ValkeyValue};
+use valkey_module::{Context, ValkeyResult, ValkeyString, ValkeyValue};
 
 /// Type for the key of the index. Use instead of `String` because Valkey keys are binary safe not utf8 safe.
 pub type KeyType = Box<[u8]>;
@@ -139,7 +138,7 @@ impl IndexInner {
 
     fn has_label(&self, label: &str) -> bool {
         let prefix = get_key_for_label_prefix(label);
-        self.label_index.prefix_keys(prefix.as_bytes()).next().is_some()
+        self.label_index.prefix(prefix.as_bytes()).next().is_some()
     }
 
     fn add_or_insert(&mut self, label: &str, value: &str, ts_id: u64) -> bool {
@@ -228,7 +227,7 @@ impl IndexInner {
                     ControlFlow::Break(v) => {
                         return v;
                     },
-                    ControlFlow::Continue(_) => continue,
+                    Continue(_) => continue,
                 }
             }
         }
@@ -404,8 +403,8 @@ impl TimeSeriesIndex {
         let split_pos = prefix.len();
         let mut result: BTreeSet<String> = BTreeSet::new();
 
-        for value in inner.label_index.prefix_keys(prefix.as_bytes())
-            .map(|key| key.sub_string(split_pos)) {
+        for value in inner.label_index.prefix(prefix.as_bytes())
+            .map(|(key, _)| key.sub_string(split_pos)) {
             result.insert(value.to_string());
         }
 
@@ -430,8 +429,7 @@ impl TimeSeriesIndex {
         inner.series_ids_by_matchers(matchers)
     }
 
-    /// Returns a list of all series matching `matchers` while having samples in the range
-    /// [`start`, `end`]
+    /// Returns a list of all series matching `matchers`
     pub(crate) fn series_keys_by_matchers(&self, ctx: &Context, matchers: &[Matchers]) -> Vec<ValkeyString> {
         let inner = self.inner.read().unwrap();
         let bitmap = inner.series_ids_by_matchers(matchers);
@@ -443,6 +441,30 @@ impl TimeSeriesIndex {
             }
         }
         result
+    }
+
+    pub fn with_series_by_matchers<F, STATE>(
+        &self,
+        ctx: &Context,
+        matcher: Matchers,
+        start_ts: Timestamp,
+        end_ts: Timestamp,
+        state: &mut STATE,
+        f: F,
+    ) -> ValkeyResult<()>
+    where F: Fn(&mut STATE, &mut TimeSeries),  // todo: return ControlFLow
+    {
+        let keys = self.series_keys_by_matchers(ctx, &[matcher]);
+        for key in keys.iter() {
+            let redis_key = ctx.open_key_writable(key);
+            let series = redis_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE)?;
+            if let Some(series) = series {
+                if series.overlaps(start_ts, end_ts) {
+                    f(state, series);
+                }
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn find_ids_by_matchers(&self, matchers: &Matchers) -> Bitmap64 {
@@ -619,7 +641,7 @@ mod tests {
 
     #[test]
     fn test_index_time_series() {
-        let mut index = TimeSeriesIndex::new();
+        let index = TimeSeriesIndex::new();
         let ts = create_series_from_metric_name(r#"latency{region="us-east-1",env="qa"}"#);
 
         index.index_time_series(&ts, b"time-series-1");
@@ -630,7 +652,7 @@ mod tests {
 
     #[test]
     fn test_reindex_time_series() {
-        let mut index = TimeSeriesIndex::new();
+        let index = TimeSeriesIndex::new();
         let ts = create_series_from_metric_name(r#"latency{region="us-east-1",env="qa"}"#);
 
         index.index_time_series(&ts, b"time-series-1");
@@ -644,7 +666,7 @@ mod tests {
 
     #[test]
     fn test_remove_time_series() {
-        let mut index = TimeSeriesIndex::new();
+        let index = TimeSeriesIndex::new();
         let ts = create_series_from_metric_name(r#"latency{region="us-east-1",env="qa"}"#);
 
         index.index_time_series(&ts, b"time-series-1");
@@ -658,7 +680,7 @@ mod tests {
 
     #[test]
     fn test_get_label_values() {
-        let mut index = TimeSeriesIndex::new();
+        let index = TimeSeriesIndex::new();
         let ts1 = create_series("latency", vec![
             Label { name: "region".to_string(), value: "us-east1".to_string() },
             Label { name: "env".to_string(), value: "dev".to_string() },
@@ -684,7 +706,7 @@ mod tests {
 
     #[test]
     fn test_get_id_by_name_and_labels() {
-        let mut index = TimeSeriesIndex::new();
+        let index = TimeSeriesIndex::new();
         let ts = create_series_from_metric_name(r#"latency{region="us-east-1",env="qa"}"#);
 
         index.index_time_series(&ts, b"time-series-1");
@@ -695,7 +717,7 @@ mod tests {
 
     #[test]
     fn test_prometheus_name_exists() {
-        let mut index = TimeSeriesIndex::new();
+        let index = TimeSeriesIndex::new();
         let ts = create_series("latency", vec![
             Label { name: "region".to_string(), value: "us-east1".to_string() },
             Label { name: "env".to_string(), value: "qa".to_string() },

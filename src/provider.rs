@@ -4,7 +4,7 @@ use crate::index::TimeSeriesIndex;
 use crate::module::VKM_SERIES_TYPE;
 use crate::storage::time_series::TimeSeries;
 use async_trait::async_trait;
-use metricsql_runtime::{Deadline, MetricStorage, QueryResult, QueryResults, RuntimeError, RuntimeResult, SearchQuery};
+use metricsql_runtime::prelude::{Deadline, MetricStorage, QueryResult, QueryResults, RuntimeError, RuntimeResult, SearchQuery};
 use metricsql_runtime::types::MetricName;
 use valkey_module::{Context, ValkeyString};
 

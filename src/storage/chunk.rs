@@ -1,18 +1,18 @@
 use crate::common::types::{PooledTimestampVec, PooledValuesVec, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
-use crate::storage::pco_chunk::PcoChunk;
+use crate::storage::gorilla_chunk::GorillaChunk;
 use crate::storage::merge::merge;
+use crate::storage::pco_chunk::PcoChunk;
 use crate::storage::uncompressed_chunk::UncompressedChunk;
-use crate::storage::utils::get_timestamp_index;
 use crate::storage::{DuplicatePolicy, Sample, SeriesSlice};
 use ahash::AHashSet;
+use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
-use get_size::GetSize;
-use valkey_module::{raw, RedisModuleIO};
+use std::mem::size_of;
 use valkey_module::error::{Error, GenericError};
-use crate::storage::gorilla_chunk::GorillaChunk;
+use valkey_module::{raw, RedisModuleIO};
 
 pub const MIN_CHUNK_SIZE: usize = 48;
 pub const MAX_CHUNK_SIZE: usize = 1048576;
@@ -242,24 +242,41 @@ impl TimeSeriesChunk {
         }
     }
 
-    pub fn iter_range(
+    // todo: make this a trait method
+    pub fn iter(&self) -> Box<dyn Iterator<Item = Sample> + '_> {
+        use TimeSeriesChunk::*;
+        match self {
+            Uncompressed(chunk) => Box::new(chunk.iter()),
+            Gorilla( chunk) => Box::new(chunk.iter()),
+            Pco(chunk) => Box::new(chunk.iter())
+        }
+    }
+
+    pub fn range_iter(
         &self,
         start: Timestamp,
         end: Timestamp,
-    ) -> impl IntoIterator<Item = Sample> + '_ {
+    ) -> impl Iterator<Item = Sample> + '_ {
         SampleIterator::new(self, start, end)
     }
 
     pub fn get_samples(&self, start: Timestamp, end: Timestamp) -> TsdbResult<Vec<Sample>> {
-        let mut samples = Vec::new();
-        self.process_range(&mut samples, start, end, |samples, timestamps, values| {
-            samples.reserve(timestamps.len());
-            for i in 0..timestamps.len() {
-                samples.push(Sample::new(timestamps[i], values[i]));
-            }
-            Ok(())
-        })?;
+        let mut samples = Vec::with_capacity(16);
+        for sample in self.range_iter(start, end) {
+            samples.push(sample);
+        }
         Ok(samples)
+    }
+
+    pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>> {
+        if self.is_empty() || timestamps.is_empty() {
+            return Ok(vec![]);
+        }
+        match self {
+            TimeSeriesChunk::Uncompressed(chunk) => chunk.samples_by_timestamps(timestamps),
+            TimeSeriesChunk::Gorilla(chunk) => chunk.samples_by_timestamps(timestamps),
+            TimeSeriesChunk::Pco(chunk) => chunk.samples_by_timestamps(timestamps),
+        }
     }
 
     pub fn set_data(&mut self, timestamps: &[i64], values: &[f64]) -> TsdbResult<()> {
@@ -381,7 +398,7 @@ impl TimeSeriesChunk {
     }
 
     pub fn memory_usage(&self) -> usize {
-        std::mem::size_of::<Self>() +
+        size_of::<Self>() +
             self.get_heap_size()
     }
 
@@ -529,10 +546,7 @@ impl Chunk for TimeSeriesChunk {
 }
 
 struct SampleIterator<'a> {
-    chunk: &'a TimeSeriesChunk,
-    timestamps: PooledTimestampVec,
-    values: PooledValuesVec,
-    sample_index: usize,
+    inner: Box<dyn Iterator<Item = Sample> + 'a>,
     start: Timestamp,
     end: Timestamp,
     is_init: bool,
@@ -540,15 +554,15 @@ struct SampleIterator<'a> {
 
 impl<'a> SampleIterator<'a> {
     fn new(chunk: &'a TimeSeriesChunk, start: Timestamp, end: Timestamp) -> Self {
-        let capacity = chunk.num_samples();
-        let timestamps = get_pooled_vec_i64(capacity);
-        let values = get_pooled_vec_f64(capacity);
+        let iter = if chunk.overlaps(start, end) {
+            chunk.iter()
+        } else {
+            // use an empty iterator
+            Box::new(std::iter::empty::<Sample>())
+        };
 
         Self {
-            chunk,
-            timestamps,
-            values,
-            sample_index: 0,
+            inner: Box::new(iter),
             start,
             end,
             is_init: false,
@@ -563,34 +577,23 @@ impl<'a> Iterator for SampleIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if !self.is_init {
             self.is_init = true;
-            let first = self.chunk.first_timestamp();
-            if first > self.end {
-                return None;
-            }
-            if self.chunk
-                .get_range(self.start, self.end, &mut self.timestamps, &mut self.values).is_err()
-            {
-                return None;
-            }
-            if let Some(idx) = get_timestamp_index(&self.timestamps, self.start) {
-                self.sample_index = idx;
-            } else {
-                return None;
+            for sample in self.inner.by_ref() {
+                if sample.timestamp > self.end {
+                    return None;
+                }
+                if sample.timestamp < self.start {
+                    continue;
+                }
+                return Some(sample);
             }
         }
-        if self.sample_index >= self.timestamps.len() {
-            return None;
+        for sample in self.inner.by_ref() {
+            if sample.timestamp > self.end {
+                return None;
+            }
+            return Some(sample);
         }
-        let timestamp = self.timestamps[self.sample_index];
-        let value = self.values[self.sample_index];
-        self.sample_index += 1;
-        Some(Sample::new(timestamp, value))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let count = self.timestamps.len();
-        let lower = count - self.sample_index;
-        (lower, Some(count))
+        None
     }
 }
 
@@ -664,10 +667,10 @@ pub fn merge_by_capacity(
 
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
     use crate::error::TsdbError;
-    use crate::tests::generators::create_rng;
     use crate::storage::{Chunk, Sample, TimeSeriesChunk};
+    use crate::tests::generators::create_rng;
+    use rand::Rng;
 
     pub fn saturate_chunk(chunk: &mut TimeSeriesChunk) {
         let mut rng = create_rng(None).unwrap();

@@ -1,11 +1,10 @@
-use ahash::AHashMap;
-use valkey_module::{ValkeyError, ValkeyString};
+use get_size::GetSize;
+use metricsql_common::prelude::Label;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::mem::size_of;
 use std::str::FromStr;
 use std::time::Duration;
-use get_size::GetSize;
 
 mod chunk;
 mod pco_chunk;
@@ -17,22 +16,18 @@ mod uncompressed_chunk;
 pub(crate) mod utils;
 pub(crate) mod series_data;
 mod defrag;
-mod types;
 mod timestamps_filter_iterator;
 mod gorilla_chunk;
+mod slice_iter;
 
+use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
 pub(super) use chunk::*;
 pub(crate) use constants::*;
-pub(crate) use slice::*;
 pub(crate) use defrag::*;
-use crate::aggregators::Aggregator;
-use crate::common::types::{Sample, Timestamp};
-use crate::module::arg_parse::TimestampRangeValue;
+pub(crate) use slice::*;
 
 pub const SAMPLE_SIZE: usize = size_of::<Sample>();
-
-
 
 #[non_exhaustive]
 #[derive(Clone, Debug, Default, Hash, PartialEq, Serialize, Deserialize)]
@@ -153,15 +148,15 @@ impl FromStr for DuplicatePolicy {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         use DuplicatePolicy::*;
 
-        match s {
-            s if s.eq_ignore_ascii_case("block") => Ok(Block),
-            s if s.eq_ignore_ascii_case("first") => Ok(KeepFirst),
-            s if s.eq_ignore_ascii_case("keepfirst") || s.eq_ignore_ascii_case("keep_first") => Ok(KeepFirst),
-            s if s.eq_ignore_ascii_case("last") => Ok(KeepLast),
-            s if s.eq_ignore_ascii_case("keeplast") || s.eq_ignore_ascii_case("keep_first") => Ok(KeepLast),
-            s if s.eq_ignore_ascii_case("min") => Ok(Min),
-            s if s.eq_ignore_ascii_case("max") => Ok(Max),
-            s if s.eq_ignore_ascii_case("sum") => Ok(Sum),
+        match s.to_ascii_lowercase().as_str() {
+            "block" => Ok(Block),
+            "first" => Ok(KeepFirst),
+            "keepfirst" | "keep_first" => Ok(KeepFirst),
+            "last" => Ok(KeepLast),
+            "keeplast" | "keep_last" => Ok(KeepLast),
+            "min" => Ok(Min),
+            "max" => Ok(Max),
+            "sum" => Ok(Sum),
             _ => Err(TsdbError::General(format!("invalid duplicate policy: {s}"))),
         }
     }
@@ -196,7 +191,7 @@ pub struct TimeSeriesOptions {
     pub retention: Option<Duration>,
     pub duplicate_policy: Option<DuplicatePolicy>,
     pub dedupe_interval: Option<Duration>,
-    pub labels: Option<AHashMap<String, String>>,
+    pub labels: Vec<Label>,
     pub significant_digits: Option<u8>,
 }
 
@@ -216,168 +211,14 @@ impl TimeSeriesOptions {
     pub fn duplicate_policy(&mut self, duplicate_policy: DuplicatePolicy) {
         self.duplicate_policy = Some(duplicate_policy);
     }
-
-    pub fn labels(&mut self, labels: AHashMap<String, String>) {
-        self.labels = Some(labels);
-    }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Default)]
-pub struct ValueFilter {
-    pub min: f64,
-    pub max: f64,
-}
 
-impl ValueFilter {
-    pub(crate) fn new(min: f64, max: f64) -> TsdbResult<Self> {
-        if min > max {
-            return Err(TsdbError::General("ERR invalid range".to_string()));
-        }
-        Ok(Self { min, max })
-    }
-}
-
-#[derive(Debug, PartialEq, Clone, Default)]
-pub struct RangeFilter {
-    pub value: Option<ValueFilter>,
-    pub timestamps: Option<Vec<Timestamp>>,
-}
-
-impl RangeFilter {
-    pub fn new(value: Option<ValueFilter>, timestamps: Option<Vec<Timestamp>>) -> Self {
-        Self { value, timestamps }
-    }
-
-    pub fn filter(&self, timestamp: Timestamp, value: f64) -> bool {
-        if let Some(value_filter) = &self.value {
-            if value < value_filter.min || value > value_filter.max {
-                return false;
-            }
-        }
-        if let Some(timestamps) = &self.timestamps {
-            if !timestamps.contains(&timestamp) {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-#[derive(Debug, Default, PartialEq, Clone, Copy)]
-pub enum RangeAlignment {
-    #[default]
-    Default,
-    Start,
-    End,
-    Timestamp(Timestamp),
-}
-
-#[derive(Debug, Default, PartialEq, Clone, Copy)]
-pub enum BucketTimestamp {
-    #[default]
-    Start,
-    End,
-    Mid
-}
-
-impl BucketTimestamp {
-    pub fn calculate(&self, ts: crate::common::types::Timestamp, time_delta: i64) -> crate::common::types::Timestamp {
-        match self {
-            Self::Start => ts,
-            Self::Mid => ts + time_delta / 2,
-            Self::End => ts + time_delta,
-        }
-    }
-
-}
-impl TryFrom<&str> for BucketTimestamp {
-    type Error = ValkeyError;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        if value.len() == 1 {
-            let c = value.chars().next().unwrap();
-            match c {
-                '-' => return Ok(BucketTimestamp::Start),
-                '+' => return Ok(BucketTimestamp::End),
-                _ => {}
-            }
-        }
-        match value {
-            value if value.eq_ignore_ascii_case("start") => return Ok(BucketTimestamp::Start),
-            value if value.eq_ignore_ascii_case("end") => return Ok(BucketTimestamp::End),
-            value if value.eq_ignore_ascii_case("mid") => return Ok(BucketTimestamp::Mid),
-            _ => {}
-        }
-        Err(ValkeyError::Str("TSDB: invalid BUCKETTIMESTAMP parameter"))
-    }
-}
-
-impl TryFrom<&ValkeyString> for BucketTimestamp {
-    type Error = ValkeyError;
-    fn try_from(value: &ValkeyString) -> Result<Self, Self::Error> {
-        value.to_string_lossy().as_str().try_into()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct AggregationOptions {
-    pub aggregator: Aggregator,
-    pub bucket_duration: Duration,
-    pub timestamp_output: BucketTimestamp,
-    pub time_delta: i64,
-    pub empty: bool
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct RangeOptions {
-    pub start: TimestampRangeValue,
-    pub end: TimestampRangeValue,
-    pub count: Option<usize>,
-    pub aggregation: Option<AggregationOptions>,
-    pub filter: Option<RangeFilter>,
-    pub alignment: Option<RangeAlignment>,
-    pub latest: bool
-}
-
-impl RangeOptions {
-    pub fn new(start: Timestamp, end: Timestamp) -> Self {
-        Self {
-            start: TimestampRangeValue::Value(start),
-            end: TimestampRangeValue::Value(end),
-            ..Default::default()
-        }
-    }
-
-    pub fn set_value_range(&mut self, start: f64, end: f64) -> TsdbResult<()> {
-        let mut filter = self.filter.clone().unwrap_or_default();
-        filter.value = Some(ValueFilter::new(start, end)?);
-        self.filter = Some(filter);
-        Ok(())
-    }
-
-    pub fn set_valid_timestamps(&mut self, timestamps: Vec<crate::common::types::Timestamp>) {
-        let mut filter = self.filter.clone().unwrap_or_default();
-        filter.timestamps = Some(timestamps);
-        self.filter = Some(filter);
-    }
-
-    pub fn is_aggregation(&self) -> bool {
-        self.aggregation.is_some()
-    }
-
-    pub fn get_value_filter(&self) -> Option<&ValueFilter> {
-        if let Some(filter) = &self.filter {
-            if let Some(value_filter) = &filter.value {
-                return Some(value_filter)
-            }
-        }
-        None
-    }
-}
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
     use crate::error::TsdbError;
     use crate::storage::DuplicatePolicy;
+    use std::str::FromStr;
 
     #[test]
     fn test_duplicate_policy_parse() {

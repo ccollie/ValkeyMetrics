@@ -2,7 +2,7 @@ use std::fmt::Write;
 use std::borrow::Borrow;
 use std::fmt::Display;
 use std::ops::Deref;
-use blart::{AsBytes, BytesMapping};
+use blart::{AsBytes};
 use metricsql_runtime::prelude::METRIC_NAME_LABEL;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

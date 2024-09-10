@@ -4,7 +4,6 @@ mod tests {
     use valkey_module::ValkeyString;
     use crate::index::TimeSeriesIndex;
     use crate::storage::time_series::TimeSeries;
-
     fn create_valkey_string(s: &str) -> ValkeyString {
         ValkeyString::create(None, s.as_bytes())
     }

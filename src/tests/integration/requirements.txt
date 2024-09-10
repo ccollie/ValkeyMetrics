@@ -1,0 +1,3 @@
+RLTest==0.7.10
+redis
+gevent~=22.10.1

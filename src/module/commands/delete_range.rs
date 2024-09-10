@@ -1,8 +1,9 @@
 use crate::globals::with_timeseries_index;
-use crate::module::arg_parse::{parse_series_selector, TimestampRangeValue};
+use crate::module::arg_parse::{parse_series_selector};
 use crate::module::{normalize_range_args, parse_timestamp_arg, VKM_SERIES_TYPE};
 use crate::storage::time_series::TimeSeries;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use crate::module::types::TimestampRangeValue;
 
 const CMD_ARG_START: &str = "START";
 const CMD_ARG_END: &str = "END";
