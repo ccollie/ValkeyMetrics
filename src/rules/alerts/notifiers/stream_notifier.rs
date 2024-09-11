@@ -1,7 +1,7 @@
+use std::collections::HashMap;
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::rules::alerts::{Alert, Notifier};
-use ahash::{AHashMap, HashMap};
 use std::time::Duration;
 use valkey_module::{Context, ValkeyValue};
 
@@ -36,7 +36,7 @@ impl StreamNotifier {
             serialized_alert.push(value.to_string());
         }
 
-        fn add_hash_map(key: &str, value: &AHashMap<String, String>, serialized_alert: &mut Vec<String>) {
+        fn add_hash_map(key: &str, value: &HashMap<String, String>, serialized_alert: &mut Vec<String>) {
             if value.is_empty() {
                 return;
             }
@@ -111,7 +111,9 @@ impl Notifier for StreamNotifier {
             self.serialize_alert(alert, &mut keys);
 
             let xadd_args = keys.iter().map(|k| k.as_str()).collect::<Vec<&str>>();
-            let result: ValkeyValue = ctx.call("XADD", &xadd_args)?;
+            let result: ValkeyValue = ctx.call("XADD", &xadd_args)
+                .map_err(|_| TsdbError::General("Error adding pushing alert to stream".to_string()))?;
+
             match result {
                 ValkeyValue::SimpleString(id) => {
                     let msg = format!("Added message to stream with ID: {}", id);
@@ -133,6 +135,6 @@ impl Notifier for StreamNotifier {
     }
 }
 
-fn hash_map_to_string(map: &AHashMap<String, String>) -> String {
+fn hash_map_to_string(map: &HashMap<String, String>) -> String {
     map.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<String>>().join(",")
 }

@@ -127,7 +127,7 @@ pub(super) fn get_regex_literal_prefix(regex: &Regex) -> (String, bool) {
 
 pub(crate) fn is_regex_matcher(matcher: &StringMatchHandler) -> bool {
     match matcher {
-        StringMatchHandler::Regex(_) | StringMatchHandler::FastRegex(_) => true,
+        StringMatchHandler::FastRegex(_) => true,
         _ => false,
     }
 }

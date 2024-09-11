@@ -5,7 +5,6 @@ use std::ops::Add;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use std::vec;
-use ahash::AHashMap;
 
 use enquote::enquote;
 use metricsql_runtime::TimestampTrait;
@@ -209,7 +208,7 @@ impl Group {
             if ar.r#for.is_zero() {
                 continue;
             }
-            let mut headers: AHashMap<String, String> = AHashMap::with_capacity(self.headers.len());
+            let mut headers: HashMap<String, String> = HashMap::with_capacity(self.headers.len());
             for header in self.headers.iter() {
                 headers.insert(header.name.clone(), header.value.clone());
             }

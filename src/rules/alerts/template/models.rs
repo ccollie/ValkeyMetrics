@@ -30,7 +30,7 @@ impl Metric {
     }
 
     fn get_label(&self, key: &str) -> &str {
-        self.labels.iter().find(key)
+        self.labels.iter().find(|x| x.name == key)
             .map_or("", |l| l.value.as_str())
     }
 }
@@ -185,7 +185,9 @@ pub fn template_value_to_metric(value: &Value) -> Result<Metric, FuncError> {
     match value {
         Value::Object(_map) => {
             let label_values = get_hash_array_value(value, "labels", true)?.unwrap();
-            let labels = label_values.iter().map(|l| template_value_to_label).collect::<Result<Vec<Label>, FuncError>>()?;
+            let labels = label_values.iter()
+                .map(template_value_to_label)
+                .collect::<Result<Vec<Label>, FuncError>>()?;
             let timestamp = get_hash_float_value(value, "timestamp", true)?.unwrap();
             let value = get_hash_float_value(value, "value", true)?.unwrap();
             Ok(Metric::new(labels, timestamp as i64, value))

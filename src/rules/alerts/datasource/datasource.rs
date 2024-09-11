@@ -9,12 +9,11 @@ use std::time::Duration;
 
 /// Querier trait wraps query and query_range methods
 pub trait Querier {
-    /// query executes instant request with the given query at the given ts.
+    /// executes instant request with the given query at the given ts.
     /// It returns list of Metric in response
     fn query(&self, query: &str, ts: Timestamp) -> AlertsResult<QueryResult>;
-    /// query_range executes range request with the given query on the given time range.
+    /// `query_range` executes range request with the given query on the given time range.
     /// It returns list of Metric in response and error if any.
-    /// query_range should stop once ctx is cancelled.
     fn query_range(&self, query: &str, from: Timestamp, to: Timestamp) -> AlertsResult<QueryResult>;
 }
 
@@ -56,7 +55,6 @@ pub struct QuerierParams {
     pub evaluation_interval: Duration,
     pub eval_offset: Duration,
     pub query_params: HashMap<String, String>,
-    pub headers: HashMap<String, String>,
     pub debug: bool
 }
 

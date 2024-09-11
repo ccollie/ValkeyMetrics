@@ -1,24 +1,26 @@
-
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock, RwLockWriteGuard};
-use std::time::Duration;
-use valkey_module::{ContextGuard, Context, ValkeyString, ThreadSafeContext, ValkeyError};
+use std::ptr::NonNull;
 use crate::module::commands::create_series_ex;
 use crate::module::VALKEY_PROMQL_SERIES_TYPE;
 use crate::rules::alerts::{AlertsError, AlertsResult};
 use crate::rules::RawTimeSeries;
 use crate::storage::time_series::TimeSeries;
 use crate::storage::TimeSeriesOptions;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock, RwLockWriteGuard};
+use std::time::Duration;
+use valkey_module::{ContextGuard, RedisModuleTimerID, ThreadSafeContext, ValkeyString};
+use crate::common::stop_timer;
 
-/// a queue for writing timeseries back to redis.
+/// a queue for writing timeseries back to valkey.
 pub struct WriteQueue {
     addr: String,
     // todo: mpsc
     data: RwLock<Vec<RawTimeSeries>>,
-    flush_interval: Duration,
+    pub(crate) flush_interval: Duration,
     max_batch_size: usize,
     max_queue_size: usize,
     closed: AtomicBool,
+    timer_id: RedisModuleTimerID
 }
 
 pub type WriteQueueRef = Arc<WriteQueue>;
@@ -28,8 +30,6 @@ pub type WriteQueueRef = Arc<WriteQueue>;
 pub struct WriteQueueConfig {
     /// Addr of remote storage
     addr: String,
-    /// concurrency defines number of readers that concurrently read from the queue and flush data
-    concurrency: usize,
     /// max_batch_size defines max number of series to be flushed at once
     max_batch_size: usize,
     /// max_queue_size defines max length of input queue populated by push method.
@@ -76,6 +76,7 @@ impl WriteQueue {
             max_queue_size,
             data: RwLock::new(storage),
             closed: Default::default(),
+            timer_id: RedisModuleTimerID::default()
         };
 
         Ok(c)
@@ -121,7 +122,7 @@ impl WriteQueue {
         })
     }
 
-    /// push adds timeseries into queue for writing into remote storage.
+    /// push adds timeseries into queue for writing into storage.
     /// Push returns and error if client is stopped or if queue is full.
     pub fn push(&self, s: Vec<RawTimeSeries>) -> Result<(), String> {
         self.add_internal(|writer| {
@@ -130,8 +131,17 @@ impl WriteQueue {
         })
     }
 
+    fn stop_timer(&mut self) {
+        let guard = ThreadSafeContext::new().lock();
+        stop_timer(&guard, self.timer_id);
+        self.timer_id = 0;
+    }
+
     /// Close stops the client and waits for all goroutines to exit.
-    pub fn close(&self) -> AlertsResult<()> {
+    pub fn close(&mut self) -> AlertsResult<()> {
+        self.stop_timer();
+        // todo: flush
+
         if self.closed.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
             return Err(AlertsError::Generic("client is already closed".to_string()));
         }
@@ -168,7 +178,7 @@ impl WriteQueue {
         writer.append(&mut remainder);
     }
 
-    fn create_series<'a>(&self, ctx: &'a Context, key: &ValkeyString) -> AlertsResult<&'a mut TimeSeries> {
+    fn create_series<'a>(&self, ctx: &'a ContextGuard, key: &ValkeyString) -> AlertsResult<&'a mut TimeSeries> {
         let options = TimeSeriesOptions::default();
         create_series_ex(ctx, key, options)
             .map_err(|e| AlertsError::Generic(format!("failed to create series: {:?}", e)))?;
@@ -180,15 +190,20 @@ impl WriteQueue {
 
     fn series_exists(&self, ctx: &ContextGuard, key: &ValkeyString) -> bool {
         let series = get_timeseries_mut(ctx, key, false);
-        series.is_some()
+        if let Ok(value) = series {
+            value.is_some()
+        } else {
+            false
+        }
     }
 
-    fn create_series_if_not_exists<'a>(&self, ctx: &'a ContextGuard, key: &ValkeyString) -> AlertsResult<&'a mut TimeSeries> {
-        let mut series = get_timeseries_mut(ctx, key, false)
+    fn create_series_if_not_exists<'a>(&self, ctx: &'a ContextGuard, key: &str) -> AlertsResult<&'a mut TimeSeries> {
+        let key = ValkeyString::create(Some(NonNull::from(ctx.ctx)), key);
+        let series = get_timeseries_mut(ctx, &key, false)
             .map_err(|e| AlertsError::Generic(format!("failed to get series: {:?}", e)))?;
 
         if series.is_none() {
-            self.create_series(ctx, key)
+            self.create_series(ctx, &key)
         } else {
             Ok(series.unwrap())
         }
@@ -198,9 +213,9 @@ impl WriteQueue {
         if series.is_empty() {
             return Ok(())
         }
-        for ts in series {
-            let key = ts.key();
-            let mut series = self.create_series_if_not_exists(&ctx, &key)?;
+        for ts in series.iter_mut() {
+            let mut series = self.create_series_if_not_exists(&ctx, &ts.key)?;
+            write_timeseries(&mut series, ts)
             // write data
 
         }
@@ -209,12 +224,23 @@ impl WriteQueue {
 
 }
 
+impl Drop for WriteQueue {
+    fn drop(&mut self) {
+        self.close().unwrap();
+    }
+}
+
+fn write_timeseries(dest: &mut TimeSeries, src: &RawTimeSeries) {
+    todo!()
+}
 
 fn get_timeseries_mut<'a>(ctx: &'a ContextGuard, key: &ValkeyString, must_exist: bool) -> Result<Option<&'a mut TimeSeries>, String> {
     let key = ctx.open_key_writable(key);
-    let series = key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE)?;
+    let series = key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE)
+        .map_err(|_| "ERR TSDB: cannot load key".to_string().to_string())?;
     match series {
         Some(series) => Ok(Some(series)),
         None => Err("ERR TSDB: the key is not a timeseries".to_string()),
     }
 }
+

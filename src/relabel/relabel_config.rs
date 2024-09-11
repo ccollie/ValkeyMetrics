@@ -155,6 +155,7 @@ impl ParsedConfigs {
     pub fn apply(&self, labels: &mut Vec<Label>, labels_offset: usize) {
         let _ = self.apply_internal(labels, labels_offset, false);
     }
+
     fn apply_internal(
         &self,
         labels: &mut Vec<Label>,
@@ -212,11 +213,11 @@ impl Display for ParsedConfigs {
 }
 
 /// parses relabel configs from the given data.
-pub fn parse_relabel_configs_data(data: &str) -> Result<ParsedConfigs, String> {
-    let rcs: Vec<RelabelConfig> = serde_yaml::from_str(data)
-        .map_err(|e| format!("cannot parse relabel configs from data: {:?}", e))?;
-    parse_relabel_configs(rcs)
-}
+// pub fn parse_relabel_configs_data(data: &str) -> Result<ParsedConfigs, String> {
+//     let rcs: Vec<RelabelConfig> =  serde_yaml::from_str(data)
+//         .map_err(|e| format!("cannot parse relabel configs from data: {:?}", e))?;
+//     parse_relabel_configs(rcs)
+// }
 
 /// parse_relabel_configs parses rcs to dst.
 pub fn parse_relabel_configs(rcs: Vec<RelabelConfig>) -> Result<ParsedConfigs, String> {
@@ -421,12 +422,15 @@ pub fn parse_relabel_config(rc: RelabelConfig) -> Result<ParsedRelabelConfig, St
         }
     }
 
-    let rule_original = match serde_yaml::to_string(&rc) {
-        Ok(data) => data,
-        Err(err) => {
-            panic!("BUG: cannot marshal RelabelConfig to yaml: {:?}", err);
-        }
-    };
+    // let rule_original = match serde_yaml::to_string(&rc) {
+    //     Ok(data) => data,
+    //     Err(err) => {
+    //         panic!("BUG: cannot marshal RelabelConfig to yaml: {:?}", err);
+    //     }
+    // };
+
+    // TODO:
+    let rule_original = format!("{:?}", rc);
 
     let prc = ParsedRelabelConfig {
         rule_original: rule_original.to_string(),

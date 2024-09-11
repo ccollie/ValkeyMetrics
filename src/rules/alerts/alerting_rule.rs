@@ -9,7 +9,6 @@ use crate::rules::alerts::{
 use crate::rules::types::{new_time_series, RawTimeSeries};
 use crate::rules::{EvalContext, Rule, RuleState, RuleStateEntry, RuleType};
 use crate::storage::{Label, Timestamp};
-use ahash::AHashMap;
 use metricsql_runtime::METRIC_NAME_LABEL;
 use scopeguard::defer;
 use serde::{Deserialize, Serialize};
@@ -112,11 +111,11 @@ struct LabelSet {
     /// `origin` labels extracted from received time series plus extra labels (group labels, service
     /// labels like `ALERT_NAME_LABEL`). In case of conflicts, origin labels from time series preferred.
     /// Used for templating annotations
-    origin: AHashMap<String, String>,
+    origin: HashMap<String, String>,
     /// `processed` labels includes origin labels plus extra labels (group labels, service labels
     /// like `ALERT_NAME_LABEL`). In case of conflicts, extra labels are preferred.
     /// Used as labels attached to notifier.Alert and ALERTS series written to remote storage.
-    processed: AHashMap<String, String>,
+    processed: HashMap<String, String>,
 }
 
 impl AlertingRule {
@@ -170,7 +169,7 @@ impl AlertingRule {
 
         let mut alerts = self.alerts.write().unwrap();
 
-        for (k, a) in alerts.iter_mut() {
+        for (_k, a) in alerts.iter_mut() {
             if a.restored || a.state != AlertState::Pending {
                 continue;
             }
@@ -302,7 +301,9 @@ impl AlertingRule {
     where F: Fn(Vec<&mut Alert>) -> AlertsResult<()>
     {
         let delay = resend_delay.as_millis() as i64;
-        let needs_sending = |a: &Alert| -> bool {
+
+        #[inline]
+        fn needs_sending(a: &Alert, ts: Timestamp, delay: i64) -> bool {
             if a.state == AlertState::Pending {
                 return false;
             }
@@ -318,7 +319,7 @@ impl AlertingRule {
         let resolve_duration = resolve_duration.as_millis() as i64;
 
         for (_, alert) in alerts_inner.iter_mut() {
-            if !needs_sending(alert) {
+            if !needs_sending(alert, ts, delay) {
                 continue;
             }
             alert.end = ts.saturating_add(resolve_duration);

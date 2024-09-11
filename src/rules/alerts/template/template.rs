@@ -37,14 +37,23 @@ pub(crate) struct TextTemplate {
     pub(crate) replacement: Template
 }
 
-impl Clone for TextTemplate {
-    fn clone(&self) -> Self {
-        TextTemplate {
-            current: clone_template(&self.current),
-            replacement: clone_template(&self.replacement)
-        }
+impl TextTemplate {
+    pub(crate) fn new() -> AlertsResult<Self> {
+        let current = new_template()?;
+        Ok(TextTemplate {
+            current,
+            replacement: Template::default()
+        })
+    }
+
+    pub fn clone(&self) -> AlertsResult<Self> {
+        Ok(TextTemplate {
+            current: clone_template(&self.current)?,
+            replacement: clone_template(&self.replacement)?
+        })
     }
 }
+
 
 static MASTER_TEMPLATE: OnceLock<RwLock<TextTemplate>> = OnceLock::new();
 
@@ -66,13 +75,14 @@ pub(crate) fn new_template() -> AlertsResult<Template> {
         .map_err(|e| AlertsError::TemplateParseError(e.to_string()))?;
     Ok(tmpl)
 }
-pub(crate) fn clone_template(tpl: &Template) -> Template {
+pub(crate) fn clone_template(tpl: &Template) -> AlertsResult<Template> {
     let mut result = Template::default();
+    result.parse(&tpl.text)
+        .map_err(|e| AlertsError::TemplateParseError(e.to_string()))?;
     result.name = tpl.name.clone();
-    result.tree_set = tpl.tree_set.clone();
     result.funcs = tpl.funcs.clone();
     result.text = tpl.text.clone();
-    result
+    Ok(result)
 }
 
 /// Reload func replaces current template with a replacement template which was set by load with
@@ -120,14 +130,14 @@ pub(crate) fn update_with_funcs(funcs: &FuncMap) {
 pub(crate) fn get_with_funcs(funcs: FuncMap) -> AlertsResult<Template> {
     let master_template = get_master_template_ref();
     let reader = master_template.read().unwrap();
-    let mut tmpl = clone_template(&reader.current);
+    let mut tmpl = clone_template(&reader.current)?;
 
     tmpl.funcs = funcs;
     Ok(tmpl)
 }
 
 /// returns a copy of a template
-pub(crate) fn get_template() -> Template {
+pub(crate) fn get_template() -> AlertsResult<Template> {
     let master_template = get_master_template_ref();
     let reader = master_template.read().unwrap();
     clone_template(&reader.current)
@@ -221,7 +231,7 @@ fn re_replace_all(args: &[Value]) -> Result<Value, FuncError> {
     let repl = ensure_string_arg(args, 1, "reReplaceAll")?;
     let text = ensure_string_arg(args, 2, "reReplaceAll")?;
     let re = Regex::new(pattern)
-        .map_err(|e| FuncError::Generic(format!("Invalid regex {pattern}")))?;
+        .map_err(|_| FuncError::Generic(format!("Invalid regex {pattern}")))?;
     Ok(re.replace_all(text, repl).into())
 }
 
@@ -447,10 +457,9 @@ fn humanize1024(args: &[Value]) -> Result<Value, FuncError> {
 
 // humanize_duration converts given seconds to a human-readable duration
 fn humanize_duration(args: &[Value]) -> Result<Value, FuncError> {
-    let mut v = if let n = ensure_single_f64(args, "humanizeDuration")? {
-        n
-    } else {
-        return Ok(Value::NoValue)
+    let mut v = match ensure_single_f64(args, "humanizeDuration") {
+        Ok(n) => n,
+        Err(e) => return Ok(Value::NoValue)
     };
     if v.is_nan() || v.is_infinite() {
         return Ok(format!("{:.4}", v).into());
@@ -529,8 +538,9 @@ fn query(args: &[Value]) -> Result<Value, FuncError> {
     let query_str = ensure_single_string_arg(args, "query")?;
     let result = QUERY_FUNCTION.lock().unwrap()(query_str)
         .map_err(|e| FuncError::Generic(format!("query failed: {}", e)))?;
-    let mss = datasource_metrics_to_template_metrics(&result).into();
-    Ok(Value::Array(mss))
+    let mss = datasource_metrics_to_template_metrics(&result);
+    let res: Vec<Value> = mss.into_iter().map(|m| m.into()).collect();
+    Ok(Value::Array(res))
 }
 
 /// template_funcs initiates template helper functions

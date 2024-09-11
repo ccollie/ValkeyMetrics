@@ -10,7 +10,6 @@ mod config;
 mod recording_rule;
 mod replay;
 mod executor;
-mod group_processor;
 mod notifiers;
 
 pub use alert::*;

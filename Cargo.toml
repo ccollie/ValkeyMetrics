@@ -40,6 +40,7 @@ regex-syntax = { version = "0.8", features = [] }
 roaring = { version = "0.10", features = ["serde"]}
 timer = "0.2.0"
 titlecase = "3.3.0"
+topologic = "1.1"
 tsz = "0.1.4"
 url = { version = "2.5", features = ["serde"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }

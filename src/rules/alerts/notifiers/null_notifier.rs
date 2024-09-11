@@ -1,4 +1,4 @@
-use ahash::HashMap;
+use std::collections::HashMap;
 use valkey_module::Context;
 use crate::error::TsdbResult;
 use crate::rules::alerts::{Alert, Notifier};

@@ -77,7 +77,13 @@ impl PartialEq<LabelFilter> for LabelFilter {
 
 impl PartialOrd for LabelFilter {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+        if self.label != other.label {
+            return Some(self.label.cmp(&other.label));
+        }
+        if self.op != other.op {
+            return Some(self.op.cmp(&other.op));
+        }
+        self.value.partial_cmp(&other.value)
     }
 }
 

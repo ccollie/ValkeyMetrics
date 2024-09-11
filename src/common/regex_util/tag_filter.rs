@@ -277,14 +277,9 @@ fn matcher_size_bytes(m: &StringMatchHandler) -> usize {
         Contains(s) |
         StartsWith(s) |
         EndsWith(s) => s.get_size(),
-        Fsm(fsm) => fsm.get_size(),
         FastRegex(fr) => fr.get_size(),
         MatchFn(_) => {
             size_of::<fn(&str, &str) -> bool>()
-        }
-        Regex(r) => r.get_size(),
-        _=> {
-            0
         }
     };
     base + extra

@@ -23,8 +23,7 @@ pub struct RedisDatasource {
     data_source_type: DataSourceType,
 
     /// Whether to align "time" parameter with evaluation interval. Alignment supposed to produce deterministic
-    /// results despite number of vmalert replicas or time they were started. See more details here
-    /// https://github.com/VictoriaMetrics/VictoriaMetrics/pull/1257 (default true)
+    /// results despite number of replicas or time they were started.
     query_time_alignment: bool,
     /// evaluation_interval will align the request's timestamp if `provider.QUERY_TIME_ALIGNMENT`
     /// is enabled, will set request's `step` param as well.
@@ -35,8 +34,6 @@ pub struct RedisDatasource {
     evaluation_offset: Duration,
     /// extra_params contains params to be attached to each HTTP request
     extra_params: HashMap<String, String>,
-    /// extra_headers are headers to be attached to each HTTP request
-    extra_headers: HashMap<String, String>,
     /// whether to print additional log messages for each sent request
     debug: bool,
 }
@@ -52,7 +49,6 @@ impl RedisDatasource {
             evaluation_interval: Default::default(),
             evaluation_offset: Default::default(),
             extra_params: Default::default(),
-            extra_headers: Default::default(),
             debug: false,
         }
     }
@@ -73,9 +69,6 @@ impl RedisDatasource {
                 }
             }
         }
-        for (key, value) in params.headers {
-            self.extra_headers.insert(key, value);
-        }
         self.debug = params.debug;
         self
     }
@@ -90,7 +83,6 @@ impl RedisDatasource {
         if !self.evaluation_interval.is_zero() {
             // set step as evaluation_interval by default always convert to seconds to keep
             // compatibility with older Prometheus versions. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1943
-            // -- eliminate this unwrap
             params.step = duration_to_chrono(&self.evaluation_interval);
         }
         if !self.query_step.is_zero() {
@@ -167,7 +159,17 @@ impl Querier for RedisDatasource {
         let query_result = engine_query(query_context, &params)
             .map_err(|e| AlertsError::QueryExecutionError(e.into()))?;
 
-        todo!()
+        let res = query_result.into_iter()
+            .map(|r| {
+                QueryResult {
+                    data: vec![],
+                    timestamp: r.timestamp,
+                    value: r.value,
+                    series_fetched: 0,
+                }
+            })
+            .collect()
+        Ok(res)
     }
 
     /// query_range executes the given query on the given time range.
@@ -196,4 +198,16 @@ impl QuerierBuilder for RedisDatasource {
 
 fn duration_to_chrono(duration: &Duration) -> chrono::Duration {
     chrono::Duration::from_std(*duration).unwrap()
+}
+
+fn query_result_to_metric(result: QueryResult) -> Vec<crate::rules::alerts::Metric> {
+    let mut metrics = Vec::new();
+    for r in result {
+        let metric = crate::rules::alerts::Metric {
+            timestamp: r.timestamp,
+            value: r.value,
+        };
+        metrics.push(metric);
+    }
+    metrics
 }

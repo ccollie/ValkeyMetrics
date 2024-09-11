@@ -8,6 +8,7 @@ use metricsql_parser::label::Labels;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicU64;
 use std::time::Duration;
+use enquote::enquote;
 
 const ERR_DUPLICATE: &str =
     "result contains metrics with the same labelset after applying rule labels.";
@@ -112,7 +113,7 @@ impl Rule for RecordingRule {
 
         // Safety: unwrap is safe because we just checked for an error above
         let q_metrics = res?;
-        let num_series = res?.len();
+        let num_series = q_metrics.len();
         cur_state.samples = num_series;
 
         if limit > 0 && num_series > limit {
@@ -179,7 +180,7 @@ pub fn stringify_labels(ts: &RawTimeSeries) -> String {
     let mut b = String::with_capacity(40); // todo: better capacity calculation.
     labels.sort();
     for (i, label) in ts.labels.iter().enumerate() {
-        b.push_str(&*format!("{}={}", &label.name, &label.value));
+        b.push_str(&*format!("{}=\"{}\"", &label.name, enquote('"',&label.value)));
         if i < labels.len() - 1 {
             b.push_str(",")
         }

@@ -1,4 +1,3 @@
-use ahash::AHashMap;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
@@ -71,9 +70,9 @@ pub struct Alert {
     /// name represents Alert name
     pub name: String,
     /// labels is the list of label-value pairs attached to the Alert
-    pub labels: AHashMap<String, String>,
+    pub labels: HashMap<String, String>,
     /// Annotations is the list of annotations generated on Alert evaluation
-    pub annotations: AHashMap<String, String>,
+    pub annotations: HashMap<String, String>,
     /// state represents the current state of the Alert
     pub state: AlertState,
     /// the expression that was executed to generate the Alert
@@ -135,7 +134,7 @@ impl Alert {
     ) -> AlertsResult<HashMap<String, String>> {
         let tpl_data = AlertTplData {
             value: self.value,
-            labels: labels.into(),  // ??? why not use ref ?
+            labels: labels.clone(),  // ??? why not use ref ?
             expr: self.expr.clone(), // todo(perf) why not use ref ?
             alert_id: self.id,
             active_at: self.active_at,
@@ -173,7 +172,7 @@ pub fn exec_template(
 
 /// validate annotations for possible template error, uses empty data for template population
 pub(crate) fn validate_templates(annotations: &HashMap<String, String>) -> AlertsResult<()> {
-    let tmpl = get_template();
+    let tmpl = get_template()?;
     let labels = HashMap::new();
     let _ = template_annotations(
         annotations,
@@ -226,7 +225,7 @@ fn template_annotations(
 }
 
 fn template_annotation(text: &str, data: &AlertTplData, tmpl: &Template) -> AlertsResult<String> {
-    let mut tpl = clone_template(tmpl); // ??????
+    let mut tpl = clone_template(tmpl)?; // ??????
     tpl.parse(text).map_err(|err| {
         return AlertsError::TemplateParseError(format!("{:?}", err));
     })?;

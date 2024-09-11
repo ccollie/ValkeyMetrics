@@ -1,7 +1,6 @@
+use std::collections::HashMap;
 use crate::error::TsdbResult;
 use crate::rules::alerts::Alert;
-use ahash::HashMap;
-use std::sync::Arc;
 use valkey_module::Context;
 
 /// Notifier is a common interface for alert manager provider
@@ -12,5 +11,3 @@ pub trait Notifier {
     /// Addr returns address where alerts are sent.
     fn addr(&self) -> String;
 }
-
-pub type NotifierProviderFn = fn() -> Arc<Vec<Box<dyn Notifier>>>;

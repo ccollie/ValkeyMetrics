@@ -1,8 +1,8 @@
-use std::fmt;
-use std::fmt::Display;
-use std::str::FromStr;
-use std::sync::{LazyLock, OnceLock};
-
+use crate::common::PromRegex;
+use crate::relabel::utils::{are_equal_label_values, concat_label_values, contains_all_label_values, get_label_value, is_regex_matcher, set_label_value};
+use crate::relabel::{is_default_regex_for_config, GraphiteLabelRule, GraphiteMatchTemplate, IfExpression};
+use crate::storage::Label;
+use ahash::{HashSet, HashSetExt};
 use dynamic_lru_cache::DynamicCache;
 use enquote::enquote;
 use metricsql_common::bytes_util::FastStringTransformer;
@@ -10,11 +10,12 @@ use metricsql_common::prelude::match_handlers::StringMatchHandler;
 use metricsql_runtime::METRIC_NAME_LABEL;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fmt;
+use std::fmt::Display;
+use std::str::FromStr;
+use std::sync::{LazyLock, OnceLock};
 use xxhash_rust::xxh3::xxh3_64;
-use crate::common::PromRegex;
-use crate::relabel::{DEFAULT_ORIGINAL_REGEX_FOR_RELABEL_CONFIG, GraphiteLabelRule, GraphiteMatchTemplate, IfExpression, is_default_regex_for_config};
-use crate::relabel::utils::{are_equal_label_values, concat_label_values, contains_all_label_values, get_label_value, is_regex_matcher, set_label_value};
-use crate::storage::Label;
 
 pub trait Action {
     fn apply(&self, labels: &mut Vec<Label>, labels_offset: usize);
@@ -148,40 +149,24 @@ pub struct ParsedRelabelConfig {
 }
 
 impl ParsedRelabelConfig {
-    pub fn new(
-        action: RelabelActionType,
-        rule_original: &str,
-        target_label: &str,
-        separator: &str,
-        replacement: &str,
-        if_expr: Option<IfExpression>
-    ) -> Self {
-        let regex_original_compiled = DEFAULT_ORIGINAL_REGEX_FOR_RELABEL_CONFIG.clone();
-        let mut prc = ParsedRelabelConfig {
-            rule_original: rule_original.to_string(),
-            source_labels: vec![],
-            separator: separator.to_string(),
-            target_label: target_label.to_string(),
-            regex_anchored,
-            modulus: 0,
-            action,
-            r#if: if_expr.clone(),
-            graphite_match_template: None,
-            graphite_label_rules: vec![],
-            regex: PromRegex::default(),
-            regex_original: regex_original_compiled,
-            submatch_cache: DynamicCache::new(16),
-            has_capture_group_in_target_label: target_label.contains("$"),
-            has_capture_group_in_replacement: replacement.contains("$"),
-            has_label_reference_in_replacement: replacement.contains("{{"),
-            replacement: replacement.to_string(),
-            string_replacer_cache: DynamicCache::new(16),
-        };
-        prc
-    }
 
     pub fn apply_debug(&mut self, labels: &[Label], _labels_offset: usize) -> (Vec<Label>, DebugStep) {
         self.apply_internal(labels, 0, true)
+    }
+
+    fn apply_internal(&mut self, labels: &[Label], labels_offset: usize, debug: bool) -> (Vec<Label>, DebugStep) {
+        let mut labels = labels.to_vec();
+        let labels_offset = labels_offset;
+        let mut debug_step = DebugStep::default();
+        if debug {
+            debug_step.rule = self.rule_original.clone();
+            debug_step.r#in = labels_to_string(&labels);
+        }
+        self.apply(&mut labels, labels_offset);
+        if debug {
+            debug_step.out = labels_to_string(&labels);
+        }
+        (labels, debug_step)
     }
 
     /// apply applies relabeling according to prc.
@@ -375,14 +360,19 @@ impl ParsedRelabelConfig {
     }
 
     fn label_map(&self, labels: &mut Vec<Label>, labels_offset: usize) {
+        let mut values = HashMap::with_capacity(labels.len());
+        let mut keys = HashSet::with_capacity(labels.len());
         // Copy `source_labels` to `target_label`
         // Replace label names with the `replacement` if they match `regex`
         for label in labels.iter() {
             let label_name = self.replace_full_string_fast(&label.name);
             if label_name != label.name {
-                let value_str = label.value.clone();
-                set_label_value(labels, labels_offset, &label_name, value_str)
+                values.insert(&label_name, label.value.clone());
             }
+        }
+        for (k, v) in values.iter() {
+            let value_str = v.clone();
+            set_label_value(labels, labels_offset, k, value_str)
         }
     }
 
@@ -562,14 +552,15 @@ fn handle_replace(prc: &ParsedRelabelConfig, labels: &mut Vec<Label>, labels_off
         // from scratch based on the new replacement value.
         prc.expand_capture_groups(&replacement, source_str)
     };
-    let mut name_str = &prc.target_label;
+    let name_str = &prc.target_label;
     if prc.has_capture_group_in_target_label {
         // Slow path - target_label contains regex capture groups, so the target_label
         // must be calculated from the regex match.
-        name_str = &prc.expand_capture_groups(name_str, source_str);
+        let name_str = prc.expand_capture_groups(name_str, source_str);
+        set_label_value(labels, labels_offset, &name_str, value_str)
+    } else {
+        set_label_value(labels, labels_offset, &prc.target_label, value_str)
     }
-
-    set_label_value(labels, labels_offset, name_str, value_str)
 }
 
 
