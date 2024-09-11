@@ -9,12 +9,8 @@ use crate::storage::chunk::Chunk;
 use crate::storage::utils::{get_timestamp_index_bounds, trim_vec_data};
 use crate::storage::{DuplicatePolicy, Sample, SeriesSlice, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
 use metricsql_encoding::encoders::pco::{decode as pco_decode, encode as pco_encode, encode_with_options as pco_encode_with_options, CompressorConfig};
+use pco::DEFAULT_COMPRESSION_LEVEL;
 use valkey_module::raw;
-
-const F64_SIZE: usize = size_of::<f64>();
-const I64_SIZE: usize = size_of::<i64>();
-
-const SAMPLE_SIZE: usize = F64_SIZE + I64_SIZE;
 
 
 /// items above this count will cause value and timestamp encoding/decoding to happen in parallel
@@ -163,7 +159,7 @@ impl PcoChunk {
             return 0.0;
         }
         let compressed_size = self.timestamps.len() as f64;
-        let uncompressed_size = (self.count * I64_SIZE) as f64;
+        let uncompressed_size = (self.count * size_of::<i64>()) as f64;
         uncompressed_size / compressed_size
     }
 
@@ -172,7 +168,7 @@ impl PcoChunk {
             return 0.0;
         }
         let compressed_size = self.values.len() as f64;
-        let uncompressed_size = (self.count * F64_SIZE) as f64;
+        let uncompressed_size = (self.count * size_of::<f64>()) as f64;
         uncompressed_size / compressed_size
     }
 
@@ -181,7 +177,8 @@ impl PcoChunk {
             return 0.0;
         }
         let compressed_size = (self.timestamps.len() + self.values.len()) as f64;
-        let uncompressed_size = (self.count * SAMPLE_SIZE) as f64;
+        let sample_size = size_of::<i64>() + size_of::<f64>();
+        let uncompressed_size = (self.count * sample_size) as f64;
         uncompressed_size / compressed_size
     }
 
@@ -445,8 +442,10 @@ fn compress_timestamps(compressed: &mut Vec<u8>, timestamps: &[Timestamp]) -> Ts
     if timestamps.is_empty() {
         return Ok(());
     }
-    let mut config = CompressorConfig::default();
-    config.delta_encoding_order = 2;
+    let config = CompressorConfig {
+        compression_level: DEFAULT_COMPRESSION_LEVEL,
+        delta_encoding_order: 2
+    };
     pco_encode_with_options(timestamps, compressed, config)
         .map_err(|e| TsdbError::CannotSerialize(format!("timestamps: {}", e)))
 }

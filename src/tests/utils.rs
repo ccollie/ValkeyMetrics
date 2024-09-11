@@ -56,15 +56,15 @@ pub fn start_redis_server_with_module(module_name: &str, port: u16) -> Result<Ch
         module_path.as_str()
     ];
 
-    let redis_server = Command::new("redis-server")
+    let valkey_server = Command::new("valkey-server")
         .args(args)
         .spawn()
         .map(|c| ChildGuard {
-            name: "redis-server",
+            name: "valkey-server",
             child: c,
-        }).with_context(|| format!("Error in raising redis-server => {}", module_path.as_str()))?;
+        }).with_context(|| format!("Error in raising valkey-server => {}", module_path.as_str()))?;
 
-    Ok(redis_server)
+    Ok(valkey_server)
 }
 
 pub fn stop_valkey_server(child: &mut ChildGuard) {

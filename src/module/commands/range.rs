@@ -42,9 +42,19 @@ pub fn range(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 }
 
 pub fn parse_range_options(args: &mut Skip<IntoIter<ValkeyString>>) -> ValkeyResult<RangeOptions> {
-    let mut options = RangeOptions::default();
-    options.start = parse_timestamp_arg(args.next_str()?, "startTimestamp")?;
-    options.end = parse_timestamp_arg(args.next_str()?, "endTimestamp")?;
+
+    let start = parse_timestamp_arg(args.next_str()?, "startTimestamp")?;
+    let end = parse_timestamp_arg(args.next_str()?, "endTimestamp")?;
+    
+    let mut options = RangeOptions {
+        start,
+        end,
+        alignment: None,
+        count: None,
+        aggregation: None,
+        filter: None,
+        latest: false,
+    };
 
     while let Ok(arg) = args.next_str() {
         match arg {

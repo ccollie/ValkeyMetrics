@@ -11,6 +11,8 @@ mod get;
 pub(super) mod range_utils;
 mod stats;
 mod delete_series;
+mod top_queries;
+mod active_queries;
 
 pub use alter::*;
 pub use delete_range::*;
@@ -24,3 +26,5 @@ pub use add::*;
 pub use get::*;
 pub use delete_series::*;
 pub use stats::*;
+pub use top_queries::*;
+pub use active_queries::*;

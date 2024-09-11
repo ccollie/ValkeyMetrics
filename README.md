@@ -7,7 +7,11 @@ Currently supported are [Instant Queries](https://prometheus.io/docs/prometheus/
 as well as basic [Metadata](https://prometheus.io/docs/prometheus/latest/querying/api/#querying-metadata) lookups.
 
 ## Features
-- Query using [PromQL compatible queries](https://docs.victoriametrics.com/MetricsQL.html)
+- In-memory storage for time series data
+- Configurable data retention period
+- Supports [PromQL](https://prometheus.io/docs/prometheus/latest/querying/basics/) queries
+- Supports [Instant Queries](https://prometheus.io/docs/prometheus/latest/querying/basics/#instant-vector-selectors) and [Range Queries](https://prometheus.io/docs/prometheus/latest/querying/basics/#range-vector-selectors)
+- Supports [Metadata](https://prometheus.io/docs/prometheus/latest/querying/api/#querying-metadata) like lookups
 - Exposes an API similar to the Prometheus HTTP-API
 - Over 200 supported [functions](https://docs.victoriametrics.com/MetricsQL.html#metricsql-functions) (Label, Aggregation, Rollup and Transformation)
 
@@ -307,4 +311,4 @@ PROM.LABEL-VALUES job
 This underlying library this project uses originated as a heavily modded `rust` port of [VictoriaMetrics](https://victoriametrics.com).
 
 ## License
-RedisPromQL is licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+VKMetrics is licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).

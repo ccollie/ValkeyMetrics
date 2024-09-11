@@ -133,6 +133,8 @@ valkey_module! {
         ["PROM.QUERY-RANGE", commands::query_range, "write deny-oom", 1, 1, 1],
         ["PROM.RANGE", commands::range, "write deny-oom", 1, 1, 1],
         ["PROM.SERIES", commands::series, "write deny-oom", 1, 1, 1],
+        ["PROM.TOP-QUERIES", commands::top_queries, "write deny-oom", 1, 1, 1],
+        ["PROM.ACTIVE-QUERIES", commands::active_queries, "write deny-oom", 1, 1, 1],
         ["PROM.CARDINALITY", commands::cardinality, "write deny-oom", 1, 1, 1],
         ["PROM.LABEL-NAMES", commands::label_names, "write deny-oom", 1, 1, 1],
         ["PROM.LABEL-VALUES", commands::label_values, "write deny-oom", 1, 1, 1],

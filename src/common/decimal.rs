@@ -149,7 +149,6 @@ pub fn frexp(x: f64) -> (f64, i32) {
 pub fn modf(x: f64) -> (f64, f64) {
     let rv2: f64;
     let mut u = x.to_bits();
-    let mask: u64;
     let e = ((u >> 52 & 0x7ff) as i32) - 0x3ff;
 
     /* no fractional part */
@@ -170,7 +169,7 @@ pub fn modf(x: f64) -> (f64, f64) {
         return (x, rv2);
     }
 
-    mask = ((!0) >> 12) >> e;
+    let mask = ((!0) >> 12) >> e;
     if (u & mask) == 0 {
         rv2 = x;
         u &= 1 << 63;

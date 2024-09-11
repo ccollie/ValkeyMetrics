@@ -13,10 +13,6 @@ use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use valkey_module::raw;
 
-static F64_SIZE: usize = size_of::<f64>();
-static I64_SIZE: usize = size_of::<i64>();
-static SAMPLE_SIZE: usize = F64_SIZE + I64_SIZE;
-
 pub(crate) type ChunkEncoder = StdEncoder<BufferedWriter>;
 
 /// `GorillaChunk` holds information about location and time range of a block of compressed data.
@@ -120,7 +116,7 @@ impl GorillaChunk {
             return 0.0;
         }
         let compressed_size = self.encoder.w.len();
-        let uncompressed_size = self.num_samples() * (I64_SIZE + F64_SIZE);
+        let uncompressed_size = self.num_samples() * (size_of::<i64>() + size_of::<f64>());
         (uncompressed_size / compressed_size) as f64
     }
 

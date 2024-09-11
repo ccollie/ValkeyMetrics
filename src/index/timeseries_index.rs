@@ -372,10 +372,8 @@ impl TimeSeriesIndex {
         let split_pos = prefix.len();
         inner.label_kv_to_ts
             .range(prefix..suffix)
-            .filter_map(|(key, _)| {
-                let value = &key[split_pos..];
-                Some(value.to_string())
-            }).collect()
+            .map(|(key, _)| { key[split_pos..].to_string() })
+            .collect()
     }
 
     pub fn is_series_indexed(&self, id: u64) -> bool {
@@ -480,7 +478,7 @@ fn filter_by_label_value_predicate(
                     return;
                 }
             }
-            while let Some(map) = iter.next() {
+            for map in iter {
                 dest.and_inplace(map);
             }
         }

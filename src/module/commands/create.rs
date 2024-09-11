@@ -40,7 +40,7 @@ pub fn create(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
 pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyString, TimeSeriesOptions)> {
     let mut args = args.into_iter().skip(1);
-    let key = args.next().ok_or_else(|| ValkeyError::Str("Err missing key argument"))?;
+    let key = args.next().ok_or(ValkeyError::Str("Err missing key argument"))?;
 
     let mut options = TimeSeriesOptions::default();
 
