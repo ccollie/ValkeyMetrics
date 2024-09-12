@@ -2,7 +2,7 @@ use crate::arg_parse::{parse_chunk_size, parse_duration_arg};
 use crate::error::TsdbResult;
 use crate::globals::with_timeseries_index;
 use crate::index::TimeSeriesIndex;
-use crate::module::VALKEY_PROMQL_SERIES_TYPE;
+use crate::module::VKM_SERIES_TYPE;
 use crate::storage::time_series::TimeSeries;
 use crate::storage::{DuplicatePolicy, TimeSeriesOptions};
 use ahash::AHashMap;
@@ -30,7 +30,7 @@ pub fn create(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let ts = create_series(&parsed_key, options, ctx)
         .map_err(|_| ValkeyError::Str("TSDB: failed to create series"))?;
 
-    key.set_value(&VALKEY_PROMQL_SERIES_TYPE, ts)?;
+    key.set_value(&VKM_SERIES_TYPE, ts)?;
 
     ctx.replicate_verbatim();
     ctx.notify_keyspace_event(NotifyEvent::MODULE, "PROM.CREATE-SERIES", &parsed_key);
@@ -132,7 +132,7 @@ pub(crate) fn create_series_ex(ctx: &Context, key: &ValkeyString, options: TimeS
     }
 
     let ts = create_series(key, options, ctx)?;
-    _key.set_value(&VALKEY_PROMQL_SERIES_TYPE, ts)?;
+    _key.set_value(&VKM_SERIES_TYPE, ts)?;
 
     ctx.replicate_verbatim();
     ctx.notify_keyspace_event(NotifyEvent::MODULE, "PROM.CREATE-SERIES", key);

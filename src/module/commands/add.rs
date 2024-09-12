@@ -1,6 +1,6 @@
 use crate::arg_parse::{parse_duration_arg, parse_number_with_unit, parse_timestamp};
 use crate::module::commands::create_series;
-use crate::module::{with_timeseries_mut, VALKEY_PROMQL_SERIES_TYPE};
+use crate::module::{with_timeseries_mut, VKM_SERIES_TYPE};
 use crate::storage::time_series::TimeSeries;
 use crate::storage::{DuplicatePolicy, TimeSeriesOptions};
 use ahash::AHashMap;
@@ -21,7 +21,7 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let value = args.next_f64()?;
 
     let redis_key = ctx.open_key_writable(&key);
-    let series = redis_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE)?;
+    let series = redis_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE)?;
     if let Some(series) = series {
         args.done()?;
         if series.add(timestamp, value, None).is_ok() {
@@ -95,7 +95,7 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     ts.add(timestamp, value, None)?;
 
     let redis_key = ValkeyKeyWritable::open(ctx.ctx, &key);
-    redis_key.set_value(&VALKEY_PROMQL_SERIES_TYPE, ts)?;
+    redis_key.set_value(&VKM_SERIES_TYPE, ts)?;
 
     Ok(ValkeyValue::Integer(timestamp))
 }

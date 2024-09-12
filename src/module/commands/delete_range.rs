@@ -1,6 +1,6 @@
 use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::{parse_series_selector, TimestampRangeValue};
-use crate::module::{normalize_range_args, parse_timestamp_arg, VALKEY_PROMQL_SERIES_TYPE};
+use crate::module::{normalize_range_args, parse_timestamp_arg, VKM_SERIES_TYPE};
 use crate::storage::time_series::TimeSeries;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
@@ -11,7 +11,7 @@ const CMD_ARG_END: &str = "END";
 // keys completely, not just the data points.
 
 ///
-/// PROM.DELETE-RANGE <series selector>..
+/// VKM.DELETE-RANGE <series selector>..
 ///     [START rfc3339 | unix_timestamp | + | - | * ]
 ///     [END rfc3339 | unix_timestamp | + | - | * ]
 ///
@@ -63,7 +63,7 @@ pub fn delete_range(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         for key in keys {
             let redis_key = ctx.open_key_writable(&key);
             // get series from redis
-            match redis_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE) {
+            match redis_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE) {
                 Ok(Some(series)) => {
                     deleted += series.remove_range(start_ts, end_ts)?;
                 }

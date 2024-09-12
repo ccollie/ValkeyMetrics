@@ -1,11 +1,11 @@
 use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::parse_series_selector;
-use crate::module::VALKEY_PROMQL_SERIES_TYPE;
+use crate::module::VKM_SERIES_TYPE;
 use crate::storage::time_series::TimeSeries;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
 ///
-/// PROM.DELETE-SERIES <series selector>,..
+/// VKM.DELETE-SERIES <series selector>,..
 ///
 /// Deletes the valkey keys for the given series selectors.
 pub fn delete_series(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
@@ -27,7 +27,7 @@ pub fn delete_series(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         for key in keys {
             let redis_key = ctx.open_key_writable(&key);
             // get series from redis
-            match redis_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE) {
+            match redis_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE) {
                 Ok(Some(_)) => {
                     redis_key.delete()?;
                 }

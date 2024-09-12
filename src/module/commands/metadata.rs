@@ -2,7 +2,7 @@ use crate::common::METRIC_NAME_LABEL;
 use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::{parse_series_selector, MetadataFunctionArgs, TimestampRangeValue};
 use crate::module::result::{format_array_result, get_ts_metric_selector};
-use crate::module::{normalize_range_args, parse_timestamp_arg, VALKEY_PROMQL_SERIES_TYPE};
+use crate::module::{normalize_range_args, parse_timestamp_arg, VKM_SERIES_TYPE};
 use crate::storage::time_series::TimeSeries;
 use std::collections::BTreeSet;
 use valkey_module::{
@@ -92,7 +92,7 @@ where
         for key in keys {
             let redis_key = ctx.open_key(&key);
             // get series from redis
-            match redis_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE) {
+            match redis_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE) {
                 Ok(Some(series)) => {
                     if series.overlaps(args.start, args.end) {
                         acc = f(acc, series, &key)

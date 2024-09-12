@@ -1,5 +1,5 @@
 use crate::error::TsdbResult;
-use crate::module::{with_timeseries, VALKEY_PROMQL_SERIES_TYPE};
+use crate::module::{with_timeseries, VKM_SERIES_TYPE};
 use crate::storage::time_series::TimeSeries;
 use crate::storage::utils::format_prometheus_metric_name;
 use crate::storage::Label;
@@ -276,7 +276,7 @@ impl TimeSeriesIndex {
         let mut inner = self.inner.write().unwrap();
         let valkey_key = ctx.open_key(key);
 
-        if let Ok(Some(ts)) = valkey_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE) {
+        if let Ok(Some(ts)) = valkey_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE) {
             inner.remove_series(ts);
             return true;
         }

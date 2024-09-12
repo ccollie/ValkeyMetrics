@@ -10,10 +10,10 @@ use std::os::raw::{c_int, c_void};
 use valkey_module::raw;
 // see https://github.com/redis/redis/blob/unstable/tests/modules
 
-pub static REDIS_PROMQL_SERIES_VERSION: i32 = 1;
-pub static VALKEY_PROMQL_SERIES_TYPE: ValkeyType = ValkeyType::new(
-    "vktseries",
-    REDIS_PROMQL_SERIES_VERSION,
+pub static VKM_SERIES_VERSION: i32 = 1;
+pub static VKM_SERIES_TYPE: ValkeyType = ValkeyType::new(
+    "vkmseries",
+    VKM_SERIES_VERSION,
     RedisModuleTypeMethods {
         version: valkey_module::TYPE_METHOD_VERSION,
         rdb_load: Some(rdb_load),

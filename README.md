@@ -28,19 +28,19 @@ Then you can query the data for a time range on some aggregation rule.
 ### With `redis-cli`
 ```sh
 $ redis-cli
-127.0.0.1:6379> PROM.CREATE temperature:3:east RETENTION 60 LABELS sensor_id 1 area_id 32 __name__ temperature region east
+127.0.0.1:6379> VKM.CREATE temperature:3:east RETENTION 60 LABELS sensor_id 1 area_id 32 __name__ temperature region east
 OK
-127.0.0.1:6379> PROM.CREATE temperature:3:west RETENTION 60 LABELS sensor_id 2 area_id 32 __name__ temperature region west
+127.0.0.1:6379> VKM.CREATE temperature:3:west RETENTION 60 LABELS sensor_id 2 area_id 32 __name__ temperature region west
 OK
-127.0.0.1:6379> PROM.ADD temperature:3:east 1548149181 30
+127.0.0.1:6379> VKM.ADD temperature:3:east 1548149181 30
 OK
-127.0.0.1:6379> PROM.ADD temperature:3:west 1548149191 42
+127.0.0.1:6379> VKM.ADD temperature:3:west 1548149191 42
 OK 
-127.0.0.1:6379>  PROM.QUERY-RANGE "avg(temperature) by(area_id)" START 1548149180 END 1548149210   
+127.0.0.1:6379>  VKM.QUERY-RANGE "avg(temperature) by(area_id)" START 1548149180 END 1548149210   
 ```
 
 **Note**
-- The `__name__` label represents the name of the measurement, and it is required for ValkeyPromQL to work, and allows metric queries across Redis keys.
+- The `__name__` label represents the name of the measurement, and it is required for VKMetrics to work, and allows metric queries across Redis keys.
 
 ## Tests
 
@@ -61,15 +61,15 @@ TODO
 
 Command names and option names are case-insensitive.
 
-### PROM.QUERY
+### VKM.QUERY
 
 #### Syntax
 
 ```
-PROM.QUERY query [TIME timestamp|rfc3339|+|*] [ROUNDING number]
+VKM.QUERY query [TIME timestamp|rfc3339|+|*] [ROUNDING number]
 ```
 
-**PROM.QUERY** evaluates an instant query at a single point in time.
+**VKM.QUERY** evaluates an instant query at a single point in time.
 
 #### Options
 
@@ -92,18 +92,18 @@ Return an error reply in the following cases:
 #### Examples
 
 ```
-PROM.QUERY "sum(rate(process_io_storage_written_bytes_total)) by (job)" TIME 1587396550
+VKM.QUERY "sum(rate(process_io_storage_written_bytes_total)) by (job)" TIME 1587396550
 ```
 
-### PROM.QUERY-RANGE
+### VKM.QUERY-RANGE
 
 #### Syntax
 
 ```
-PROM.QUERY-RANGE query [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*] [STEP duration|number] [ROUNDING number]
+VKM.QUERY-RANGE query [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*] [STEP duration|number] [ROUNDING number]
 ```
 
-**PROM.QUERY-RANGE** evaluates an expression query over a range of time.
+**VKM.QUERY-RANGE** evaluates an expression query over a range of time.
 
 #### Options
 
@@ -126,18 +126,18 @@ TODO
 #### Examples
 
 ```
-PROM.QUERY-RANGE "sum(rate(rows_inserted_total[5m])) by (type,accountID) > 0" START 1587396550 END 1587396550 STEP 1m
+VKM.QUERY-RANGE "sum(rate(rows_inserted_total[5m])) by (type,accountID) > 0" START 1587396550 END 1587396550 STEP 1m
 ```
 
-### PROM.DELETE-RANGE
+### VKM.DELETE-RANGE
 
 #### Syntax
 
 ```
-PROM.DELETE-RANGE selector.. [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
+VKM.DELETE-RANGE selector.. [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
 ```
 
-**PROM.DELETE-RANGE** deletes data for a selection of series in a time range. The timeseries itself is not deleted even if all samples are removed.
+**VKM.DELETE-RANGE** deletes data for a selection of series in a time range. The timeseries itself is not deleted even if all samples are removed.
 
 #### Options
 
@@ -158,19 +158,19 @@ TODO
 #### Examples
 
 ```
-PROM.DELETE-RANGE "http_requests{env='staging', status='200'}" START 1587396550 END 1587396550
+VKM.DELETE-RANGE "http_requests{env='staging', status='200'}" START 1587396550 END 1587396550
 ```
 
 
-### PROM.SERIES
+### VKM.SERIES
 
 #### Syntax
 
 ```
-PROM.SERIES MATCH filterExpr... [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
+VKM.SERIES MATCH filterExpr... [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
 ```
 
-**PROM.SERIES** returns the list of time series that match a certain label set.
+**VKM.SERIES** returns the list of time series that match a certain label set.
 
 #### Options
 
@@ -195,7 +195,7 @@ TODO
 The following example returns all series that match either of the selectors up or process_start_time_seconds{job="prometheus"}:
 
 ```
-PROM.SERIES MATCH up process_start_time_seconds{job="prometheus"}
+VKM.SERIES MATCH up process_start_time_seconds{job="prometheus"}
 ``` 
 ```json
 {
@@ -220,15 +220,15 @@ PROM.SERIES MATCH up process_start_time_seconds{job="prometheus"}
 }
 ```
 
-### PROM.CARDINALITY
+### VKM.CARDINALITY
 
 #### Syntax
 
 ```
-PROM.CARDINALITY MATCH filterExpr... [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
+VKM.CARDINALITY MATCH filterExpr... [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
 ```
 
-**PROM.SERIES** returns the number of unique time series that match a certain label set.
+**VKM.SERIES** returns the number of unique time series that match a certain label set.
 
 #### Options
 
@@ -253,15 +253,15 @@ TODO
 TODO
 
 
-### PROM.LABELS
+### VKM.LABELS
 
 #### Syntax
 
 ```
-PROM.LABELS MATCH filterExpr... [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
+VKM.LABELS MATCH filterExpr... [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
 ```
 
-**PROM.LABELS** returns a list of label names.
+**VKM.LABELS** returns a list of label names.
 
 #### Options
 
@@ -283,7 +283,7 @@ Return an error reply in the following cases:
 #### Examples
 
 ```
-PROM.LABELS MATCH up process_start_time_seconds{job="prometheus"}
+VKM.LABELS MATCH up process_start_time_seconds{job="prometheus"}
 ```
 ```json
 {
@@ -296,15 +296,15 @@ PROM.LABELS MATCH up process_start_time_seconds{job="prometheus"}
 }
 ```
 
-### PROM.LABEL_VALUES
+### VKM.LABEL_VALUES
 
 #### Syntax
 
 ```
-PROM.LABEL-VALUES label [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
+VKM.LABEL-VALUES label [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
 ```
 
-**PROM.LABEL-VALUES** returns a list of label values for a provided label name.
+**VKM.LABEL-VALUES** returns a list of label values for a provided label name.
 
 #### Options
 
@@ -328,7 +328,7 @@ Return an error reply in the following cases:
 This example queries for all label values for the job label:
 ```
 // Create a chat application with LLM model and vector store.
-PROM.LABEL-VALUES job
+VKM.LABEL-VALUES job
 ```
 ```json
 {
@@ -340,15 +340,15 @@ PROM.LABEL-VALUES job
 }
 ```
 
-### PROM.TOP-QUERIES
+### VKM.TOP-QUERIES
 
 #### Syntax
 
 ```
-PROM.TOP-QUERIES [TOP_K number] [MAX_LIFETIME duration]
+VKM.TOP-QUERIES [TOP_K number] [MAX_LIFETIME duration]
 ```
 
-**PROM.TOP-QUERIES** provides information on the following query types:
+**VKM.TOP-QUERIES** provides information on the following query types:
 
 * the most frequently executed queries - `topByCount`
 * queries with the biggest average execution duration - `topByAvgDuration`
@@ -359,7 +359,7 @@ For example,
 
 ```sh
 $ redis-cli
-127.0.0.1:6379> PROM.TOP-QUERIES TOP_K 5 MAX_LIFETIME 30s
+127.0.0.1:6379> VKM.TOP-QUERIES TOP_K 5 MAX_LIFETIME 30s
 ```
 
 would return up to 5 queries per list, which were executed during the last 30 seconds.
@@ -387,7 +387,7 @@ Return an error reply in the following cases:
 
 This example queries for all label values for the job label:
 ```
-127.0.0.1:6379> PROM.TOP-QUERIES TOP_K 5 MAX_LIFETIME 30s
+127.0.0.1:6379> VKM.TOP-QUERIES TOP_K 5 MAX_LIFETIME 30s
 ```
 ```json
 {
@@ -489,22 +489,22 @@ This example queries for all label values for the job label:
 }
 ```
 
-### PROM.ACTIVE-QUERIES
+### VKM.ACTIVE-QUERIES
 
 #### Syntax
 
 ```
-PROM.ACTIVE-QUERIES
+VKM.ACTIVE-QUERIES
 ```
 
-**PROM.ACTIVE-QUERIES** provides information on currently executing queries. It provides the following information per each query:
+**VKM.ACTIVE-QUERIES** provides information on currently executing queries. It provides the following information per each query:
 
 * The query itself, together with the time range and step args passed to /api/v1/query_range.
 * The duration of the query execution.
 
 ```sh
 $ redis-cli
-127.0.0.1:6379> PROM.ACTIVE-QUERIES
+127.0.0.1:6379> VKM.ACTIVE-QUERIES
 ```
 
 #### Return
@@ -522,7 +522,7 @@ Return an error reply in the following cases:
 
 This example queries for all label values for the job label:
 ```
-127.0.0.1:6379> PROM.ACTIVE-QUERIES
+127.0.0.1:6379> VKM.ACTIVE-QUERIES
 ```
 ```json
 {

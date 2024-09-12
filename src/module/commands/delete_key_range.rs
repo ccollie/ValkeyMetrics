@@ -1,7 +1,7 @@
 use crate::module::{parse_timestamp_arg, with_timeseries_mut};
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
-/// PROM.DELETE-KEY-RANGE key  <rfc3339 | unix_timestamp | + | - | * >  <rfc3339 | unix_timestamp | + | - | * >
+/// VKM.DELETE-KEY-RANGE key  <rfc3339 | unix_timestamp | + | - | * >  <rfc3339 | unix_timestamp | + | - | * >
 ///
 /// Deletes the data points in the given range for the given key.
 pub fn delete_key_range(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {

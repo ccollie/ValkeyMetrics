@@ -19,7 +19,7 @@ const CMD_ARG_ROUNDING: &str = "ROUNDING";
 
 
 ///
-/// PROM.QUERY_RANGE <query>
+/// VKM.QUERY_RANGE <query>
 ///     [START rfc3339 | unix_timestamp | + | - | * ]
 ///     [END rfc3339 | unix_timestamp | + | - | * ]
 ///     [STEP duration]
@@ -75,12 +75,12 @@ pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
 }
 
 ///
-/// PROM.QUERY <query>
+/// VKM.QUERY <query>
 ///         [TIME rfc3339 | unix_timestamp | * | + ]
 ///         [TIMEOUT duration]
 ///         [ROUNDING digits]
 ///
-pub fn prom_query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
+pub fn query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1);
     let query = args.next_string()?;
     let mut time_value: Option<TimestampRangeValue> = None;

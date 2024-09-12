@@ -1,7 +1,7 @@
 use crate::common::types::Timestamp;
 use crate::globals::with_timeseries_index;
 use crate::index::TimeSeriesIndex;
-use crate::module::VALKEY_PROMQL_SERIES_TYPE;
+use crate::module::VKM_SERIES_TYPE;
 use crate::storage::time_series::TimeSeries;
 use crate::storage::Label;
 use async_trait::async_trait;
@@ -14,7 +14,7 @@ impl TsdbDataProvider {
 
     fn get_series(&self, ctx: &Context, key: &ValkeyString, start_ts: Timestamp, end_ts: Timestamp) -> RuntimeResult<Option<QueryResult>> {
         let valkey_key = ctx.open_key(key);
-        match valkey_key.get_value::<TimeSeries>(&VALKEY_PROMQL_SERIES_TYPE) {
+        match valkey_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE) {
             Ok(Some(series)) => {
                 if series.overlaps(start_ts, end_ts) {
                     let mut timestamps: Vec<Timestamp> = Vec::new();
