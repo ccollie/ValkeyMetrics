@@ -1,6 +1,7 @@
+use metricsql_runtime::Sample;
 use crate::aggregators::{AggOp, Aggregator};
 use crate::storage::time_series::TimeSeries;
-use crate::storage::{AggregationOptions, BucketTimestamp, RangeAlignment, RangeOptions, Sample, Timestamp};
+use crate::storage::{AggregationOptions, BucketTimestamp, RangeAlignment, RangeOptions, Timestamp};
 
 pub(crate) struct AggrIterator {
     aggregator: Aggregator,

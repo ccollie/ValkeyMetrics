@@ -255,7 +255,7 @@ impl TimeSeriesChunk {
         self.process_range(&mut samples, start, end, |samples, timestamps, values| {
             samples.reserve(timestamps.len());
             for i in 0..timestamps.len() {
-                samples.push(Sample::new(timestamps[i], values[i]));
+                samples.push(Sample{ timestamp: timestamps[i], value: values[i] });
             }
             Ok(())
         })?;

@@ -1,5 +1,6 @@
 use std::fmt::Display;
 use std::str::FromStr;
+use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -47,6 +48,9 @@ pub enum AlertsError {
 
     #[error("Failure executing template: {0}")]
     TemplateExecutionError(ErrorGroup),
+
+    #[error("Interval out of range: {0}")]
+    IntervalOutOfRange(Duration),
 
     #[error("{0}")]
     Generic(String),

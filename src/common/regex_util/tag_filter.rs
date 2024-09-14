@@ -1,7 +1,7 @@
 use super::regexp_cache::{RegexpCache, RegexpCacheValue};
 use crate::common::METRIC_NAME_LABEL;
 use get_size::GetSize;
-use metricsql_common::regex_util::match_handlers::StringMatchHandler;
+use metricsql_common::regex_util::StringMatchHandler;
 use metricsql_common::regex_util::{get_optimized_re_match_func, FULL_MATCH_COST};
 use metricsql_parser::label::{LabelFilter, LabelFilterOp};
 use std::cmp::Ordering;

@@ -2,28 +2,25 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::hash::Hasher;
 use std::ops::Add;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use std::vec;
-
+use ahash::AHashMap;
 use enquote::enquote;
-use metricsql_runtime::TimestampTrait;
-use metricsql_parser::prelude::METRIC_NAME;
+use metricsql_runtime::types::TimestampTrait;
 use valkey_module::Context;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use xxhash_rust::xxh3::Xxh3;
-use crate::common::current_time_millis;
+use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::config::get_global_settings;
 
-use crate::rules::{EvalContext, Rule, RuleType};
+use crate::rules::{EvalContext, RecordingRule, Rule, RuleType};
 use crate::rules::alerts::{
     AlertingRule,
     AlertsError,
     AlertsResult,
-    DataSourceType,
     GroupConfig,
-    RecordingRule,
 };
 use crate::rules::alerts::datasource::datasource::{QuerierBuilder, QuerierParams};
 use crate::rules::alerts::executor::Executor;
@@ -33,35 +30,28 @@ use crate::storage::{Label, Timestamp};
 /// Group is an entity for grouping rules
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Group {
-    pub name: String,
     pub id: u64,
-    pub source_type: DataSourceType,
+    pub name: String,
     pub alerting_rules: Vec<AlertingRule>,
     pub recording_rules: Vec<RecordingRule>,
     pub interval: Duration,
     pub eval_offset: Duration,
     pub limit: usize,
     pub last_evaluation: Timestamp,
-    pub labels: Vec<Label>,
-    pub params: HashMap<String, String>,
+    pub labels: AHashMap<String, String>,
+    pub params: AHashMap<String, String>,
     pub headers: Vec<Label>,
     pub notifier_headers: HashMap<String, String>,
     pub metrics: GroupMetrics,
-    #[serde(skip)]
-    first_run: AtomicBool,
-    #[serde(skip)]
     concurrency: usize,
     pub(crate) checksum: String,
     /// `eval_alignment` will make the timestamp of group query requests be aligned with interval
     pub eval_alignment: Option<bool>,
-    #[serde(skip)]
-    pub timer_id: u64,
 }
 
 impl Clone for Group {
     fn clone(&self) -> Self {
         Group {
-            source_type: self.source_type.clone(),
             name: self.name.clone(),
             id: self.id,
             alerting_rules: self.alerting_rules.clone(),
@@ -77,9 +67,7 @@ impl Clone for Group {
             labels: self.labels.clone(),
             last_evaluation: self.last_evaluation,
             metrics: self.metrics.clone(),
-            first_run: AtomicBool::new(self.first_run.load(Ordering::Relaxed)),
             eval_alignment: self.eval_alignment,
-            timer_id: self.timer_id,
         }
     }
 }
@@ -109,7 +97,6 @@ impl Group {
 
         let labels_empty = cfg.labels.is_empty();
         let mut g = Group {
-            source_type: cfg.datasource_type,
             name: cfg.name,
             id: 0,
             alerting_rules: vec![],
@@ -125,9 +112,7 @@ impl Group {
             last_evaluation: 0,
             metrics: GroupMetrics::default(),
             recording_rules: vec![],
-            first_run: AtomicBool::new(true),
             eval_alignment: cfg.eval_alignment,
-            timer_id: 0,
         };
         if g.interval.is_zero() {
             g.interval = default_interval
@@ -186,7 +171,6 @@ impl Group {
         let mut hasher: Xxh3 = Xxh3::new();
         hasher.write(self.name.as_bytes());
         hasher.write(b"\xff");
-        hasher.write(self.source_type.to_string().as_bytes());
         hasher.write_u128(self.interval.as_millis());
         let millis = self.eval_offset.as_millis();
         hasher.write_u128(millis);
@@ -213,11 +197,9 @@ impl Group {
                 headers.insert(header.name.clone(), header.value.clone());
             }
             let q = qb.build_with_params(QuerierParams {
-                data_source_type: self.source_type.clone(),
                 evaluation_interval: self.interval.clone(),
                 eval_offset: Default::default(),
                 query_params: self.params.clone(),
-                headers,
                 debug: ar.debug,
             });
             ar.restore(ctx, ts, look_back)
@@ -274,7 +256,6 @@ impl Group {
 
         // note that self.interval is not updated here so the value can be compared later in
         // group.start function
-        self.source_type = new_group.source_type.clone();
         self.concurrency = new_group.concurrency;
         self.params = new_group.params.clone();
         self.headers = new_group.headers.clone();
@@ -307,12 +288,17 @@ impl Group {
     }
 
     pub fn remove_rule(&mut self, name: &str) -> bool {
-        let rule = self.alerting_rules.iter().position(|ar| ar.name == name)
+        let rule = self.alerting_rules
+            .iter()
+            .position(|ar| ar.name == name)
             .map(|i| self.alerting_rules.remove(i));
+
         if rule.is_none() {
             return false;
         }
-        self.recording_rules.iter().position(|rr| rr.name == name)
+
+        self.recording_rules.iter()
+            .position(|rr| rr.name == name)
             .map(|i| self.recording_rules.remove(i))
             .is_some()
     }
@@ -400,7 +386,7 @@ impl Group {
                 // was evaluated at 11:20. Then the timestamp should be adjusted
                 // to 10:30, to the previous evaluationInterval.
                 let interval = self.interval.as_millis().max(i64::MAX as u128) as i64;
-                return ts.add(-interval) // todo: wrapping sub
+                return ts.saturating_sub(interval)
             }
             // eval_offset shouldn't interfere with eval_alignment, so we return it immediately
             return ts
@@ -462,7 +448,7 @@ pub(super) fn labels_to_string(labels: &[Label]) -> String {
     b.push('{');
     for (i, label) in labels.iter().enumerate() {
         if label.name.is_empty() {
-            b.push_str(METRIC_NAME);
+            b.push_str(METRIC_NAME_LABEL);
         } else {
             b.push_str(&label.name)
         }

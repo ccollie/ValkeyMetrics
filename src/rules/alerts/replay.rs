@@ -1,16 +1,11 @@
 use crate::rules::alerts::{AlertsError, AlertsResult, Group, Metric, WriteQueue};
 use crate::rules::{EvalContext, Rule};
-use metricsql_runtime::{Timestamp, TimestampTrait};
 use std::thread;
 use std::time::Duration;
 use metricsql_common::humanize::humanize_duration;
+use metricsql_runtime::types::{Timestamp, TimestampTrait};
 use crate::config::get_global_settings;
 
-/**
-var (
-replayRulesDelay = flag.Duration("replay.rulesDelay", time.Second,
-)
-**/
 #[derive(Debug, Clone)]
 pub struct ReplayOptions {
     /// The time filter to select time series with timestamp equal or higher than provided value.
@@ -155,7 +150,7 @@ fn replay_range<'a>(
 
 fn replay_rule(
     ctx: &EvalContext,
-    mut rule: impl Rule,
+    rule: &impl Rule,
     start: Timestamp,
     end: Timestamp,
     rule_retry_attempts: usize,
@@ -165,7 +160,7 @@ fn replay_rule(
     let mut err: Option<AlertsError> = None;
 
     for i in 0..rule_retry_attempts {
-        match rule.exec_range(&ctx.querier, start, end) {
+        match rule.exec_range(ctx.querier, start, end) {
             Ok(res) => {
                 for ts in res.into_iter() {
                     tss.push(ts.into());

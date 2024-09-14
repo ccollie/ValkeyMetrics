@@ -1,18 +1,16 @@
-use std::collections::hash_map::Entry;
-use std::collections::hash_map::Entry::Occupied;
+use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
-use std::ops::Add;
+use std::hash::Hasher;
 use std::sync::atomic::{Ordering, AtomicBool};
-use std::sync::{Arc, mpsc, RwLock};
-use std::sync::mpsc::RecvError;
-use std::thread;
-use std::time::Duration;
-use metricsql_common::duration::format_duration;
-use metricsql_common::humanize::humanize_duration;
-use metricsql_runtime::{Timestamp, TimestampTrait};
-use valkey_module::{Context, RedisModuleTimerID};
+use std::sync::{mpsc, Arc, RwLock};
+use std::time::{Duration, UNIX_EPOCH};
+use chrono::{Utc};
+use metricsql_runtime::types::{Timestamp, TimestampTrait};
+use timer::{MessageTimer, Guard as TimerGuard};
+use valkey_module::{Context, ValkeyString};
 use tracing::info;
-use crate::common::{current_time_millis, stop_timer};
+use xxhash_rust::xxh3::Xxh3;
+use crate::common::{current_time_millis};
 use crate::rules::alerts::{
     should_skip_rand_sleep_on_group_start,
     AlertsError,
@@ -24,55 +22,89 @@ use crate::rules::alerts::{
     QuerierParams,
     WriteQueue
 };
+use crate::rules::alerts::consts::GROUP_DATA_TYPE_NAME;
 use crate::rules::alerts::executor::Executor;
-use crate::rules::GroupConfig;
+use crate::rules::alerts::utils::with_group_mut;
+
+struct GroupTimerData {
+    group_id: u64,
+    tx: mpsc::Sender<GroupMessage>,
+}
+
+fn group_timer_callback(_ctx: &Context, data: GroupTimerData) {
+    data.tx.send(GroupMessage::Tick(data.group_id)).unwrap();
+}
+
+#[derive(Clone)]
+pub struct GroupAddMessage {
+    id: u64,
+    key: String,
+    hash: u64,
+    interval: u64,
+    eval_offset: u64,
+}
+
+#[derive(Clone)]
+pub struct GroupUpdateMessage {
+    id: u64,
+    hash: u64,
+    interval: u64,
+    eval_offset: u64,
+}
 
 /// Control messages sent to Group channel during evaluation
-enum GroupMessage {
+#[derive(Clone)]
+pub enum GroupMessage {
     Stop,
-    Update(Group),
+    Update(u64),
     StartGroup(u64),
+    StopGroup(u64),
+    AddGroup(GroupAddMessage),
+    UpdateGroup(GroupUpdateMessage),
     Tick(u64),
     FlushWrites
 }
 
 struct GroupMeta {
     id: u64,
-    group: Group,
+    group_key: String,
     started: bool,
-    timer_id: RedisModuleTimerID,
-    delay_timer_id: RedisModuleTimerID,
-    executor: Executor
+    executor: Executor,
+    group_hash: u64,
+    interval: i64, // milliseconds
+    timer_guard: Option<TimerGuard>,
 }
 
 impl GroupMeta {
-    fn new(id: u64, group: Group, executor: Executor) -> Self {
+    // todo: pass key
+    fn new(id: u64, interval: i64, executor: Executor) -> Self {
         Self {
             id,
-            group,
+            group_key: (),
             started: false,
-            timer_id: 0,
-            delay_timer_id: 0,
-            executor
+            executor,
+            interval,
+            timer_guard: None,
         }
     }
 
     fn on_tick(&mut self, ctx: &Context) {
-        let current = current_time_millis();
-        self.group.on_tick(ctx, &mut self.executor, current);
+        let key = ctx.create_string(&*self.group_key);
+        let _ = with_group_mut(ctx, &key, |group| {
+            let current = current_time_millis();
+            group.on_tick(ctx, &mut self.executor, current);
+            Ok(())
+        });
     }
 
-    fn stop(&mut self, ctx: &Context) {
-        self.group.close();
-        stop_timer(ctx, self.timer_id);
-        stop_timer(ctx, self.delay_timer_id);
-        self.timer_id = 0;
-        self.delay_timer_id = 0;
+    fn stop(&mut self) {
+        self.timer_guard = None;
     }
+}
 
-    fn stop_delay_timer(&mut self, ctx: &Context) {
-        stop_timer(ctx, self.delay_timer_id);
-        self.delay_timer_id = 0;
+impl Drop for GroupMeta {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
@@ -83,41 +115,16 @@ pub enum ProcessorState {
 }
 
 pub struct AlertManager {
-    redis_ctx: Context,
+    timer: MessageTimer<GroupMessage>,
+    // we probably need something like DashMap for a large number of groups
     pub groups: RwLock<HashMap<u64, GroupMeta>>,
     pub notifiers: Arc<Vec<Box<dyn Notifier>>>,
-    pub notifier_headers: HashMap<String, String>,
+    pub notifier_headers: Arc<HashMap<String, String>>,
     pub write_queue: Arc<WriteQueue>,
     pub querier_builder: Arc<dyn QuerierBuilder>,
     is_stopped: AtomicBool,
     is_started: AtomicBool,
-    receiver: mpsc::Receiver<GroupMessage>,
-    sender: mpsc::Sender<GroupMessage>,
-    flush_timer_id: RedisModuleTimerID
-}
-
-struct CallbackData {
-    group_id: u64,
-    sender: mpsc::Sender<GroupMessage>
-}
-
-fn interval_callback(ctx: &Context, data: CallbackData) {
-    ctx.log_debug(format!("Interval callback for group: {}", data.group_id).as_str());
-    if data.sender.send(GroupMessage::Tick(data.group_id)).is_err() {
-        ctx.log_warning("failed to send start group message");
-    }
-}
-
-fn delay_callback(ctx: &Context, data: CallbackData) {
-    if data.sender.send(GroupMessage::StartGroup(data.group_id)).is_err() {
-        ctx.log_warning("failed to send start group message");
-    }
-}
-
-fn write_flush_callback(ctx: &Context, sender: mpsc::Sender<GroupMessage>) {
-    if sender.send(GroupMessage::FlushWrites).is_err() {
-        ctx.log_warning("failed to send flush writes message");
-    }
+    flush_timer_guard: Option<TimerGuard>,
 }
 
 impl Drop for AlertManager {
@@ -127,11 +134,9 @@ impl Drop for AlertManager {
 }
 
 impl AlertManager {
-    pub fn new(ctx: Context, write_queue: Arc<WriteQueue>, querier_builder: Arc<dyn QuerierBuilder>
-    ) -> Self {
-        let (tx, rx) = mpsc::channel::<GroupMessage>();
+    pub fn new(write_queue: Arc<WriteQueue>, querier_builder: Arc<dyn QuerierBuilder>) -> Self {
         Self {
-            redis_ctx: ctx,
+            timer: MessageTimer::new(tx.clone()),
             groups: Default::default(),
             notifiers: Default::default(),
             notifier_headers: Default::default(),
@@ -139,284 +144,220 @@ impl AlertManager {
             querier_builder: Arc::clone(&querier_builder),
             is_stopped: Default::default(),
             is_started: Default::default(),
-            receiver: rx,
-            sender: tx,
-            flush_timer_id: 0
+            flush_timer_guard: None,
         }
     }
 
-    pub fn add_group(&mut self, group: Group) -> AlertsResult<()> {
-        let mut groups = self.groups.write().unwrap();
+    pub fn add_group(&mut self, ctx: &Context, group: &Group, key: ValkeyString) -> AlertsResult<()> {
         let group_id = group.id;
-        let mut meta = match groups.entry(group_id) {
-            Occupied(o) => {
-                let meta = o.into_mut();
-                meta.group = group;
-                meta
-            },
-            Entry::Vacant(v) => {
-                let mut meta = GroupMeta::new(group_id, group.clone(), self.create_executor(&group));
-                meta.group = group;
-                v.insert(meta)
-            }
-        };
-        if self.is_started {
-            self.prep_group_start(&mut meta, Timestamp::now())?;
+
+        self.add_or_update_group(group);
+        let mut groups = self.groups.write().unwrap();
+        let mut meta = groups.get_mut(&group_id).unwrap(); // if we panic here it's a legit bug
+        meta.group_key = key;
+
+        if self.is_started.load(Ordering::Relaxed) {
+            self.prep_group_start(ctx, &mut meta, Timestamp::now())?;
         }
         Ok(())
     }
 
-    pub fn start(&mut self) {
-        if self.is_started() {
-            return;
-        }
-        let sender = self.sender.clone();
-        let flush_timer_id = self.redis_ctx
-            .create_timer(self.write_queue.flush_interval, write_flush_callback, sender);
-        self.flush_timer_id = flush_timer_id;
-
+    fn add_or_update_group(&mut self, group: &Group) {
         let mut groups = self.groups.write().unwrap();
-        for (_, meta) in groups.iter_mut() {
-            if !meta.started {
-                self.start_group_internal(meta).unwrap();
+
+        let group_id = group.id;
+        let interval = 0i64.saturating_add(group.interval.as_millis() as i64); // todo: avoid overflow
+        // hash the group fields we care about
+        let hash = get_hash(group);
+
+        match groups.entry(group_id) {
+            Occupied(mut entry) => {
+                let meta = entry.get_mut();
+                if meta.group_hash != hash {
+                    meta.group_hash = hash;
+                    meta.interval = interval;
+                    meta.executor = self.create_executor(group);
+                }
+            }
+            Vacant(entry) => {
+                let executor = self.create_executor(group);
+                let mut meta = GroupMeta::new(group_id, interval, executor);
+                meta.group_hash = hash;
+                entry.insert(meta);
             }
         }
+    }
+
+
+    pub fn start(&mut self, ctx: &Context) -> AlertsResult<()> {
+        if self.is_started.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        let flush_interval = get_chrono_duration(self.write_queue.flush_interval)?;
+        self.flush_timer_guard = Some(
+            self.timer.schedule_repeating(flush_interval, GroupMessage::FlushWrites)
+        );
+
+        let mut groups = self.groups.write().unwrap();
+
+        for (_, meta) in groups.iter_mut() {
+            if !meta.started {
+                self.start_group_internal(ctx, meta)?;
+            }
+        }
+        drop(groups);
 
         // todo: call the following in a separate thread
-        self.process();
+        Ok(())
     }
 
-    fn process(&mut self) {
-        thread::scope(|s| {
-            s.spawn(|| {
-                loop {
-                    match self.receiver.recv() {
-                        Ok(GroupMessage::Stop) => {
-                            info!("group processor: received stop signal");
-                            self.handle_stop();
-                            break;
-                        }
-                        Ok(GroupMessage::Update(group)) => {
-                            // push to worker ???
-                            let _ = self.update(group);
-                        }
-                        Ok(GroupMessage::Tick(gid)) => {
-                            self.on_group_tick(gid);
-                        }
-                        Ok(GroupMessage::StartGroup(id)) => {
-                            self.handle_group_start(id)
-                        }
-                        Ok(GroupMessage::FlushWrites) => {
-                            self.write_queue.flush();
-                        }
-                        Err(_) => {
-                            break;
-                        }
-                    }
-                }
-            });
-        });
-    }
-
-    fn on_group_tick(&mut self, id: u64) {
+    pub fn on_group_tick(&mut self, ctx: &Context, id: u64) {
         let mut groups = self.groups.write().unwrap();
         if let Some(meta) = groups.get_mut(&id) {
-            meta.on_tick(&self.redis_ctx);
+            meta.on_tick(ctx);
         }
     }
 
-    fn handle_group_start(&mut self, group_id: u64) {
-        // handle group start message
-        if self.is_stopped() {
-            return;
-        }
+    pub fn handle_group_start(&mut self, ctx: &Context, group_id: u64) {
         let mut groups = self.groups.write().unwrap();
         if let Some(meta) = groups.get_mut(&group_id) {
-            self.start_group(&mut meta.group).unwrap();
+            self.start_group_internal(ctx, meta)?;
         }
     }
 
-    fn prep_group_start(&mut self, group_meta: &mut GroupMeta, eval_ts: Timestamp) -> AlertsResult<()> {
+    fn prep_group_start(&mut self, ctx: &Context, group_meta: &mut GroupMeta, eval_ts: Timestamp) -> AlertsResult<()> {
         // prep group start
-        let group = &group_meta.group;
+        group_meta.timer_guard = None;
 
-        stop_timer(&self.redis_ctx, group_meta.timer_id);
-        stop_timer(&self.redis_ctx, group_meta.delay_timer_id);
+        let repeat_duration = chrono::Duration::milliseconds(group_meta.interval);
 
         // sleep random duration to spread group rules evaluation
         // over time in order to reduce load on datasource.
         if !should_skip_rand_sleep_on_group_start() {
+            let key = ctx.create_string(&*group_meta.group_key);
+            let eval_offset = with_group_mut(ctx, &key, |group| {
+                Ok(group.eval_offset.clone())
+            })?;
             let sleep_before_start = delay_before_start(eval_ts,
-                                                                 group.id,
-                                                                 group.interval,
-                                                                 Some(&group.eval_offset));
+                                                                 group_meta.id,
+                                                                 group_meta.interval,
+                                                                 Some(eval_offset));
 
-            // info!("group will start in {}", humanize_duration(sleep_before_start));
-
-            let callback_data = CallbackData {
-                group_id: group.id,
-                sender: self.sender.clone()
-            };
-
+            let current_date = Utc::now();
+            let start_date = current_date + chrono::Duration::milliseconds(sleep_before_start.as_millis() as i64);
             group_meta.started = false;
-            group_meta.delay_timer_id = self.redis_ctx.create_timer(sleep_before_start, delay_callback, callback_data);
+
+            let message = GroupMessage::Tick(group_meta.id);
+            self.timer.schedule(start_date, Some(repeat_duration), message);
+
             Ok(())
         } else {
-            self.start_group_internal(group_meta)
+            self.start_group_internal(ctx, group_meta)
         }
     }
 
-    fn start_group_internal(&mut self, meta: &mut GroupMeta) -> AlertsResult<()> {
+    fn start_group_internal(&mut self, ctx: &Context, meta: &mut GroupMeta) -> AlertsResult<()> {
         // start group
         if self.is_stopped() {
             return Ok(());
         }
-        let group_id = meta.group.id;
-        meta.stop_delay_timer(&self.redis_ctx);
 
-        // start group
-        let callback_data = CallbackData {
-            group_id,
-            sender: self.sender.clone()
-        };
+        let key = ctx.create_string(&*meta.group_key);
 
-        info!("started rule group \"{}\"",  meta.group.name);
+        with_group_mut(&ctx, &key, |group| {
+            // start group
+            info!("started rule group \"{}\"",  group.name);
 
-        // run the first evaluation immediately
-        let _ts = current_time_millis();
-        meta.group.eval(&self.redis_ctx, &mut meta.executor, _ts);
+            // run the first evaluation immediately
+            let _ts = current_time_millis();
+            group.eval(ctx, &mut meta.executor, _ts);
+
+            // restore the rules state after the first evaluation
+            // so only active alerts can be restored.
+            // if let Some(rr) = rr {
+            //     if let Err(err) = group.restore(rr, eval_ts, remoteReadLookBack) {
+            //         return Err("error while restoring ruleState for group {}: {:?}", self.name, err)
+            //     }
+            // }
+            Ok(())
+        })?;
+
         meta.started = true;
 
-        // restore the rules state after the first evaluation
-        // so only active alerts can be restored.
-        // if let Some(rr) = rr {
-        //     if let Err(err) = group.restore(rr, eval_ts, remoteReadLookBack) {
-        //         return Err("error while restoring ruleState for group {}: {:?}", self.name, err)
-        //     }
-        // }
+        let message = GroupMessage::Tick(meta.id);
+        let repeat_duration = chrono::Duration::milliseconds(meta.interval);
+        meta.timer_guard = Some(self.timer.schedule_repeating(repeat_duration, message));
 
-        let interval = meta.group.interval;
-        meta.timer_id = self.redis_ctx.create_timer(interval, interval_callback, callback_data);
         Ok(())
     }
 
-    pub fn start_group(&mut self, group: &mut Group) -> AlertsResult<()> {
+    pub fn start_group(&mut self, ctx: &Context, group: &Group) -> AlertsResult<()> {
         // start group
         if self.is_stopped() {
             return Err(AlertsError::Configuration("group processor is stopped".to_string()))
         }
+        self.add_or_update_group(group);
         let group_id = group.id;
-        if let Some(meta) = self.groups.write().unwrap().get_mut(&group_id) {
-            return self.start_group_internal(meta)
+
+        let mut groups = self.groups.write().unwrap();
+        if let Some(meta) = groups.get_mut(&group_id) {
+            self.start_group_internal(ctx, meta)
+        } else {
+            Err(AlertsError::Configuration(format!("group with id {} not found", group_id)))
         }
-        Err(AlertsError::Configuration(format!("group with id {} not found", group_id)))
     }
 
     pub fn stop_group(&mut self, group_id: u64) -> bool {
         // stop group
         let mut groups = self.groups.write().unwrap();
         if let Some(meta) = groups.get_mut(&group_id) {
-            meta.stop(&self.redis_ctx);
+            meta.timer_guard = None;
             meta.started = false;
             return true
         }
         false
     }
 
-    fn update_group(&mut self, group: Group) -> AlertsResult<()> {
-        // update group
-        let group_id = group.id;
-        let mut groups = self.groups.write().unwrap();
-        if let Some(old_group) = groups.get_mut(&group_id) {
-            if old_group.group.eq(&group) {
-                return Ok(());
-            }
-            self.stop_group(group_id);
-        }
-        groups.insert(group_id, group.clone());
-        self.prep_group_start(&group, current_time_millis())
+    pub fn delete_group(&mut self, group: &Group) {
+        self.delete_group_by_id(group.id);
     }
 
-    pub fn delete_group(&mut self, group_id: u64) -> AlertsResult<()> {
+    pub fn delete_group_by_id(&mut self, group_id: u64) {
         // delete group
         let mut groups = self.groups.write().unwrap();
-        if let Some(meta) = groups.get_mut(&group_id) {
-            meta.stop(&self.redis_ctx);
-            groups.remove(&group_id);
-        }
-        Ok(())
+        groups.remove(&group_id);
     }
 
-    pub fn update(&mut self, ctx: &Context, groups_cfg: &[GroupConfig], restore: bool) -> AlertsResult<()> {
-        let mut rr_present = false;
-        let mut ar_present = false;
-
-        let mut groups_registry: HashMap<u64, Group> = HashMap::default();
-        for cfg in groups_cfg {
-            for r in cfg.rules {
-                if rr_present && ar_present {
-                    continue
-                }
-                if !r.record.is_empty() {
-                    rr_present = true
-                }
-                if !r.alert.is_empty() {
-                    ar_present = true
-                }
-            }
-            let interval = cfg.interval.unwrap_or_default(); //
-            let ng = Group::from_config(cfg.clone(), interval, &self.labels);
-            groups_registry.insert(ng.id(), ng);
-        }
-
-        if ar_present && self.notifiers.is_empty() {
-            return Err(AlertsError::Configuration("config contains alerting rules but neither `-notifier.url` nor `-notifier.config` nor `-notifier.blackhole` aren't set".to_string()))
-        }
-        struct UpdateItem<'a> {
-            old: &'a Group,
-            new: &'a Group
-        }
-
-        let mut to_update = vec![];
-
-        let mut groups = self.groups.write().unwrap();
-        let to_delete = vec![];
-        for (_, og) in groups.iter_mut() {
-            let og_id = og.group.id();
-
-            let ng = groups_registry.get(&og_id);
-            if ng.is_none() {
-                // old group is not present in new list,
-                // so must be stopped and deleted
-                self.stop_group(og_id);
-                continue
-            }
-            let ng = ng.unwrap();
-            let ng_id = ng.id();
-            groups_registry.remove(&ng_id);
-            if og.group.checksum != ng.checksum {
-                to_update.push(UpdateItem{old: &og, new: ng})
-            }
-        }
-        for (_, ng) in groups_registry.into_iter() {
-            self.start_group(&mut ng, restore)?;
-        }
-        if !to_update.is_empty() {
-            for item in to_update.iter_mut() {
-                item.old.update_with(item.new)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn handle_stop(&mut self) {
+    pub fn handle_stop(&mut self) {
         self.is_stopped.store(true, Ordering::SeqCst);
         self.write_queue.flush();
         let mut groups = self.groups.write().unwrap();
-        for (_, meta) in groups.iter_mut() {
-            meta.stop(&self.redis_ctx);
+        for values in groups.values_mut() {
+            values.stop();
         }
-        stop_timer(&self.redis_ctx, self.flush_timer_id);
+        self.flush_timer_guard = None;
+    }
+
+    pub fn handle_group_update(&mut self, ctx: &Context, group_id: u64) {
+        let mut groups = self.groups.write().unwrap();
+        if let Some(meta) = groups.get_mut(&group_id) {
+            let key = ctx.create_string(&*meta.group_key);
+            let redis_key = ctx.open_key(&key);
+            let group = redis_key.get_value::<Group>(&VALKEY_METRICS_SERIES_TYPE)
+                .unwrap_or_default(); // todo: log if error occurred
+            if let Some(group) = group {
+                let hash = get_hash(group);
+                if meta.group_hash != hash {
+                    let interval = group.interval.as_millis() as i64;
+                    meta.group_hash = hash;
+                    meta.interval = interval;
+                    meta.executor = self.create_executor(group);
+                }
+            } else {
+                groups.remove(&group_id);
+                ctx.log_debug(&format!("Group with id {} not found", group_id));
+            }
+        }
     }
 
     pub fn is_stopped(&self) -> bool {
@@ -429,18 +370,19 @@ impl AlertManager {
 
     fn create_executor(&self, group: &Group) -> Executor {
         let querier = self.create_querier(group);
-        let wq = Arc::clone(&self.write_queue);
-        let notifiers = Arc::clone(&self.notifiers);
-        Executor::new(notifiers, &self.notifier_headers, wq, querier)
+        Executor::new(
+            self.notifiers.clone(),
+            self.notifier_headers.clone(),
+            self.write_queue.clone(),
+            querier
+        )
     }
 
-    fn create_querier(&self, group: &Group) -> Box<dyn Querier> {
+    fn create_querier(&self, group: &Group) -> impl Querier {
         self.querier_builder.build_with_params(QuerierParams {
-            data_source_type: group.source_type.clone(),
             evaluation_interval: group.interval,
             eval_offset: group.eval_offset,
-            query_params: Default::default(),
-            headers: Default::default(),
+            query_params: group.params.clone(),
             debug: false,
         })
     }
@@ -449,25 +391,53 @@ impl AlertManager {
 /// delay_before_start returns a duration on the interval between [ts..ts+interval].
 /// delay_before_start accounts for `offset`, so returned duration should be always
 /// bigger than the `offset`.
-fn delay_before_start(ts: crate::storage::Timestamp, key: u64, interval: Duration, offset: Option<&Duration>) -> Duration {
-    let mut rand_sleep = interval * (key / (1 << 64)) as u32;
-    let interval_millis = interval.as_millis() as i64;
-    let sleep_offset = Duration::from_millis((ts % interval_millis) as u64);
-    if rand_sleep < sleep_offset {
-        rand_sleep += interval
-    }
+fn delay_before_start(ts: Timestamp, key: u64, interval_ms: i64, offset: Option<Duration>) -> Duration {
+    let ts = ts * 1000; // ms -> nanos
+    let interval = Duration::from_millis(interval_ms as u64);
+    let interval_nanos = interval.as_nanos() as u64;
+    let rand_sleep = Duration::from_nanos((interval_nanos as f64 * (key as f64 / (1 << 64) as f64)) as u64);
+    let sleep_offset = Duration::from_nanos(ts as u64 % interval_nanos);
+
+    let mut rand_sleep = if rand_sleep < sleep_offset {
+        rand_sleep + interval
+    } else {
+        rand_sleep
+    };
     rand_sleep -= sleep_offset;
-    // check if `ts` after rand_sleep is before `offset`,
-    // if it is, add extra eval_offset to rand_sleep.
-    // see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/3409.
+
     if let Some(offset) = offset {
-        let offset_millis = offset.as_millis() as i64; // todo: handle overflow
-        let sleep_millis = rand_sleep.as_millis() as i64;
-        let tmp_eval_ts: Timestamp = ts.add(sleep_millis);
-        if tmp_eval_ts < tmp_eval_ts.truncate(interval).saturating_add(offset_millis) {
-            rand_sleep += *offset
+        let tmp_eval_ts = ts + rand_sleep;
+        let truncated_ts = tmp_eval_ts.duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64 / interval_nanos * interval_nanos;
+        let truncated_ts = UNIX_EPOCH + Duration::from_nanos(truncated_ts);
+        if tmp_eval_ts < truncated_ts + offset {
+            rand_sleep += offset;
         }
     }
 
     rand_sleep
+}
+
+fn get_hash(group: &Group) -> u64 {
+    let mut hasher: Xxh3 = Xxh3::new();
+    hasher.write(group.name.as_bytes());
+    hasher.write(b"\xff");
+    hasher.write_u128(group.interval.as_millis());
+    let millis = group.eval_offset.as_millis();
+    hasher.write_u128(millis);
+    // params
+    for (k, v) in &group.params {
+        hasher.write(k.as_bytes());
+        hasher.write(b"\xff");
+        hasher.write(v.as_bytes());
+    }
+    hasher.digest()
+}
+
+
+fn chrono_duration_from_ms(ms: i64) -> AlertsResult<chrono::Duration> {
+    Ok(chrono::Duration::milliseconds(ms))
+}
+fn get_chrono_duration(duration: Duration) -> AlertsResult<chrono::Duration> {
+    chrono::Duration::from_std(duration)
+        .map_err(|_| AlertsError::IntervalOutOfRange(duration))
 }

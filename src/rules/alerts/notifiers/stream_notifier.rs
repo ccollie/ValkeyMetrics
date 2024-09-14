@@ -1,7 +1,8 @@
-use std::collections::HashMap;
 use crate::common::types::Timestamp;
-use crate::error::{TsdbError, TsdbResult};
 use crate::rules::alerts::{Alert, Notifier};
+use crate::rules::{AlertsError, AlertsResult};
+use ahash::AHashMap;
+use std::collections::HashMap;
 use std::time::Duration;
 use valkey_module::{Context, ValkeyValue};
 
@@ -44,6 +45,14 @@ impl StreamNotifier {
             serialized_alert.push(hash_map_to_string(value));
         }
 
+        fn add_ahash_map(key: &str, value: &AHashMap<String, String>, serialized_alert: &mut Vec<String>) {
+            if value.is_empty() {
+                return;
+            }
+            serialized_alert.push(key.to_string());
+            serialized_alert.push(ahash_map_to_string(value));
+        }
+
         // Serialize the alert to a list of key value pairs encoded as strings
         add_key_value_pair("id", &alert.id.to_string(), serialized_alert);
         add_key_value_pair("name", &alert.name, serialized_alert);
@@ -60,19 +69,19 @@ impl StreamNotifier {
 
         add_duration("for", &alert.r#for, serialized_alert);
         add_key_value_pair("group_id", &alert.group_id.to_string(), serialized_alert);
-        add_hash_map("labels", &alert.labels, serialized_alert);
-        add_hash_map("annotations", &alert.annotations, serialized_alert);
+        add_ahash_map("labels", &alert.labels, serialized_alert);
+        add_ahash_map("annotations", &alert.annotations, serialized_alert);
         add_key_value_pair("restored", &alert.restored.to_string(), serialized_alert);
     }
 
-    fn trim_stream(&self, ctx: &Context) -> TsdbResult<()> {
+    fn trim_stream(&self, ctx: &Context) -> AlertsResult<()> {
         if let Some(max_messages) = self.max_messages {
             let max = format!("{max_messages}");
             // Prepare the arguments for the XADD command
             let xtrim_args = vec![self.key.as_str(), "MAXLEN", &max];
             // Call the XADD command
             let result: ValkeyValue = ctx.call("XTRIM", &*xtrim_args)
-                .map_err(|_| TsdbError::General("Error adding pushing alert to stream".to_string()))?;
+                .map_err(|_| AlertsError::Generic("Error adding pushing alert to stream".to_string()))?;
 
             // The result will be the ID of the new entry in the stream
             match result {
@@ -81,7 +90,7 @@ impl StreamNotifier {
                     ctx.log_warning(&msg);
                 }
                 _ => {
-                    return Err(TsdbError::General("Unexpected response from XTRIM".into()));
+                    return Err(AlertsError::Generic("Unexpected response from XTRIM".into()));
                 }
             }
 
@@ -91,7 +100,7 @@ impl StreamNotifier {
 }
 
 impl Notifier for StreamNotifier {
-    fn send(&self, ctx: &Context, alerts: &[Alert], notifier_headers: &HashMap<String, String>) -> TsdbResult<()> {
+    fn send(&self, ctx: &Context, alerts: &[Alert], notifier_headers: &HashMap<String, String>) -> AlertsResult<()> {
         let mut keys: Vec<String> = Vec::new();
 
         keys.push(self.key.clone());
@@ -111,8 +120,8 @@ impl Notifier for StreamNotifier {
             self.serialize_alert(alert, &mut keys);
 
             let xadd_args = keys.iter().map(|k| k.as_str()).collect::<Vec<&str>>();
-            let result: ValkeyValue = ctx.call("XADD", &xadd_args)
-                .map_err(|_| TsdbError::General("Error adding pushing alert to stream".to_string()))?;
+            let result: ValkeyValue = ctx.call("XADD", &*xadd_args)
+                .map_err(|_| AlertsError::Generic("Error adding pushing alert to stream".to_string()))?;
 
             match result {
                 ValkeyValue::SimpleString(id) => {
@@ -120,7 +129,7 @@ impl Notifier for StreamNotifier {
                     ctx.log_debug(&msg);
                 }
                 _ => {
-                    return Err(TsdbError::General("Unexpected response from XADD".into()));
+                    return Err(AlertsError::Generic("Unexpected response from XADD".into()));
                 }
             }
             keys.drain(3..);
@@ -136,5 +145,9 @@ impl Notifier for StreamNotifier {
 }
 
 fn hash_map_to_string(map: &HashMap<String, String>) -> String {
+    map.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<String>>().join(",")
+}
+
+fn ahash_map_to_string(map: &AHashMap<String, String>) -> String {
     map.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<String>>().join(",")
 }

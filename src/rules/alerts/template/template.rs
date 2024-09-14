@@ -13,18 +13,20 @@
 
 use crate::rules::alerts::{AlertsError, AlertsResult, DatasourceMetric};
 use crate::rules::template::models::Metric;
-use crate::rules::template::utils::{ensure_single_arg, ensure_single_f64, ensure_single_string_arg, ensure_string_arg, get_array_arg, get_metric_arg};
+use crate::rules::template::utils::*;
 use chrono::{DateTime, Duration, Utc};
 use enquote::enquote;
 use gtmpl::{gtmpl_fn, Func, FuncError, Template, Value};
 use htmlescape::encode_minimal;
 use metricsql_common::humanize::humanize_bytes;
-use metricsql_runtime::METRIC_NAME_LABEL;
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex, OnceLock, RwLock};
+use metricsql_runtime::types::METRIC_NAME_LABEL;
 use titlecase::titlecase;
 use url::Url;
+use crate::rules::Querier;
+use crate::storage::Timestamp;
 
 pub type FuncMap = HashMap<String, Func>;
 
@@ -143,6 +145,20 @@ pub(crate) fn get_template() -> AlertsResult<Template> {
     clone_template(&reader.current)
 }
 
+pub(crate) struct TemplateQuerier<'a> {
+    querier: &'a Box<dyn Querier>,
+    ts: Timestamp
+}
+
+impl<'a> TemplateQuerier<'a> {
+    pub(crate) fn new(querier: &'a Box<dyn Querier>) -> Self {
+        Self {
+            querier,
+            ts: Timestamp::default()
+        }
+    }
+}
+
 pub(crate) fn make_query_fn(query: QueryFn) -> Func {
     |args: &[Value]| -> Result<Value, FuncError> {
         let arg = ensure_single_arg(args, "query")?;
@@ -258,8 +274,7 @@ gtmpl_fn!(fn to_time(v: u64) -> Result<DateTime<Utc>, FuncError> {
     }
 });
 
-// match reports whether the string s
-// contains any match of the regular expression pattern.
+// match reports whether the string s contains any match of the regular expression pattern.
 // alias for https://golang.org/pkg/regexp/#MatchString
 fn regex_match(args: &[Value]) -> Result<Value, FuncError> {
     if args.len() != 2 {

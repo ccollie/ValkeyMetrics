@@ -1,12 +1,12 @@
-use std::cmp::Ordering;
+use metricsql_runtime::Sample;
 use ahash::AHashMap;
-use valkey_module::{ValkeyError, ValkeyString};
+use get_size::GetSize;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::mem::size_of;
 use std::str::FromStr;
 use std::time::Duration;
-use get_size::GetSize;
+use valkey_module::{ValkeyError, ValkeyString};
 
 mod chunk;
 mod pco_chunk;
@@ -22,57 +22,20 @@ mod types;
 mod timestamps_filter_iterator;
 mod gorilla_chunk;
 
+use crate::aggregators::Aggregator;
 use crate::error::{TsdbError, TsdbResult};
+use crate::module::arg_parse::TimestampRangeValue;
 pub(super) use chunk::*;
 pub(crate) use constants::*;
-pub(crate) use slice::*;
 pub(crate) use defrag::*;
 pub(crate) use series_data::*;
-use crate::aggregators::Aggregator;
-use crate::module::arg_parse::TimestampRangeValue;
+pub(crate) use slice::*;
 
 pub type Timestamp = metricsql_runtime::prelude::Timestamp;
-pub type Sample = metricsql_runtime::prelude::Sample;
+pub type Label = metricsql_runtime::prelude::Label;
 
 pub const SAMPLE_SIZE: usize = size_of::<Sample>();
 
-
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[derive(GetSize)]
-pub struct Label {
-    pub name: String,
-    pub value: String,
-}
-
-impl Label {
-    pub fn new<S: Into<String>>(key: S, value: String) -> Self {
-        Self {
-            name: key.into(),
-            value,
-        }
-    }
-}
-
-impl PartialOrd for Label {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.name == other.name {
-            return Some(self.value.cmp(&other.value));
-        }
-        Some(self.name.cmp(&other.name))
-    }
-}
-
-impl Ord for Label {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
-    }
-}
-
-impl Display for Label {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{name}={value}", name = self.name, value = self.value)
-    }
-}
 
 #[non_exhaustive]
 #[derive(Clone, Debug, Default, Hash, PartialEq, Serialize, Deserialize)]
@@ -415,9 +378,9 @@ impl RangeOptions {
 }
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
     use crate::error::TsdbError;
     use crate::storage::DuplicatePolicy;
+    use std::str::FromStr;
 
     #[test]
     fn test_duplicate_policy_parse() {

@@ -1,6 +1,6 @@
-use crate::error::TsdbResult;
 use crate::rules::alerts::{Alert, Notifier};
-use ahash::HashMap;
+use crate::rules::AlertsResult;
+use std::collections::HashMap;
 use valkey_module::Context;
 
 pub struct PubSubNotifier {
@@ -31,7 +31,7 @@ impl Notifier for PubSubNotifier {
         ctx: &Context,
         alerts: &[Alert],
         _notifier_headers: &HashMap<String, String>,
-    ) -> TsdbResult<()> {
+    ) -> AlertsResult<()> {
         let mut msg = String::with_capacity(128);
         for alert in alerts {
             // PUBLISH channel alert:<alert_name>:<alert_state>

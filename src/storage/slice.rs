@@ -1,6 +1,6 @@
+use metricsql_runtime::Sample;
 use crate::common::types::Timestamp;
 use crate::storage::utils::get_timestamp_index;
-use crate::storage::Sample;
 
 #[derive(Debug, Clone)]
 pub struct SeriesSlice<'a> {
@@ -76,7 +76,10 @@ impl<'a> Iterator for SeriesSliceIter<'a> {
         if self.index >= self.slice.len() {
             return None;
         }
-        let item = Sample::new(self.slice.timestamps[self.index], self.slice.values[self.index]);
+        let item = Sample {
+            timestamp: self.slice.timestamps[self.index],
+            value: self.slice.values[self.index]
+        };
         self.index += 1;
         Some(item)
     }

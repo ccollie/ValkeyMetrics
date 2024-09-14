@@ -1,11 +1,12 @@
-use crate::common::types::Timestamp;
-use crate::rules::alerts::{AlertsResult, DataSourceType};
+use crate::common::types::{Label, Timestamp};
+use crate::rules::alerts::{AlertsResult};
 use crate::rules::RawTimeSeries;
 use crate::storage::series_data::SeriesData;
-use crate::storage::Label;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
+use ahash::AHashMap;
 
 /// Querier trait wraps query and query_range methods
 pub trait Querier {
@@ -17,12 +18,14 @@ pub trait Querier {
     fn query_range(&self, query: &str, from: Timestamp, to: Timestamp) -> AlertsResult<QueryResult>;
 }
 
+pub type QuerierRef = Arc<dyn Querier>;
+
 /// Result represents expected response from the provider
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QueryResult {
     /// Data contains list of received Metric
     pub data: Vec<Metric>,
-    /// SeriesFetched contains amount of time series processed by provider during query evaluation.
+    /// number of time series processed by provider during query evaluation.
     /// If 0, then this feature is not supported by the provider.
     pub series_fetched: usize
 }
@@ -48,13 +51,14 @@ pub trait QuerierBuilder {
     fn build_with_params(&self, params: QuerierParams) -> Box<dyn Querier>;
 }
 
+pub type QuerierBuilderRef = Arc<dyn QuerierBuilder>;
+
 /// QuerierParams params for Querier.
 #[derive(Debug, Clone, PartialEq)]
 pub struct QuerierParams {
-    pub data_source_type: DataSourceType,
     pub evaluation_interval: Duration,
     pub eval_offset: Duration,
-    pub query_params: HashMap<String, String>,
+    pub query_params: AHashMap<String, String>,
     pub debug: bool
 }
 

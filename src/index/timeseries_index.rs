@@ -5,7 +5,7 @@ use crate::storage::utils::format_prometheus_metric_name;
 use crate::storage::Label;
 use metricsql_common::hash::IntMap;
 use metricsql_parser::prelude::{LabelFilter, LabelFilterOp, Matchers};
-use metricsql_runtime::METRIC_NAME_LABEL;
+use metricsql_runtime::types::METRIC_NAME_LABEL;
 use papaya::HashMap;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;

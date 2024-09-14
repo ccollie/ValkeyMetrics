@@ -1,8 +1,9 @@
 use crate::common::types::Timestamp;
 use crate::storage::time_series::TimeSeries;
-use metricsql_runtime::{MetricName, QueryResult, Tag, METRIC_NAME_LABEL};
+use metricsql_runtime::types::{MetricName, METRIC_NAME_LABEL};
 use std::collections::HashMap;
 use std::fmt::Display;
+use metricsql_runtime::QueryResult;
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::ValkeyValue;
 use crate::storage::Label;
@@ -37,18 +38,18 @@ pub(crate) fn metric_name_to_redis_value(
     key: Option<&str>,
 ) -> ValkeyValue {
     let mut map: HashMap<ValkeyValueKey, ValkeyValue> =
-        HashMap::with_capacity(metric_name.tags.len() + 1);
-    if !metric_name.metric_group.is_empty() {
+        HashMap::with_capacity(metric_name.labels.len() + 1);
+    if !metric_name.measurement.is_empty() {
         map.insert(
             ValkeyValueKey::String(METRIC_NAME_LABEL.to_string()),
-            metric_name.metric_group.clone().into(),
+            metric_name.measurement.clone().into(),
         );
     }
     if let Some(key) = key {
         map.insert(ValkeyValueKey::from(META_KEY_LABEL), ValkeyValue::from(key));
     }
-    for Tag { key, value } in metric_name.tags.iter() {
-        map.insert(ValkeyValueKey::String(key.into()), value.into());
+    for Label { name, value } in metric_name.labels.iter() {
+        map.insert(ValkeyValueKey::String(name.into()), value.into());
     }
 
     ValkeyValue::Map(map)

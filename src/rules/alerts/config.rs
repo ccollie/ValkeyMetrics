@@ -4,7 +4,7 @@ use std::hash::Hasher;
 use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::Duration;
-
+use ahash::AHashMap;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
@@ -12,46 +12,22 @@ use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
 use crate::rules::alerts::{AlertsError, AlertsResult};
 use crate::rules::RuleType;
 
-#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Serialize, Deserialize, Eq)]
-#[non_exhaustive]
-pub enum DataSourceType {
-    #[default]
-    Redis,
-    Prometheus,
-    Graphite,
-    OpenTSDB,
-    InfluxDB,
-}
-
-impl Display for DataSourceType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DataSourceType::Redis => write!(f, "redis"),
-            DataSourceType::Prometheus => write!(f, "prometheus"),
-            DataSourceType::Graphite => write!(f, "graphite"),
-            DataSourceType::OpenTSDB => write!(f, "opentsdb"),
-            DataSourceType::InfluxDB => write!(f, "influxdb"),
-        }
-    }
-}
-
-impl FromStr for DataSourceType {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "redis" => Ok(DataSourceType::Redis),
-            "prometheus" => Ok(DataSourceType::Prometheus),
-            "graphite" => Ok(DataSourceType::Graphite),
-            "opentsdb" => Ok(DataSourceType::OpenTSDB),
-            "influxdb" => Ok(DataSourceType::InfluxDB),
-            _ => Err(format!("Unknown data source type: {}", s))
-        }
-    }
-}
+/***
+	ruleUpdateEntriesLimit = flag.Int("rule.updateEntriesLimit", 20, "Defines the max number of rule's state updates stored in-memory. "+
+		"Rule's updates are available on rule's Details page and are used for debugging purposes. The number of stored updates can be overridden per rule via update_entries_limit param.")
+	resendDelay        = flag.Duration("rule.resendDelay", 0, "MiniMum amount of time to wait before resending an alert to notifier")
+	maxResolveDuration = flag.Duration("rule.maxResolveDuration", 0, "Limits the maximum duration for automatic alert expiration, "+
+		"which by default is 4 times evaluationInterval of the parent group")
+	evalDelay = flag.Duration("rule.evalDelay", 30*time.Second, "Adjustment of the `time` parameter for rule evaluation requests to compensate intentional data delay from the datasource."+
+		"Normally, should be equal to `-search.latencyOffset` (cmd-line flag configured for VictoriaMetrics single-node or vmselect).")
+	disableAlertGroupLabel = flag.Bool("disableAlertgroupLabel", false, "Whether to disable adding group's Name as label to generated alerts and time series.")
+	remoteReadLookBack     = flag.Duration("remoteRead.lookback", time.Hour, "Lookback defines how far to look into past for alerts timeseries."+
+		" For example, if lookback=1h then range from now() to now()-1h will be scanned.")
+)
+*/
 
 /// ValidateTplFn must validate the given annotations
-pub type ValidateTplFn = fn(annotations: &HashMap<String, String>) -> AlertsResult<()>;
+pub type ValidateTplFn = fn(annotations: &AHashMap<String, String>) -> AlertsResult<()>;
 
 /// `RuleConfig` describes entity that represent either recording rule or alerting rule.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -64,8 +40,8 @@ pub struct RuleConfig {
     pub r#for: Duration,
     /// Alert will continue firing for this long even when the alerting expression no longer has results.
     pub keep_firing_for: Duration,
-    pub labels: HashMap<String, String>,
-    pub annotations: HashMap<String, String>,
+    pub labels: AHashMap<String, String>,
+    pub annotations: AHashMap<String, String>,
     pub debug: bool,
     /// update_entries_limit defines max number of rule's state updates stored in memory.
     /// Overrides `-rule.updateEntriesLimit`.
@@ -171,7 +147,6 @@ pub(crate) fn should_skip_rand_sleep_on_group_start() -> bool {
 /// Group contains list of Rules grouped into an entity with one name and evaluation interval
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GroupConfig {
-    pub datasource_type: DataSourceType,
     pub name: String,
     pub interval: Option<Duration>,
     pub eval_offset: Option<Duration>,
@@ -180,12 +155,12 @@ pub struct GroupConfig {
     pub concurrency: usize,
     /// Labels is a set of label value pairs, that will be added to every rule.
     /// It has priority over the external labels.
-    pub labels: HashMap<String, String>,
+    pub labels: AHashMap<String, String>,
     /// Checksum stores the hash of yaml definition for this group.
     /// May be used to detect any changes like rules re-ordering etc.
     pub checksum: String,
     /// Optional parameters added to each rule request
-    pub params: Option<HashMap<String, String>>,
+    pub params: Option<AHashMap<String, String>>,
     /// Headers contains optional headers added to each rule request
     pub(crate) headers: Headers,
     /// optional headers sent to notifiers for generated notifications

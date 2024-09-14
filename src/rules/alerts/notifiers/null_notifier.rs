@@ -1,7 +1,7 @@
+use crate::rules::alerts::{Alert, Notifier};
+use crate::rules::AlertsResult;
 use std::collections::HashMap;
 use valkey_module::Context;
-use crate::error::TsdbResult;
-use crate::rules::alerts::{Alert, Notifier};
 
 /// NullNotifier is a notifier that does nothing.
 pub struct NullNotifier {
@@ -20,7 +20,7 @@ impl Notifier for NullNotifier {
         _ctx: &Context,
         _alerts: &[Alert],
         _notifier_headers: &HashMap<String, String>,
-    ) -> TsdbResult<()> {
+    ) -> AlertsResult<()> {
         Ok(())
     }
 

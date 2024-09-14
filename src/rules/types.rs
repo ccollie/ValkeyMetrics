@@ -9,7 +9,7 @@ pub struct RawTimeSeries {
     pub labels: Vec<Label>,
 }
 
-pub fn new_time_series(key: &str, values: &[f64], timestamps: &[i64], labels: AHashMap<String, String>) -> RawTimeSeries {
+pub fn new_time_series(key: String, values: &[f64], timestamps: &[i64], labels: AHashMap<String, String>) -> RawTimeSeries {
     let mut data = SeriesData::new(values.len());
     data.values = values.to_vec();
     data.timestamps = timestamps.to_vec();
@@ -20,7 +20,7 @@ pub fn new_time_series(key: &str, values: &[f64], timestamps: &[i64], labels: AH
         .collect();
 
     RawTimeSeries {
-        key: key.to_string(),
+        key,
         data,
         labels: tags,
     }

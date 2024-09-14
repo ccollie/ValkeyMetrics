@@ -1,4 +1,4 @@
-use crate::common::current_time_millis;
+use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::rules::alerts::datasource::datasource::Querier;
 use crate::rules::alerts::template::QueryFn;
 use crate::rules::alerts::{
@@ -7,16 +7,20 @@ use crate::rules::alerts::{
     ALERT_STATE_LABEL, DatasourceMetric
 };
 use crate::rules::types::{new_time_series, RawTimeSeries};
-use crate::rules::{EvalContext, Rule, RuleState, RuleStateEntry, RuleType};
+use crate::rules::{EvalContext, QuerierRef, Rule, RuleState, RuleStateEntry, RuleType};
 use crate::storage::{Label, Timestamp};
-use metricsql_runtime::METRIC_NAME_LABEL;
 use scopeguard::defer;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::ops::{Sub};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::RwLock;
 use std::time::Duration;
+use ahash::{AHashMap, AHasher};
+use enquote::enquote;
+use metricsql_common::hash::FastHasher;
+use metricsql_common::prelude::humanize_duration;
+use metricsql_runtime::prelude::TimestampTrait;
 use tracing::debug;
 
 // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmalert/alerting.go#L612
@@ -61,49 +65,27 @@ impl PartialEq for AlertingRuleMetrics {
 }
 
 /// AlertingRule is basic alert entity
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AlertingRule {
-    pub rule_type: RuleType,
     rule_id: u64,
+    pub rule_type: RuleType,
     pub name: String,
     pub expr: String,
     pub r#for: Duration,
     pub keep_firing_for: Duration,
-    pub labels: HashMap<String, String>,
-    pub annotations: HashMap<String, String>,
+    pub labels: AHashMap<String, String>,
+    pub annotations: AHashMap<String, String>,
     pub group_id: u64,
     pub group_name: String,
     pub eval_interval: Duration,
     pub debug: bool,
 
     /// stores list of active alerts
-    pub alerts: RwLock<HashMap<u64, Alert>>,
+    pub alerts: AHashMap<u64, Alert>,
     /// state stores recent state changes during evaluations
     pub state: RuleState,
 
     pub metrics: AlertingRuleMetrics,
-}
-
-impl Clone for AlertingRule {
-    fn clone(&self) -> Self {
-        AlertingRule {
-            rule_type: self.rule_type.clone(),
-            rule_id: self.rule_id,
-            name: self.name.clone(),
-            expr: self.expr.clone(),
-            r#for: self.r#for,
-            keep_firing_for: self.keep_firing_for,
-            labels: self.labels.clone(),
-            annotations: self.annotations.clone(),
-            group_id: self.group_id,
-            group_name: self.group_name.clone(),
-            eval_interval: self.eval_interval,
-            debug: self.debug,
-            alerts: RwLock::new(self.alerts.read().unwrap().clone()),
-            state: self.state.clone(),
-            metrics: self.metrics.clone(),
-        }
-    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -115,7 +97,7 @@ struct LabelSet {
     /// `processed` labels includes origin labels plus extra labels (group labels, service labels
     /// like `ALERT_NAME_LABEL`). In case of conflicts, extra labels are preferred.
     /// Used as labels attached to notifier.Alert and ALERTS series written to remote storage.
-    processed: HashMap<String, String>,
+    processed: AHashMap<String, String>,
 }
 
 impl AlertingRule {
@@ -167,9 +149,7 @@ impl AlertingRule {
             return Ok(());
         }
 
-        let mut alerts = self.alerts.write().unwrap();
-
-        for (_k, a) in alerts.iter_mut() {
+        for (_k, a) in self.alerts.iter_mut() {
             if a.restored || a.state != AlertState::Pending {
                 continue;
             }
@@ -272,8 +252,7 @@ impl AlertingRule {
     }
 
     fn to_time_series(&self, timestamp: Timestamp) -> Vec<RawTimeSeries> {
-        let reader = self.alerts.read().unwrap();
-        reader
+        self.alerts
             .iter()
             .filter(|(_hash, a)| a.state != AlertState::Inactive)
             .flat_map(|(_, alert)| self.alert_to_timeseries(alert, timestamp))
@@ -292,7 +271,7 @@ impl AlertingRule {
     /// walks through the current alerts of AlertingRule and returns only those which should be sent
     /// to notifier.
     pub fn process_alerts_to_send<F>(
-        &self,
+        &mut self,
         ts: Timestamp,
         resolve_duration: Duration,
         resend_delay: Duration,
@@ -311,14 +290,13 @@ impl AlertingRule {
                 return true;
             }
             a.last_sent.saturating_add(delay) < ts
-        };
+        }
 
         let mut alerts = Vec::with_capacity(10); // ?????
-        let mut alerts_inner = self.alerts.write().unwrap();
 
         let resolve_duration = resolve_duration.as_millis() as i64;
 
-        for (_, alert) in alerts_inner.iter_mut() {
+        for (_, alert) in self.alerts.iter_mut() {
             if !needs_sending(alert, ts, delay) {
                 continue;
             }
@@ -374,8 +352,7 @@ impl AlertingRule {
     }
 
     fn count_alerts_in_state(&self, state: AlertState) -> usize {
-        let alerts = self.alerts.read().unwrap();
-        alerts
+        self.alerts
             .iter()
             .filter(|(_, alert)| alert.state == state)
             .count()
@@ -400,28 +377,63 @@ impl AlertingRule {
         }
         0usize
     }
+
+    fn log_debug(&self, at: Timestamp, alert: Option<&Alert>, message: &str) {
+        if !self.debug {
+            return;
+        }
+        let mut prefix = format!("DEBUG rule {}:{} ({}) at {}: ",
+                              self.group_name, self.name, self.rule_id, at.to_rfc3339());
+
+        if let Some(alert) = alert {
+            let mut label_keys = self.labels.keys().collect::<Vec<_>>();
+            label_keys.sort();
+
+            let labels = label_keys.iter().map(|x| {
+                let label_value = if let Some(value) = alert.labels.get(*x) {
+                    value.as_str()
+                } else {
+                    ""
+                };
+                format!("{}={}",x.to_string(), enquote('"', label_value))
+            }).collect::<Vec<_>>().join(",");
+
+            let alert_msg = format!("alert {} {} ", alert.id, labels);
+            prefix.push_str(&alert_msg);            
+        }
+
+        prefix.push_str(message);
+
+        // todo: use redis ctx.log_debug
+        debug!("{}", prefix);
+    }
 }
 
 fn alert_to_time_series(alert: &Alert, timestamp: Timestamp) -> RawTimeSeries {
-    let mut labels = alert.labels.clone();
+    let mut labels = AHashMap::with_capacity(alert.labels.len() + 2);
     labels.insert(METRIC_NAME_LABEL.to_string(), ALERT_METRIC_NAME.to_string());
     labels.insert(ALERT_STATE_LABEL.to_string(), alert.state.to_string());
     let values: [f64; 1] = [1.0];
     let timestamps: [i64; 1] = [timestamp];
-    new_time_series(&values, &timestamps, labels)
+
+    let key = make_series_key(&labels);
+     new_time_series(key, &values, &timestamps, labels)
 }
 
 /// returns a series that represents the state of active alerts, where value is the timestamp when
 /// the alert became active
 fn alert_for_to_time_series(alert: &Alert, timestamp: Timestamp) -> RawTimeSeries {
-    let mut labels = alert.labels.clone();
+    let mut labels = AHashMap::with_capacity(alert.labels.len() + 2);
     labels.insert(
         METRIC_NAME_LABEL.to_string(),
         ALERT_FOR_STATE_METRIC_NAME.to_string(),
     );
+    labels.extend(alert.labels.iter().map(|(k, v)| (k.clone(), v.clone())));
+
     let values: [f64; 1] = [alert.active_at as f64];
     let timestamps: [i64; 1] = [timestamp];
-    new_time_series(&values, &timestamps, labels)
+    let key = make_series_key(&labels);
+    new_time_series(key, &values, &timestamps, labels)
 }
 
 impl Rule for AlertingRule {
@@ -433,7 +445,7 @@ impl Rule for AlertingRule {
         RuleType::Alerting
     }
 
-    fn exec(&mut self, querier: &impl Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec(&mut self, querier: QuerierRef, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
         let start = current_time_millis();
 
         let mut cur_state = RuleStateEntry {
@@ -463,22 +475,26 @@ impl Rule for AlertingRule {
             self.state.add(cur_state)
         }
 
-        // self.logDebugf(ts, nil, "query returned {} samples (elapsed: {})", curState.samples, curState.duration)
+        if self.debug {
+            let msg = format!("query returned {} samples (elapsed: {})", cur_state.samples,
+                              humanize_duration(&cur_state.duration));
 
-        let mut alerts = self.alerts.read().unwrap();
+            self.log_debug(ts, None, &msg)
+        }
+
         let mut to_delete = Vec::new();
-        for (h, alert) in alerts.iter_mut() {
+        for (h, alert) in self.alerts.iter_mut() {
             // cleanup inactive alerts from previous Exec
             if alert.state == AlertState::Inactive
                 && ts.sub(alert.resolved_at) > RESOLVED_RETENTION.as_millis() as i64
             {
-                // ar.logDebugf(ts, alert, "deleted as inactive");
+                self.log_debug(ts, Some(&alert), "deleted as inactive");
                 debug!("deleted as inactive");
                 to_delete.push(h);
             }
         }
         for h in to_delete {
-            alerts.remove(&h);
+            self.alerts.remove(&h);
         }
 
         let query_fn: QueryFn = |query: &str| -> AlertsResult<QueryResult> { querier.query(query, ts) };
@@ -492,17 +508,17 @@ impl Rule for AlertingRule {
                 return Err(AlertsError::FailedToExpandLabels(msg));
             }
             let labels = labels.unwrap();
-            let h = hash_labels_without_metric_name(&labels.processed);
+            let h = hash_map(&labels.processed);
             updated.insert(h);
 
-            if let Some(alert) = alerts.get_mut(&h) {
+            if let Some(alert) = self.alerts.get_mut(&h) {
                 if alert.state == AlertState::Inactive {
                     // alert could be in inactive state for resolvedRetention
                     // so when we again receive metrics for it - we switch it
                     // back to AlertState::Pending
                     alert.state = AlertState::Pending;
                     alert.active_at = ts;
-                    // self.logDebugf(ts, alert, "INACTIVE => PENDING")
+                    self.log_debug(ts, Some(&alert), "INACTIVE => PENDING")
                 }
                 alert.value = m.values[0]; //
 
@@ -533,19 +549,21 @@ impl Rule for AlertingRule {
                 external_url: "".to_string(),
             };
 
-            alerts.insert(h, alert);
-            // ar.logDebugf(ts, a, "created in state PENDING")
+            self.log_debug(ts, Some(&alert), "created in state PENDING");
+            
+            self.alerts.insert(h, alert);
         }
         let mut num_active_pending = 0;
 
         let mut to_delete = Vec::new();
-        for (h, alert) in alerts.iter_mut() {
-            // if alert wasn't updated in this iteration means it is resolved already
+        let keep_firing_for = self.keep_firing_for.as_millis() as i64;
+        for (h, alert) in self.alerts.iter_mut() {
+            // if alert wasn't updated in this iteration it means it is resolved already
             if updated.contains(h) {
                 if alert.state == AlertState::Pending {
                     // alert was in Pending state - it is not active anymore
                     to_delete.push(h);
-                    // ar.logDebugf(ts, a, "PENDING => DELETED: is absent in current evaluation round")
+                    // self.log_debug(ts, Some(&a), "PENDING => DELETED: is absent in current evaluation round")
                     continue;
                 }
                 // check if alert should keep Firing if rule has
@@ -556,25 +574,32 @@ impl Rule for AlertingRule {
                     }
                     // alerts with ar.keep_firing_for > 0 may remain FIRING
                     // even if their expression isn't true anymore
-                    if ts.sub(alert.keep_firing_since) > self.keep_firing_for {
+                    if ts.sub(alert.keep_firing_since) > keep_firing_for {
                         alert.state = AlertState::Inactive;
                         alert.resolved_at = ts;
-                        // ar.debug(ts, a, "FIRING => INACTIVE: is absent in current evaluation round")
+                        self.log_debug(ts, Some(&alert), "FIRING => INACTIVE: is absent in current evaluation round");
                         continue;
                     }
-                    // self.logDebugf(ts, a, "KEEP_FIRING: will keep firing for %fs since %v", ar.KeepFiringFor.Seconds(), a.KeepFiringSince)
+                    if self.debug {
+                        let msg = format!("KEEP_FIRING: will keep firing for {}s since {}",
+                                          self.keep_firing_for.as_secs(), alert.keep_firing_since);
+                        self.log_debug(ts, Some(&alert), &msg);
+                    }
                 }
             }
             num_active_pending += 1;
-            if alert.state == AlertState::Pending && ts.sub(alert.active_at) >= self.r#for {
+            if alert.state == AlertState::Pending && ts.sub(alert.active_at) >= self.r#for.as_millis() as i64 {
                 alert.state = AlertState::Firing;
                 alert.start = ts;
                 // alertsFired.Inc()
-                // ar.logDebugf(ts, a, "PENDING => FIRING: %s since becoming active at %v", ts.sub(a.ActiveAt), a.ActiveAt)
+                if self.debug {
+                    let msg = format!("PENDING => FIRING: {}ms since becoming active at {}", ts.sub(alert.active_at), alert.active_at);
+                    self.log_debug(ts, Some(&alert), &msg);
+                }
             }
         }
         if limit > 0 && num_active_pending > limit {
-            alerts.clear();
+            self.alerts.clear();
             let msg = format!("exec exceeded limit of {limit} with {num_active_pending} alerts");
             let err = AlertsError::Generic(msg);
             cur_state.err = Some(err.clone());
@@ -588,7 +613,7 @@ impl Rule for AlertingRule {
     /// It doesn't update internal states of the Rule and is meant to be used just to get time series
     /// for back-filling.
     /// It returns `ALERT` and `ALERT_FOR_STATE` time series as a result.
-    fn exec_range(&mut self, querier: &impl Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec_range(&mut self, querier: QuerierRef, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
         let res = querier.query_range(&self.expr, start, end)?;
         let mut result: Vec<RawTimeSeries> = vec![];
         let q_fn = |query: &str| -> AlertsResult<Vec<DatasourceMetric>> {
@@ -632,3 +657,42 @@ impl Rule for AlertingRule {
         Ok(result)
     }
 }
+
+fn hash_map(labels: &AHashMap<String, String>) -> u64 {
+    let mut hasher = AHasher::default();
+
+    let mut labels = labels.iter()
+        // drop __name__ to be consistent with Prometheus alerting
+        .filter(|(k, v)| *k != METRIC_NAME_LABEL)
+        .collect::<Vec<_>>();
+    labels.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
+
+    for (label, value) in labels.iter(){
+        hasher.write(label.as_bytes());
+        hasher.write_u8(0xff);
+        hasher.write(value.as_bytes());
+    }
+    hasher.finish()
+}
+
+// Generate a unique key for a series based on its labels. Assumes that labels are sorted,
+// with __name__ occurring first.
+fn make_series_key(labels: &AHashMap<String, String>) -> String {
+    let mut keys = labels.keys().collect::<Vec<&str>>();
+    keys.sort_unstable();
+    let mut hasher = FastHasher::default();
+    let mut measurement: String = "".to_string();
+    for name in keys.iter() {
+        let value = labels.get(name).unwrap();
+        if *name == METRIC_NAME_LABEL {
+            measurement .push('{');
+            measurement.push_str(value);
+            measurement.push_str("}::");
+        } else {
+            value.hash(&mut hasher);
+            hasher.write_u8(0xfe);
+        }
+    }
+    format!("{measurement}{:x}", hasher.finish())
+}
+// {alert_for_name}::name=joe::foo=bar::bar=baz

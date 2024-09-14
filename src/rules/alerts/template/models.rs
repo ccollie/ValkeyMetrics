@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 use gtmpl_value::{FuncError, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use std::ops::Deref;
 
 /// metric is private copy of provider.Metric,
 /// it is used for templating annotations,
@@ -35,35 +36,11 @@ impl Metric {
     }
 }
 
-impl From<&Label> for Value {
-    fn from(label: &Label) -> Value {
-        let mut m = HashMap::new();
-        m.insert("name".to_string(), Value::String(label.name.to_string()));
-        m.insert("value".to_string(), Value::String(label.value.to_string()));
-        Value::Object(m)
-    }
-}
-
-impl From<Label> for Value {
-    fn from(label: Label) -> Value {
-        label.into()
-    }
-}
-
-impl TryFrom<&Value> for Label {
-    type Error = FuncError;
-
-    fn try_from(value: &Value) -> Result<Self, Self::Error> {
-        match &value {
-            Value::Map(_map) |
-            Value::Object(_map) => {
-                let name = get_hash_string_value(&value, "name", true)?.unwrap();
-                let value = get_hash_string_value(&value, "value", true)?.unwrap();
-                Ok(Label::new(name.to_string(), value.to_string()))
-            }
-            _ => Err(FuncError::Generic(format!("expected object for label, got {}", value)))
-        }
-    }
+pub fn get_value_from_label(label: &Label) -> Value {
+    let mut m = HashMap::new();
+    m.insert("name".to_string(), Value::String(label.name.to_string()));
+    m.insert("value".to_string(), Value::String(label.value.to_string()));
+    Value::Object(m)
 }
 
 impl From<&Metric> for Value {
@@ -90,7 +67,10 @@ impl TryFrom<&Value> for Metric {
         match value {
             Value::Map(_) | Value::Object(_) => {
                 let label_values = get_hash_array_value(&value, "labels", true)?.unwrap();
-                let labels = label_values.iter().map(|l| Label::try_from(l)).collect::<Result<Vec<Label>, FuncError>>()?;
+                let mut labels: Vec<Label> = vec![];
+                for label_value in label_values {
+                    labels.push(label_value.try_into()?);
+                }
                 let timestamp = get_hash_float_value(&value, "timestamp", true)?.unwrap();
                 let value = get_hash_float_value(&value, "value", true)?.unwrap();
                 Ok(Metric::new(labels, timestamp as i64, value))
@@ -130,11 +110,41 @@ impl From<&Alert> for Value {
         m.insert("status".to_owned(), Value::from(&s.status));
         m.insert("labels".to_owned(), btree_map_to_template_value(&s.labels));
         m.insert("annotations".to_owned(), btree_map_to_template_value(&s.annotations));
-        m.insert("starts_at".to_owned(), s.starts_at.into());
-        m.insert("ends_at".to_owned(), s.ends_at.into());
+        m.insert("starts_at".to_owned(), DateTimeModel(s.starts_at).into());
+        m.insert("ends_at".to_owned(), DateTimeModel(s.starts_at).into());
         m.insert("generator_url".to_owned(), Value::from(&s.generator_url));
         m.insert("fingerprint".to_owned(), Value::from(&s.fingerprint));
         Value::Object(m)
+    }
+}
+
+pub(super) struct DateTimeModel(DateTime<Utc>);
+impl DateTimeModel {
+    pub(super) fn new(at: DateTime<Utc>) -> Self {
+        Self(at)
+    }
+}
+
+impl Deref for DateTimeModel {
+    type Target = DateTime<Utc>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<&DateTimeModel> for Value {
+    fn from(d: &DateTimeModel) -> Self {
+        let mut result: HashMap<String, Value> = HashMap::new();
+        result.insert("timestamp".to_owned(), Value::from(d.timestamp()));
+        result.insert("timestamp_millis".to_owned(), Value::from(d.timestamp_millis()));
+        result.insert("rfc3339".to_owned(), Value::from(d.to_rfc3339()));
+        Value::Object(result)
+    }
+}
+
+impl From<DateTimeModel> for Value {
+    fn from(value: DateTimeModel) -> Self {
+        value.into()
     }
 }
 

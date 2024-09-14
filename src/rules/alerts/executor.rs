@@ -7,18 +7,18 @@ use crate::common::types::Timestamp;
 use crate::config::get_global_settings;
 use crate::rules::alerts::group::labels_to_string;
 use crate::rules::alerts::{AlertingRule, AlertsError, AlertsResult, Notifier, Querier, WriteQueue};
-use crate::rules::{new_time_series, RawTimeSeries, Rule, RuleType};
-use crate::storage::Label;
-use ahash::AHashSet;
-use metricsql_runtime::TimestampTrait;
+use crate::rules::{RawTimeSeries, Rule, RuleType};
+use crate::storage::{Label, SeriesData};
+use ahash::{AHashMap, AHashSet};
+use metricsql_runtime::types::TimestampTrait;
 use valkey_module::Context;
 
-pub type PreviouslySentSeries = HashMap<u64, HashMap<String, Vec<Label>>>;
+pub type PreviouslySentSeries = HashMap<u64, AHashMap<String, Vec<Label>>>;
 
 pub struct Executor {
     eval_ts: Timestamp,
     pub notifiers: Arc<Vec<Box<dyn Notifier>>>,
-    pub notifier_headers: HashMap<String, String>,
+    pub notifier_headers: Arc<HashMap<String, String>>,
     pub rw: Arc<WriteQueue>,
     pub querier: Arc<dyn Querier>,
 
@@ -27,7 +27,7 @@ pub struct Executor {
     /// where `ruleID` is id of the Rule within a Group and `ruleLabels` is Vec<Label> marshalled
     /// to a string
     previously_sent_series: Mutex<PreviouslySentSeries>,
-    pub(super) last_evaluation: Timestamp,
+    pub last_evaluation: Timestamp,
 }
 
 /// SKIP_RAND_SLEEP_ON_GROUP_START will skip random sleep delay in group first evaluation
@@ -36,15 +36,15 @@ static mut SKIP_RAND_SLEEP_ON_GROUP_START: bool = false;
 impl Executor {
     pub fn new(
         notifiers: Arc<Vec<Box<dyn Notifier>>>,
-        notifier_headers: &HashMap<String, String>,
+        notifier_headers: Arc<HashMap<String, String>>,
         rw: Arc<WriteQueue>,
         querier: impl Querier,
     ) -> Self {
         Executor {
             eval_ts: Timestamp::now(),
             notifiers,
-            notifier_headers: notifier_headers.clone(),
-            rw: Arc::clone(&rw),
+            notifier_headers,
+            rw,
             querier: Arc::new(querier),
             previously_sent_series: Mutex::new(HashMap::new()),
             last_evaluation: Timestamp::now(),
@@ -53,11 +53,11 @@ impl Executor {
 
     /// get_stale_series checks whether there are stale series from previously sent ones.
     fn get_stale_series(&self, rule: impl Rule, tss: &[RawTimeSeries], timestamp: Timestamp) -> Vec<RawTimeSeries> {
-        let mut rule_labels: HashMap<String, &Vec<Label>> = HashMap::with_capacity(tss.len());
+        let mut rule_labels: AHashMap<String, Vec<Label>> = AHashMap::with_capacity(tss.len());
         for ts in tss.iter() {
             // convert labels to strings, so we can compare with previously sent series
             let key = labels_to_string(&ts.labels);
-            rule_labels.insert(key, &ts.labels);
+            rule_labels.insert(key, ts.labels.clone());
         }
 
         let rid = rule.id();
@@ -75,7 +75,7 @@ impl Executor {
                 let stamps = [timestamp];
                 let values = [stale_nan];
                 // previously sent series are missing in current series, so we mark them as stale
-                let ss = new_time_series(key, &values, &stamps, &labels);
+                let ss = new_time_series(key.to_string(), &values, &stamps, &labels);
                 stales.push(ss)
             }
         }
@@ -114,7 +114,7 @@ impl Executor {
                 ts: Timestamp,
                 resolve_duration: Duration,
                 limit: usize) -> AlertsResult<()> {
-        let tss = rule.exec(&self.querier, ts, limit)
+        let tss = rule.exec(self.querier, ts, limit)
             .map_err(|err| AlertsError::QueryExecutionError(format!("rule {:?}: failed to execute: {:?}", rule, err)))?;
 
         let stale_series = self.get_stale_series(rule, &tss, ts);
@@ -146,7 +146,7 @@ impl Executor {
 
     fn send_notifications(&self,
                           ctx: &Context,
-                          rule: &AlertingRule,
+                          rule: &mut AlertingRule,
                           ts: Timestamp,
                           resolve_duration: Duration,
                           resend_delay: Duration) -> AlertsResult<()> {
@@ -160,5 +160,17 @@ impl Executor {
             }
             Ok(())
         })
+    }
+}
+
+fn new_time_series(key: String, values: &[f64], timestamps: &[i64], labels: &[Label]) -> RawTimeSeries {
+    let mut data = SeriesData::new(values.len());
+    data.values = values.to_vec();
+    data.timestamps = timestamps.to_vec();
+
+    RawTimeSeries {
+        key,
+        data,
+        labels: labels.to_vec(),
     }
 }

@@ -1,14 +1,14 @@
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::rules::alerts::{AlertsError, AlertsResult, Querier};
 use crate::rules::types::{new_time_series, RawTimeSeries};
-use crate::rules::{Rule, RuleStateEntry, RuleType};
+use crate::rules::{Group, QuerierRef, Rule, RuleConfig, RuleStateEntry, RuleType};
 use crate::storage::{Label, Timestamp};
 use ahash::{AHashMap, AHashSet};
-use metricsql_parser::label::Labels;
+use enquote::enquote;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicU64;
 use std::time::Duration;
-use enquote::enquote;
+use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
 
 const ERR_DUPLICATE: &str =
     "result contains metrics with the same labelset after applying rule labels.";
@@ -16,16 +16,17 @@ const ERR_DUPLICATE: &str =
 /// RecordingRule is a Rule that evaluates a configured expression and returns a timeseries as result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordingRule {
-    rule_type: RuleType,
-    rule_id: u64,
-    name: String,
-    expr: String,
-    labels: Labels,
-    group_id: u64,
+    pub rule_id: u64,
+    pub name: String,
+    pub expr: String,
+    pub labels: AHashMap<String, String>,
+    pub group_id: u64,
 
+    max_entries_limit: Option<usize>,
+    // todo: key ???
     // state stores recent state changes during evaluations
-    state: Vec<RuleStateEntry>,
-    metrics: RecordingRuleMetrics,
+    pub state: Vec<RuleStateEntry>,
+    pub metrics: RecordingRuleMetrics,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -46,6 +47,19 @@ impl Clone for RecordingRuleMetrics {
 type DatasourceMetric = crate::rules::alerts::Metric;
 
 impl RecordingRule {
+    pub fn new(group: &Group, cfg: RuleConfig) -> Self {
+        RecordingRule {
+            rule_id:  cfg.id,
+            name:     cfg.record,
+            expr:     cfg.expr,
+            labels:   cfg.labels,
+            group_id:   group.id(),
+            metrics:   Default::default(),
+            max_entries_limit: cfg.update_entries_limit,
+            state:   Vec::new(),
+        }
+    }
+
     fn to_time_series(&self, m: DatasourceMetric) -> RawTimeSeries {
         let mut labels = AHashMap::with_capacity(m.labels.len() + 1);
         for label in m.labels.iter() {
@@ -53,20 +67,20 @@ impl RecordingRule {
         }
         labels.insert(METRIC_NAME_LABEL.to_string(), self.name.to_string());
         // override existing labels with configured ones
-        for Label { name, value } in self.labels.iter() {
+        for (name, value) in self.labels.iter() {
             labels.insert(name.clone(), value.clone());
         }
-        new_time_series(&m.key, &m.values, &m.timestamps, labels)
+        new_time_series(m.key.to_string(), &m.values, &m.timestamps, labels)
     }
 
-    fn run_query(&self, querier: &impl Querier, ts: Timestamp) -> AlertsResult<Vec<DatasourceMetric>> {
+    fn run_query(&self, querier: QuerierRef, ts: Timestamp) -> AlertsResult<Vec<DatasourceMetric>> {
         let result =  querier.query(&self.expr, ts)?;
         let metrics = result.data.into_iter().map(|m| {
-            let mut dsm: DatasourceMetric = m.into();
             let mut labels = AHashMap::with_capacity(m.labels.len() + 1);
             for label in m.labels.iter() {
                 labels.insert(label.name.clone(), label.value.clone());
             }
+            let mut dsm: DatasourceMetric = m.into();
             dsm.labels.push(
                 Label {
                     name: METRIC_NAME_LABEL.to_string(),
@@ -76,13 +90,21 @@ impl RecordingRule {
 
             // TODO !!!!!
             // override existing labels with configured ones
-            for Label { name, value } in self.labels.iter() {
+            for (name, value) in self.labels.iter() {
                 labels.insert(name.clone(), value.clone());
             }
 
             dsm
         }).collect();
         Ok(metrics)
+    }
+
+    fn push_state(&mut self, state: RuleStateEntry) {
+        self.state.push(state);
+        let max_entries = self.max_entries_limit.unwrap_or(DEFAULT_RULE_UPDATE_ENTRIES_LIMIT);
+        while self.state.len() > max_entries {
+            self.state.remove(0);
+        }
     }
 }
 
@@ -95,7 +117,7 @@ impl Rule for RecordingRule {
         RuleType::Recording
     }
 
-    fn exec(&mut self, querier: &impl Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec(&mut self, querier: QuerierRef, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
         let start = current_time_millis();
 
         let mut cur_state = RuleStateEntry::default();
@@ -120,7 +142,7 @@ impl Rule for RecordingRule {
             let msg = format!("exec exceeded limit of {limit} with {num_series} series");
             let err = AlertsError::QueryExecutionError(msg);
             cur_state.err = Option::from(err.clone());
-            self.state.push(cur_state);
+            self.push_state(cur_state);
             return Err(err);
         }
 
@@ -128,7 +150,7 @@ impl Rule for RecordingRule {
 
         let mut duplicates: AHashSet<String> = AHashSet::with_capacity(num_series);
         let mut tss: Vec<RawTimeSeries> = Vec::with_capacity(num_series);
-        for (_, r) in q_metrics.into_iter().enumerate() {
+        for (_, r) in q_metrics.iter().enumerate() {
             let ts = self.to_time_series(r);
             let key = stringify_labels(&ts);
             if duplicates.contains(&key) {
@@ -136,21 +158,21 @@ impl Rule for RecordingRule {
                     "original metric {:?}; resulting labels {key}: {}",
                     r.labels, ERR_DUPLICATE
                 );
-                self.state.push(cur_state);
+                self.push_state(cur_state);
                 return Err(AlertsError::DuplicateSeries(msg));
             }
             duplicates.insert(key);
             tss.push(ts)
         }
 
-        self.state.push(cur_state);
+        self.push_state(cur_state);
         Ok(tss)
     }
 
     /// exec_range executes recording rule on the given time range similarly to Exec.
     /// It doesn't update internal states of the Rule and meant to be used just
     /// to get time series for backfilling.
-    fn exec_range(&mut self, querier: &impl Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec_range(&mut self, querier: QuerierRef, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
         let res = querier
             .query_range(&self.expr, start, end)
             .map_err(|e| AlertsError::QueryExecutionError(format!("{}: {:?}", self.expr, e)))?;

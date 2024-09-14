@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
-
+use ahash::AHashMap;
 use crate::common::types::Timestamp;
 use gtmpl::{Context, Template};
 use gtmpl_derive::Gtmpl;
+use metricsql_relabel::ParsedRelabelConfig;
 use serde::{Deserialize, Serialize};
 
-use crate::relabel::ParsedRelabelConfig;
 use crate::rules::alerts::template::{
     clone_template, funcs_with_query, get_template, get_with_funcs, QueryFn,
 };
@@ -19,11 +19,11 @@ use crate::storage::Label;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, Eq)]
 pub enum AlertState {
     #[default]
-    /// Inactive is the state of an alert that is neither firing nor pending.
+    /// `Inactive` is the state of an alert that is neither firing nor pending.
     Inactive,
-    /// Pending is the state of an alert that has been active for less than the configured threshold duration.
+    /// `Pending` is the state of an alert that has been active for less than the configured threshold duration.
     Pending,
-    /// Firing is the state of an alert that has been active for longer than the configured threshold duration.
+    /// `Firing` is the state of an alert that has been active for longer than the configured threshold duration.
     Firing,
 }
 
@@ -70,9 +70,9 @@ pub struct Alert {
     /// name represents Alert name
     pub name: String,
     /// labels is the list of label-value pairs attached to the Alert
-    pub labels: HashMap<String, String>,
+    pub labels: AHashMap<String, String>,
     /// Annotations is the list of annotations generated on Alert evaluation
-    pub annotations: HashMap<String, String>,
+    pub annotations: AHashMap<String, String>,
     /// state represents the current state of the Alert
     pub state: AlertState,
     /// the expression that was executed to generate the Alert
@@ -130,8 +130,8 @@ impl Alert {
         &mut self,
         q: QueryFn,
         labels: &HashMap<String, String>,
-        annotations: &HashMap<String, String>,
-    ) -> AlertsResult<HashMap<String, String>> {
+        annotations: &AHashMap<String, String>,
+    ) -> AlertsResult<AHashMap<String, String>> {
         let tpl_data = AlertTplData {
             value: self.value,
             labels: labels.clone(),  // ??? why not use ref ?
@@ -163,15 +163,15 @@ impl Alert {
 /// exec_template executes the given template for given annotations map.
 pub fn exec_template(
     q: QueryFn,
-    annotations: &HashMap<String, String>,
+    annotations: &AHashMap<String, String>,
     tpl_data: &AlertTplData,
-) -> AlertsResult<HashMap<String, String>> {
+) -> AlertsResult<AHashMap<String, String>> {
     let tmpl = get_with_funcs(funcs_with_query(q))?;
     template_annotations(annotations, tpl_data, &tmpl)
 }
 
 /// validate annotations for possible template error, uses empty data for template population
-pub(crate) fn validate_templates(annotations: &HashMap<String, String>) -> AlertsResult<()> {
+pub(crate) fn validate_templates(annotations: &AHashMap<String, String>) -> AlertsResult<()> {
     let tmpl = get_template()?;
     let labels = HashMap::new();
     let _ = template_annotations(
@@ -191,12 +191,12 @@ pub(crate) fn validate_templates(annotations: &HashMap<String, String>) -> Alert
 }
 
 fn template_annotations(
-    annotations: &HashMap<String, String>,
+    annotations: &AHashMap<String, String>,
     template_data: &AlertTplData,
     tmpl: &Template,
-) -> AlertsResult<HashMap<String, String>> {
+) -> AlertsResult<AHashMap<String, String>> {
     let mut builder = String::with_capacity(256);
-    let mut r = HashMap::with_capacity(annotations.len());
+    let mut r = AHashMap::with_capacity(annotations.len());
     let mut err_group = Vec::with_capacity(annotations.len());
 
     let header_len = TPL_HEADERS.len();

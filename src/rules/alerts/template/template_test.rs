@@ -222,7 +222,7 @@ mod tests {
 				{{- define "test.3" -}}
 					{{ printf "Hello %s!" externalURL }}
 				{{- end -}}
-				"##, r##"
+				"##), Some(r##"
 				{{- define "good0-test.tpl" -}}{{- end -}}
 				{{- define "test.0" -}}
 					{{ printf "Hello %s!" externalURL }}
@@ -236,26 +236,26 @@ mod tests {
 				{{- define "test.3" -}}
 					{{ printf "Hello %s!" externalURL }}
 				{{- end -}}
-			"##),
+			"##)),
 			"",
 		),
 		LoadTestCase::new(
 			"load template with syntax error",
-			mk_template(r#"
+			mk_template(Some(r#"
 				{{- define "test.1" -}}
 					{{ printf "Hello %s!" "world" }}
 				{{- end -}}
-			"#, None),
+			"#), None),
 			vec![
 				"templates/other/nested/bad0-*.tpl",
 				"templates/test/good0-*.tpl",
 			],
 			false,
-			mk_template(r#"
+			mk_template(Some(r#"
 				{{- define "test.1" -}}
 					{{ printf "Hello %s!" "world" }}
 				{{- end -}}
-			"#, None),
+			"#), None),
 			"failed to parse template glob",
 		)
 	];

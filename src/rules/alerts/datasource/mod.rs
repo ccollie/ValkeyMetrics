@@ -1,6 +1,6 @@
 pub mod datasource;
-mod remote_write;
-mod redis_datasource;
+mod write_queue;
+mod alert_datasource;
 
 pub use datasource::*;
-pub use remote_write::*;
+pub use write_queue::*;

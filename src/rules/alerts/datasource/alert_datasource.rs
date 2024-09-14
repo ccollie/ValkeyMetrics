@@ -1,28 +1,32 @@
-use std::collections::HashMap;
 use std::ops::Add;
 use std::time::Duration;
 
 use crate::globals::get_query_context;
 use crate::rules::alerts::{
-    AlertsError, AlertsResult, DataSourceType, Querier, QuerierBuilder, QuerierParams, QueryResult,
+    AlertsError,
+    AlertsResult,
+    Querier,
+    QuerierBuilder,
+    QuerierParams,
+    QueryResult,
 };
+use crate::rules::Metric;
 use crate::storage::Timestamp;
 use metricsql_runtime::execution::query::{
     query as engine_query, query_range as engine_query_range,
 };
 use metricsql_runtime::prelude::query::QueryParams;
-use metricsql_runtime::TimestampTrait;
+use metricsql_runtime::types::TimestampTrait;
 
-/// RedisDatasource represents entity with ability to read and write metrics
+/// AlertDatasource represents entity with ability to read and write metrics
 #[derive(Clone, Debug)]
-pub struct RedisDatasource {
+pub struct AlertDatasource {
     /// look_back defines how far to look into past for alerts timeseries.
     /// For example, if look_back=1h then range from now() to now()-1h will be scanned.
     look_back: Duration,
     query_step: Duration,
-    data_source_type: DataSourceType,
 
-    /// Whether to align "time" parameter with evaluation interval. Alignment supposed to produce deterministic
+    /// Whether to align "time" parameter with evaluation interval. Alignment is supposed to produce deterministic
     /// results despite number of replicas or time they were started.
     query_time_alignment: bool,
     /// evaluation_interval will align the request's timestamp if `provider.QUERY_TIME_ALIGNMENT`
@@ -32,43 +36,27 @@ pub struct RedisDatasource {
     /// evaluation_interval.
     /// See https://github.com/VictoriaMetrics/VictoriaMetrics/pull/4693
     evaluation_offset: Duration,
-    /// extra_params contains params to be attached to each HTTP request
-    extra_params: HashMap<String, String>,
     /// whether to print additional log messages for each sent request
     debug: bool,
 }
 
-impl RedisDatasource {
+impl AlertDatasource {
     /// construct a RedisDatasource with default values
     pub fn new(look_back: Duration, query_step: Duration) -> Self {
-        RedisDatasource {
+        AlertDatasource {
             look_back,
             query_step,
-            data_source_type: DataSourceType::Redis,
             query_time_alignment: true,
             evaluation_interval: Default::default(),
             evaluation_offset: Default::default(),
-            extra_params: Default::default(),
             debug: false,
         }
     }
 
     /// apply_params - changes given querier params.
     fn apply_params(mut self, params: QuerierParams) -> Self {
-        self.data_source_type = params.data_source_type;
         self.evaluation_interval = params.evaluation_interval;
         self.evaluation_offset = params.eval_offset;
-        if !params.query_params.is_empty() {
-            for (k, vl) in params.query_params {
-                // custom query params are prior to default ones
-                self.extra_params.remove(&k);
-                for v in vl {
-                    // don't use .set() instead of del/add since it is allowed for GET params to be duplicated
-                    // see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/4908
-                    self.extra_params.insert(k.to_string(), v);
-                }
-            }
-        }
         self.debug = params.debug;
         self
     }
@@ -151,7 +139,7 @@ impl RedisDatasource {
     }
 }
 
-impl Querier for RedisDatasource {
+impl Querier for AlertDatasource {
     /// Query executes the given query and returns parsed response
     fn query(&self, query: &str, ts: Timestamp) -> AlertsResult<QueryResult> {
         let query_context = get_query_context();
@@ -161,14 +149,14 @@ impl Querier for RedisDatasource {
 
         let res = query_result.into_iter()
             .map(|r| {
+                let mut metric = Metric::new();
+
                 QueryResult {
                     data: vec![],
-                    timestamp: r.timestamp,
-                    value: r.value,
                     series_fetched: 0,
                 }
             })
-            .collect()
+            .collect();
         Ok(res)
     }
 
@@ -189,7 +177,7 @@ impl Querier for RedisDatasource {
     }
 }
 
-impl QuerierBuilder for RedisDatasource {
+impl QuerierBuilder for AlertDatasource {
     fn build_with_params(&self, params: QuerierParams) -> Box<dyn Querier> {
         let querier = self.clone().apply_params(params);
         Box::new(querier)
@@ -200,12 +188,14 @@ fn duration_to_chrono(duration: &Duration) -> chrono::Duration {
     chrono::Duration::from_std(*duration).unwrap()
 }
 
-fn query_result_to_metric(result: QueryResult) -> Vec<crate::rules::alerts::Metric> {
+fn query_result_to_metric(result: QueryResult) -> Vec<Metric> {
     let mut metrics = Vec::new();
-    for r in result {
-        let metric = crate::rules::alerts::Metric {
-            timestamp: r.timestamp,
-            value: r.value,
+    for r in result.data {
+        let metric = Metric {
+            key: "".to_string(),
+            labels: vec![],
+            timestamps: r.timestamps,
+            values: r.values,
         };
         metrics.push(metric);
     }

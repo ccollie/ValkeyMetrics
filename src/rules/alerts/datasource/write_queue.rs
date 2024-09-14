@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use crate::common::stop_timer;
 use crate::module::commands::create_series_ex;
 use crate::module::VALKEY_PROMQL_SERIES_TYPE;
 use crate::rules::alerts::{AlertsError, AlertsResult};
@@ -9,27 +9,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 use std::time::Duration;
 use valkey_module::{ContextGuard, RedisModuleTimerID, ThreadSafeContext, ValkeyString};
-use crate::common::stop_timer;
 
 /// a queue for writing timeseries back to valkey.
+/// todo: have an output list, so that flushing does not block adding new series.
+/// Essentially on flush, we just swap data and output
 pub struct WriteQueue {
-    addr: String,
-    // todo: mpsc
     data: RwLock<Vec<RawTimeSeries>>,
     pub(crate) flush_interval: Duration,
     max_batch_size: usize,
     max_queue_size: usize,
     closed: AtomicBool,
-    timer_id: RedisModuleTimerID
+    timer_id: RedisModuleTimerID,
+    // index: &TimeseriesIndex
 }
 
 pub type WriteQueueRef = Arc<WriteQueue>;
 
-/// WriteQueueConfig is config for remote write.
+/// `WriteQueueConfig` is config for remote write.
 #[derive(Clone, Default, Debug)]
 pub struct WriteQueueConfig {
-    /// Addr of remote storage
-    addr: String,
     /// max_batch_size defines max number of series to be flushed at once
     max_batch_size: usize,
     /// max_queue_size defines max length of input queue populated by push method.
@@ -49,9 +47,6 @@ const DEFAULT_WRITE_TIMEOUT: usize  = 30 * 1000;
 impl WriteQueue {
     /// new returns asynchronous client for writing timeseries via remotewrite protocol.
     pub fn new(cfg: WriteQueueConfig) -> AlertsResult<WriteQueue> {
-        if cfg.addr == "" {
-             //return nil, fmt.Errorf("config.Addr can't be empty")
-        }
         let max_batch_size = if cfg.max_batch_size == 0 {
              DEFAULT_MAX_BATCH_SIZE
         } else {
@@ -70,7 +65,6 @@ impl WriteQueue {
 
         let storage: Vec<RawTimeSeries> = Vec::with_capacity(cfg.max_queue_size);
         let c = WriteQueue {
-            addr: cfg.addr.trim_end_matches("/").to_string(),
             flush_interval,
             max_batch_size,
             max_queue_size,
@@ -198,7 +192,7 @@ impl WriteQueue {
     }
 
     fn create_series_if_not_exists<'a>(&self, ctx: &'a ContextGuard, key: &str) -> AlertsResult<&'a mut TimeSeries> {
-        let key = ValkeyString::create(Some(NonNull::from(ctx.ctx)), key);
+        let key = ctx.create_string(key);
         let series = get_timeseries_mut(ctx, &key, false)
             .map_err(|e| AlertsError::Generic(format!("failed to get series: {:?}", e)))?;
 
@@ -231,8 +225,10 @@ impl Drop for WriteQueue {
 }
 
 fn write_timeseries(dest: &mut TimeSeries, src: &RawTimeSeries) {
+    // todo: merge
     todo!()
 }
+
 
 fn get_timeseries_mut<'a>(ctx: &'a ContextGuard, key: &ValkeyString, must_exist: bool) -> Result<Option<&'a mut TimeSeries>, String> {
     let key = ctx.open_key_writable(key);

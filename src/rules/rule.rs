@@ -5,7 +5,8 @@ use std::time::Duration;
 use valkey_module::{Context as ValkeyContext};
 use serde::{Deserialize, Serialize};
 use crate::common::types::{Timestamp};
-use crate::rules::alerts::{AlertingRule, AlertsError, AlertsResult, Querier, RecordingRule};
+use crate::rules::alerts::{AlertingRule, AlertsError, AlertsResult, Querier};
+use crate::rules::{QuerierRef, RecordingRule};
 use crate::rules::types::RawTimeSeries;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -82,15 +83,15 @@ impl<'a> EvalContext<'a> {
 
 /// Rule represents alerting or recording rule that has unique id, can be executed
 /// and updated with other Rule.
-pub trait Rule: Debug {
+pub trait Rule: Debug + Clone {
     /// id returns unique id that may be used for identifying this Rule among others.
     fn id(&self) -> u64;
     fn rule_type(&self) -> RuleType;
     /// exec executes the rule with given context at the given timestamp and limit.
     /// returns an err if number of resulting time series exceeds the limit.
-    fn exec(&mut self, querier: &impl Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>>;
+    fn exec(&mut self, querier: QuerierRef, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>>;
     /// exec_range executes the rule on the given time range.
-    fn exec_range(&mut self, querier: &impl Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>>;
+    fn exec_range(&mut self, querier: QuerierRef, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>>;
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -114,7 +115,7 @@ pub struct RuleStateEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PromRule {
-    AlertRule(AlertingRule),
+    AlertRule(AlertingRule), // possibly box this to conserve space
     RecordRule(RecordingRule),
 }
 
@@ -133,14 +134,14 @@ impl Rule for PromRule {
         }
     }
 
-    fn exec(&mut self, querier: &impl Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec(&mut self, querier: QuerierRef, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
         match self {
             PromRule::AlertRule(rule) => rule.exec(querier, ts, limit),
             PromRule::RecordRule(rule) => rule.exec(querier, ts, limit),
         }
     }
 
-    fn exec_range(&mut self, querier: &impl Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec_range(&mut self, querier: QuerierRef, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
         match self {
             PromRule::AlertRule(rule) => rule.exec_range(querier, start, end),
             PromRule::RecordRule(rule) => rule.exec_range(querier, start, end),
