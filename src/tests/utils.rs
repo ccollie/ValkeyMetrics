@@ -1,6 +1,4 @@
 use anyhow::{Context, Result};
-
-use valkey_module::{ValkeyValue, ValkeyError};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;

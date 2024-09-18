@@ -1,5 +1,5 @@
 use crate::globals::get_query_context;
-use metricsql_runtime::{Timestamp, TimestampTrait};
+use metricsql_runtime::types::{Timestamp, TimestampTrait};
 use std::collections::HashMap;
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 

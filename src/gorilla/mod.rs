@@ -115,9 +115,9 @@ pub mod decoder;
 mod tests {
     extern crate test_case;
 
-    use std::vec::Vec;
+    use crate::common::types::Sample;
+use std::vec::Vec;
     use crate::gorilla::DataPoint;
-    use crate::storage::Sample;
     use super::encoder::{Encode, StdEncoder};
     use super::decoder::{Decode, Error, StdDecoder};
     use super::stream::{BufferedReader, BufferedWriter};

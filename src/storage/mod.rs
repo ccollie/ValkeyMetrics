@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use ahash::AHashMap;
 use valkey_module::{ValkeyError, ValkeyString};
 use serde::{Deserialize, Serialize};
@@ -28,44 +27,12 @@ pub(crate) use constants::*;
 pub(crate) use slice::*;
 pub(crate) use defrag::*;
 use crate::aggregators::Aggregator;
+use crate::common::types::{Sample, Timestamp};
 use crate::module::arg_parse::TimestampRangeValue;
-
-pub type Timestamp = metricsql_runtime::prelude::Timestamp;
-pub type Sample = metricsql_runtime::prelude::Sample;
 
 pub const SAMPLE_SIZE: usize = size_of::<Sample>();
 
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[derive(GetSize)]
-pub struct Label {
-    pub name: String,
-    pub value: String,
-}
-
-impl Label {
-    pub fn new<S: Into<String>>(key: S, value: String) -> Self {
-        Self {
-            name: key.into(),
-            value,
-        }
-    }
-}
-
-impl PartialOrd for Label {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.name == other.name {
-            return Some(self.value.cmp(&other.value));
-        }
-        Some(self.name.cmp(&other.name))
-    }
-}
-
-impl Ord for Label {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
-    }
-}
 
 #[non_exhaustive]
 #[derive(Clone, Debug, Default, Hash, PartialEq, Serialize, Deserialize)]

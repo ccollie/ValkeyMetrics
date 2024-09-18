@@ -1,11 +1,11 @@
-use crate::common::types::Timestamp;
+use crate::common::types::{Label, Timestamp};
 use crate::globals::with_timeseries_index;
 use crate::index::TimeSeriesIndex;
 use crate::module::VKM_SERIES_TYPE;
 use crate::storage::time_series::TimeSeries;
-use crate::storage::Label;
 use async_trait::async_trait;
-use metricsql_runtime::{Deadline, MetricName, MetricStorage, QueryResult, QueryResults, RuntimeError, RuntimeResult, SearchQuery};
+use metricsql_runtime::{Deadline, MetricStorage, QueryResult, QueryResults, RuntimeError, RuntimeResult, SearchQuery};
+use metricsql_runtime::types::MetricName;
 use valkey_module::{Context, ValkeyString};
 
 pub struct TsdbDataProvider {}
@@ -83,7 +83,7 @@ impl MetricStorage for TsdbDataProvider {
 fn to_metric_name(ts: &TimeSeries) -> MetricName {
     let mut mn = MetricName::new(&ts.metric_name);
     for Label { name, value } in ts.labels.iter() {
-        mn.add_tag(name, value);
+        mn.add_label(name, &value);
     }
     mn
 }

@@ -1,7 +1,6 @@
 use enquote::enquote;
-use super::Label;
 use rand_distr::num_traits::Zero;
-use crate::common::types::Timestamp;
+use crate::common::types::{Label, Timestamp};
 
 trait ModuloSignedExt {
     fn modulo(&self, n: Self) -> Self;

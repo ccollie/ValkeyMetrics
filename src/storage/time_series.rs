@@ -3,12 +3,11 @@ use super::{
     validate_chunk_size,
     Chunk,
     ChunkCompression,
-    Label,
     Sample,
     TimeSeriesChunk,
     TimeSeriesOptions
 };
-use crate::common::types::{PooledTimestampVec, PooledValuesVec, Timestamp};
+use crate::common::types::{Label, PooledTimestampVec, PooledValuesVec, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
 use crate::storage::constants::{DEFAULT_CHUNK_SIZE_BYTES, SPLIT_FACTOR};
 use crate::storage::timestamps_filter_iterator::TimestampsFilterIterator;
@@ -18,6 +17,7 @@ use crate::storage::DuplicatePolicy;
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use std::collections::BinaryHeap;
+use std::hash::Hasher;
 use std::mem::size_of;
 use std::time::Duration;
 use valkey_module::error::GenericError;
@@ -118,6 +118,22 @@ impl TimeSeries {
     /// assume that the labels are sorted by name.
     pub fn get_prometheus_metric_name(&self) -> String {
         format_prometheus_metric_name(&self.metric_name, &self.labels)
+    }
+
+    /// Utility function to create a key for the time series. The key is used to uniquely identify the
+    /// time series in the index. Valkey keys and metric names are disconnected (a user can store a
+    /// timeseries in Valkey using any key).
+    /// It creates a hash tag around the metric name (ensuring that series belonging to the same metric
+    /// are stored in the same node), and then hashes the labels to create a unique key.
+    /// Assumes self.labels is sorted.
+    pub fn create_key(&self) -> String {
+        let mut hasher = xxhash_rust::xxh3::Xxh3::new();
+        for label in self.labels.iter() {
+            hasher.write(label.name.as_bytes());
+            hasher.write_u8(b'=');
+            hasher.write(label.value.as_bytes());
+        }
+        format!("{{{}}}:{}:{}", self.metric_name, hasher.digest(), self.id)
     }
 
     fn adjust_value(&mut self, value: f64) -> f64 {

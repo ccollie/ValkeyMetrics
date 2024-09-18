@@ -1,6 +1,6 @@
-# VKMetrics
+# ValkeyMetrics
 
-VKMetrics is a module providing a [Prometheus](https://prometheus.io/docs/prometheus/latest/querying/api/#querying-metadata)-like API over timeseries data.
+ValkeyMetrics is a module providing a [Prometheus](https://prometheus.io/docs/prometheus/latest/querying/api/#querying-metadata)-like API over timeseries data.
 Add your data and query it using [PromQL](https://prometheus.io/docs/prometheus/latest/querying/basics/).
 
 Currently supported are [Instant Queries](https://prometheus.io/docs/prometheus/latest/querying/basics/#instant-vector-selectors) and [Range Queries](https://prometheus.io/docs/prometheus/latest/querying/basics/#range-vector-selectors),
@@ -192,7 +192,7 @@ TODO
 
 #### Examples
 
-The following example returns all series that match either of the selectors up or process_start_time_seconds{job="prometheus"}:
+The following example returns all series that match either of the selectors `up` or `process_start_time_seconds{job="prometheus"}`:
 
 ```
 VKM.SERIES MATCH up process_start_time_seconds{job="prometheus"}
@@ -225,14 +225,14 @@ VKM.SERIES MATCH up process_start_time_seconds{job="prometheus"}
 #### Syntax
 
 ```
-VKM.CARDINALITY MATCH filterExpr... [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
+VKM.CARDINALITY MATCH selector... [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
 ```
 
 **VKM.SERIES** returns the number of unique time series that match a certain label set.
 
 #### Options
 
-- **filterExpr**: Repeated series selector argument that selects the series to return. At least one match[] argument must be provided..
+- **MATCH**: Repeated series selector argument that selects the series to return. At least one match[] argument must be provided..
 - **START**: Start timestamp, inclusive. Optional.
 - **END**: End timestamp, inclusive. Optional.
 
@@ -258,14 +258,14 @@ TODO
 #### Syntax
 
 ```
-VKM.LABELS MATCH filterExpr... [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
+VKM.LABELS MATCH selector... [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
 ```
 
 **VKM.LABELS** returns a list of label names.
 
 #### Options
 
-- **filterExpr**: Repeated series selector argument that selects the series to return. At least one match[] argument must be provided..
+- **selector**: Repeated series selector argument that selects the series to return. At least one match[] argument must be provided..
 - **START**: Start timestamp, inclusive. Optional.
 - **END**: End timestamp, inclusive. Optional.
 

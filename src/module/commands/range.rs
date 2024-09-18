@@ -18,7 +18,6 @@ const CMD_ARG_AGGREGATION: &str = "AGGREGATION";
 const CMD_ARG_BUCKET_TIMESTAMP: &str = "BUCKETTIMESTAMP";
 const MAX_TS_VALUES_FILTER: usize = 25;
 
-
 pub fn range(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1);
 

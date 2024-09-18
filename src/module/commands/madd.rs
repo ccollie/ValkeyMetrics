@@ -1,7 +1,7 @@
 use crate::arg_parse::parse_timestamp;
 use crate::module::with_timeseries_mut;
-use crate::storage::Timestamp;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use crate::common::types::Timestamp;
 
 pub fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let arg_count = args.len() - 1;

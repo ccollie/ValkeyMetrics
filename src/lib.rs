@@ -1,7 +1,7 @@
 #![feature(lazy_cell)]
 extern crate get_size;
 extern crate valkey_module_macros;
-extern crate tinyvec;
+extern crate smallvec;
 extern crate async_trait;
 extern crate croaring;
 

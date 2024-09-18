@@ -1,6 +1,7 @@
 use crate::aggregators::{AggOp, Aggregator};
+use crate::common::types::{Sample, Timestamp};
 use crate::storage::time_series::TimeSeries;
-use crate::storage::{AggregationOptions, BucketTimestamp, RangeAlignment, RangeOptions, Sample, Timestamp};
+use crate::storage::{AggregationOptions, BucketTimestamp, RangeAlignment, RangeOptions};
 
 pub(crate) struct AggrIterator {
     aggregator: Aggregator,
