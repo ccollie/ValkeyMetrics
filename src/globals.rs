@@ -19,6 +19,8 @@ fn create_query_context() -> QueryContext {
     ctx.with_metric_storage(provider)
 }
 
+
+ // Safety: RedisModule_GetSelectedDb is safe to call
 pub unsafe fn get_current_db(ctx: *mut raw::RedisModuleCtx) -> u32 {
     let db = RedisModule_GetSelectedDb.unwrap()(ctx);
     db as u32

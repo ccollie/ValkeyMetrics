@@ -61,6 +61,18 @@ TODO
 
 Command names and option names are case-insensitive.
 
+#### A note about keys
+Since the general use-case for this module is querying across timeseries, it is a best practice to group related timeseries 
+using "hash tags" in the key. This allows for more efficient querying across related timeseries. For example, if your
+metrics are generally grouped by environment, you could use a key like 
+`latency:api:{dev}` and `latency:frontend:{staging}`. If you are more likely to group by service, you could use
+`latency:{api}:dev` and `latency:{frontend}:staging`.
+
+
+https://tech.loveholidays.com/redis-cluster-multi-key-command-optimisation-with-hash-tags-8a2bd7ce12de
+
+```
+
 ### VKM.QUERY
 
 #### Syntax
