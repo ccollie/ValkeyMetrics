@@ -13,6 +13,14 @@ const CMD_ARG_DEDUPE_INTERVAL: &str = "DEDUPE_INTERVAL";
 const CMD_ARG_CHUNK_SIZE: &str = "CHUNK_SIZE";
 const CMD_ARG_LABELS: &str = "LABELS";
 
+///
+/// VKM.ADD key timestamp value
+/// [RETENTION duration]
+/// [DUPLICATE_POLICY policy]
+/// [DEDUPE_INTERVAL duration]
+/// [CHUNK_SIZE size]
+/// [LABELS name value ...]
+///
 pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1);
 

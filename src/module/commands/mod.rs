@@ -13,6 +13,7 @@ mod stats;
 mod delete_series;
 mod top_queries;
 mod active_queries;
+mod reset_rollup_cache;
 
 pub use alter::*;
 pub use delete_range::*;
@@ -28,3 +29,4 @@ pub use delete_series::*;
 pub use stats::*;
 pub use top_queries::*;
 pub use active_queries::*;
+pub use reset_rollup_cache::*;

@@ -139,6 +139,7 @@ valkey_module! {
         ["VKM.LABEL-NAMES", commands::label_names, "write deny-oom", 1, 1, 1],
         ["VKM.LABEL-VALUES", commands::label_values, "write deny-oom", 1, 1, 1],
         ["VKM.STATS", commands::stats, "write deny-oom", 1, 1, 1],
+        ["VKM.RESET-ROLLUP-CACHE", commands::reset_rollup_cache, "write deny-oom", 1, 1, 1],
     ],
      event_handlers: [
         [@SET @STRING @GENERIC @EVICTED @EXPIRED @TRIMMED: on_event]
