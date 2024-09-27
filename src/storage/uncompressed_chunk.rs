@@ -1,3 +1,4 @@
+use core::mem::size_of;
 use crate::common::types::{Timestamp};
 use crate::error::{TsdbError, TsdbResult};
 use crate::storage::chunk::Chunk;
@@ -172,10 +173,9 @@ impl Chunk for UncompressedChunk {
     }
 
     fn size(&self) -> usize {
-        let mut size = std::mem::size_of::<Vec<Self>>() +
-            std::mem::size_of::<Vec<f64>>();
-        size += self.timestamps.capacity() * std::mem::size_of::<i64>();
-        size += self.values.capacity() * std::mem::size_of::<f64>();
+        let mut size = size_of::<Vec<Self>>() + size_of::<Vec<f64>>();
+        size += self.timestamps.capacity() * size_of::<i64>();
+        size += self.values.capacity() * size_of::<f64>();
         size
     }
 

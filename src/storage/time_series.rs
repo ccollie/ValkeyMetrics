@@ -100,7 +100,7 @@ impl TimeSeries {
                     value: v.to_string(),
                 });
             }
-            res.labels.sort();
+            res.labels.sort_by(|a, b| a.name.cmp(&b.name));
         }
         Ok(res)
     }

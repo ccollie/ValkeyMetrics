@@ -1,12 +1,12 @@
 #![feature(lazy_cell)]
-extern crate get_size;
-extern crate valkey_module_macros;
-extern crate smallvec;
 extern crate async_trait;
 extern crate croaring;
+extern crate get_size;
+extern crate smallvec;
+extern crate valkey_module_macros;
 
-use valkey_module::{valkey_module, Context as ValkeyContext, NotifyEvent, ValkeyString};
 use valkey_module::server_events::{FlushSubevent, LoadingSubevent};
+use valkey_module::{valkey_module, Context as ValkeyContext, NotifyEvent, ValkeyString};
 use valkey_module_macros::{config_changed_event_handler, flush_event_handler, loading_event_handler};
 
 mod aggregators;
@@ -24,9 +24,9 @@ mod tests;
 mod gorilla;
 
 use crate::globals::{clear_timeseries_index, with_timeseries_index};
-use module::*;
 use crate::index::reset_timeseries_id_after_load;
 use crate::storage::time_series::TimeSeries;
+use module::*;
 
 pub const VKMETRICS_VERSION: i32 = 1;
 pub const MODULE_NAME: &str = "VKMetrics";
@@ -125,6 +125,7 @@ valkey_module! {
         ["VKM.ALTER-SERIES", commands::alter, "write deny-oom", 1, 1, 1],
         ["VKM.ADD", commands::add, "write deny-oom", 1, 1, 1],
         ["VKM.GET", commands::get, "write deny-oom", 1, 1, 1],
+        ["VKM.SERIES-INFO", commands::info, "write deny-oom", 1, 1, 1],
         ["VKM.MADD", commands::madd, "write deny-oom", 1, 1, 1],
         ["VKM.DELETE-KEY_RANGE", commands::delete_key_range, "write deny-oom", 1, 1, 1],
         ["VKM.DELETE-RANGE", commands::delete_range, "write deny-oom", 1, 1, 1],
