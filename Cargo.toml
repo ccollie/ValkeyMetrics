@@ -22,6 +22,7 @@ metricsql_common = { git = "https://github.com/ccollie/metricsql", branch = "dev
 metricsql_encoding = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
 metricsql_runtime = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
 metricsql_parser = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
+joinkit = "0.2.0"
 nom = "7.1"
 papaya = "0.1"
 pco = "0.3"
@@ -43,7 +44,6 @@ valkey-module = "0.1"
 valkey-module-macros = "0.1"
 async-trait = "0.1"
 anyhow = "1.0"
-bincode = "2.0.0-rc.3"
 
 [dev-dependencies]
 test-case = "3.3.1"

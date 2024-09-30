@@ -290,7 +290,6 @@ fn bitwriter_equals(a: &BitWriter<Vec<u8>, BigEndian>, b: &BitWriter<Vec<u8>, Bi
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::common::types::Sample;
     use rand::{Rng, SeedableRng};
 

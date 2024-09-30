@@ -1,11 +1,10 @@
-use crate::arg_parse::{parse_chunk_size, parse_duration_arg};
 use crate::error::{TsdbError, TsdbResult};
 use crate::globals::with_timeseries_index;
 use crate::index::TimeSeriesIndex;
-use crate::module::arg_parse::parse_metric_name;
+use crate::module::arg_parse::*;
 use crate::module::VKM_SERIES_TYPE;
 use crate::storage::time_series::TimeSeries;
-use crate::storage::{DuplicatePolicy, TimeSeriesOptions};
+use crate::storage::TimeSeriesOptions;
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
 
@@ -44,7 +43,7 @@ pub fn create(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 }
 
 pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyString, TimeSeriesOptions)> {
-    let mut args = args.into_iter().skip(1);
+    let mut args = args.into_iter().skip(1).peekable();
 
     let mut options = TimeSeriesOptions::default();
 
@@ -57,28 +56,13 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
     while let Ok(arg) = args.next_str() {
         match arg {
             arg if arg.eq_ignore_ascii_case(CMD_ARG_RETENTION) => {
-                let next = args.next_arg()?;
-                if let Ok(val) = parse_duration_arg(&next) {
-                    options.retention(val);
-                } else {
-                    return Err(ValkeyError::Str("ERR invalid RETENTION value"));
-                }
+                options.retention(parse_retention(&mut args)?)
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_DEDUPE_INTERVAL) => {
-                let next = args.next_arg()?;
-                if let Ok(val) = parse_duration_arg(&next) {
-                    options.dedupe_interval = Some(val);
-                } else {
-                    return Err(ValkeyError::Str("ERR invalid DEDUPE_INTERVAL value"));
-                }
+                options.dedupe_interval = Some(parse_dedupe_interval(&mut args)?)
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_DUPLICATE_POLICY) => {
-                let next = args.next_str()?;
-                if let Ok(policy) = DuplicatePolicy::try_from(next) {
-                    options.duplicate_policy(policy);
-                } else {
-                    return Err(ValkeyError::Str("ERR invalid DUPLICATE_POLICY"));
-                }
+                options.duplicate_policy = Some(parse_duplicate_policy(&mut args)?)
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_SIGNIFICANT_DIGITS) => {
                 let next = args.next_u64()?;
@@ -89,12 +73,7 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
                 options.significant_digits = Some(next as u8);
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_CHUNK_SIZE) => {
-                let next = args.next_str()?;
-                if let Ok(val) = parse_chunk_size(next) {
-                    options.chunk_size(val);
-                } else {
-                    return Err(ValkeyError::Str("ERR invalid CHUNK_SIZE value"));
-                }
+                options.chunk_size(parse_chunk_size(&mut args)?);
             }
             _ => {
                 let msg = format!("ERR invalid argument '{}'", arg);

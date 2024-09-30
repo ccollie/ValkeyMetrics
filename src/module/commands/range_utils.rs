@@ -31,7 +31,6 @@ impl<'a> GroupMeta<'a> {
     }
 }
 
-
 pub(crate) struct AggrIterator {
     aggregator: Aggregator,
     time_delta: i64,
@@ -39,6 +38,7 @@ pub(crate) struct AggrIterator {
     start_timestamp: Timestamp,
     end_timestamp: Timestamp,
     last_timestamp: Timestamp,
+    bucket_right_ts: Timestamp,
     timestamp_alignment: i64,
     count: Option<usize>,
     empty: bool
@@ -46,7 +46,7 @@ pub(crate) struct AggrIterator {
 
 impl AggrIterator {
     fn normalize_bucket_start(&mut self) -> Timestamp {
-        self.last_timestamp = self.last_timestamp.max(0);
+        self.last_timestamp = self.last_timestamp.min(0);
         self.last_timestamp
     }
 
@@ -92,7 +92,7 @@ impl AggrIterator {
 
     pub fn calculate(&mut self, iterator: impl Iterator<Item=Sample>) -> Vec<Sample> {
         let time_delta = self.time_delta;
-        let mut bucket_right_ts = self.last_timestamp + time_delta;
+        self.bucket_right_ts = self.last_timestamp + time_delta;
         self.normalize_bucket_start();
         let mut buckets: Vec<Sample> = Default::default();
         let count = self.count.unwrap_or(usize::MAX - 1);
@@ -101,7 +101,8 @@ impl AggrIterator {
             let timestamp = sample.timestamp;
             let value = sample.value;
 
-            if timestamp >= bucket_right_ts {
+            if timestamp >= self.bucket_right_ts {
+                let time_delta = self.time_delta;
 
                 buckets.push(self.finalize_bucket());
                 if buckets.len() >= count {
@@ -110,7 +111,7 @@ impl AggrIterator {
 
                 let last_timestamp = calc_bucket_start(timestamp, time_delta, self.timestamp_alignment);
                 if self.empty {
-                    let first_bucket = bucket_right_ts;
+                    let first_bucket = self.bucket_right_ts;
                     let last_bucket = (last_timestamp - time_delta).max(0);
 
                     let has_empty_buckets = first_bucket < last_timestamp;
@@ -122,11 +123,12 @@ impl AggrIterator {
                     }
                 }
 
-                bucket_right_ts = last_timestamp + time_delta;
+                self.last_timestamp = last_timestamp;
+                self.bucket_right_ts = last_timestamp + time_delta;
                 self.normalize_bucket_start();
-
-                self.aggregator.update(value);
             }
+
+            self.aggregator.update(value);
         }
         // todo: write out last bucket value
         buckets.truncate(count);
@@ -225,6 +227,7 @@ fn get_series_aggregator(
         end_timestamp,
         last_timestamp: 0,
         count: args.count,
+        bucket_right_ts: 0,
     }
 }
 

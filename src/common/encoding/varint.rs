@@ -92,8 +92,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    use super::*;
-
     #[test]
     fn test_write_varint() {
         let mut buffer: Vec<u8> = Vec::new();

@@ -83,7 +83,7 @@ impl MetricStorage for TsdbDataProvider {
 fn to_metric_name(ts: &TimeSeries) -> MetricName {
     let mut mn = MetricName::new(&ts.metric_name);
     for Label { name, value } in ts.labels.iter() {
-        mn.add_label(name, &value);
+        mn.add_label(name, value);
     }
     mn
 }

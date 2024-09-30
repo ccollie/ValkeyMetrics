@@ -17,15 +17,15 @@ pub(crate) fn with_timeseries(ctx: &Context, key: &ValkeyString, f: impl FnOnce(
 }
 
 pub(crate) fn with_timeseries_mut(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&mut TimeSeries) -> ValkeyResult) -> ValkeyResult {
-    let redis_key = ctx.open_key_writable(key);
-    let series = redis_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE)?;
-    match series {
-        Some(series) => f(series),
-        None => Err(ValkeyError::Str("ERR TSDB: the key is not a timeseries")),
-    }
+    f(get_timeseries_mut(ctx, key)?)
 }
 
 pub(crate) fn get_timeseries<'a>(ctx: &'a Context, key: &ValkeyString) -> ValkeyResult<&'a TimeSeries>  {
+    let series = get_timeseries_mut(ctx, key)?;
+    Ok(series)
+}
+
+pub(crate) fn get_timeseries_mut<'a>(ctx: &'a Context, key: &ValkeyString) -> ValkeyResult<&'a mut TimeSeries>  {
     let redis_key = ctx.open_key_writable(key);
     let series = redis_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE)?;
     match series {

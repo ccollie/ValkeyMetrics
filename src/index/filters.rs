@@ -26,7 +26,7 @@ fn process_filter(
     use LabelFilterOp::*;
 
     #[inline]
-    fn handle_match_all<'a>(label_index: &ARTBitmap, key_buf: &String, dest: &mut Bitmap64, op: SetOperation) {
+    fn handle_match_all(label_index: &ARTBitmap, key_buf: &String, dest: &mut Bitmap64, op: SetOperation) {
         let iter = label_index.prefix(key_buf.as_bytes()).map(|(_, map)| map);
         process_iterator(iter, dest, op);
     }

@@ -252,7 +252,6 @@ impl PcoChunk {
         if self.num_samples() == 0 || timestamps.len() == 0 {
             return Ok(vec![]);
         }
-        let mut timestamps = timestamps;
         let mut state = timestamps;
         let last_timestamp = timestamps[timestamps.len() - 1] - 1i64;
         let first_timestamp = timestamps[0];

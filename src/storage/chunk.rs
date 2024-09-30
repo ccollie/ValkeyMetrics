@@ -587,7 +587,7 @@ impl<'a> Iterator for SampleIterator<'a> {
                 return Some(sample);
             }
         }
-        for sample in self.inner.by_ref() {
+        if let Some(sample) = self.inner.by_ref().next() {
             if sample.timestamp > self.end {
                 return None;
             }

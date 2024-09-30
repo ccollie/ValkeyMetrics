@@ -147,7 +147,7 @@ impl UncompressedChunk {
     }
 
     pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
-        if self.num_samples() == 0 || timestamps.len() == 0 {
+        if self.num_samples() == 0 || timestamps.is_empty() {
             return Ok(vec![]);
         }
         let first_timestamp = timestamps[0];
@@ -157,14 +157,11 @@ impl UncompressedChunk {
 
         let mut samples = Vec::with_capacity(timestamps.len());
         for ts in timestamps.iter() {
-            match timestamps.binary_search(ts) {
-                Ok(i) => {
-                    samples.push(Sample {
-                        timestamp: *ts,
-                        value: self.values[i],
-                    })
-                }
-                _ => {}
+            if let Ok(i) = timestamps.binary_search(ts) {
+                samples.push(Sample {
+                    timestamp: *ts,
+                    value: self.values[i],
+                })
             }
         }
         Ok(samples)

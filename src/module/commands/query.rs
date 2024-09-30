@@ -20,7 +20,7 @@ const CMD_ARG_ROUNDING: &str = "ROUNDING";
 
 
 ///
-/// VKM.QUERY_RANGE <query>
+/// VKM.QUERY-RANGE <query>
 ///     [START rfc3339 | unix_timestamp | + | - | * ]
 ///     [END rfc3339 | unix_timestamp | + | - | * ]
 ///     [STEP duration]

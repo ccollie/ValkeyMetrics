@@ -16,7 +16,6 @@ mod uncompressed_chunk;
 pub(crate) mod utils;
 pub(crate) mod series_data;
 mod defrag;
-mod timestamps_filter_iterator;
 mod gorilla_chunk;
 mod slice_iter;
 

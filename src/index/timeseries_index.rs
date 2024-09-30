@@ -59,11 +59,7 @@ pub(super) enum SetOperation {
 
 impl PartialEq for SetOperation {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (SetOperation::Union, SetOperation::Union) => true,
-            (SetOperation::Intersection, SetOperation::Intersection) => true,
-            _ => false,
-        }
+        matches!((self, other), (SetOperation::Union, SetOperation::Union) | (SetOperation::Intersection, SetOperation::Intersection))
     }
 }
 

@@ -1,18 +1,6 @@
-use crate::module::arg_parse::{
-    parse_aggregation_options,
-    parse_count,
-    parse_grouping_params,
-    parse_label_list,
-    parse_series_selector,
-    parse_timestamp,
-    parse_timestamp_filter,
-    parse_timestamp_range,
-    parse_value_filter
-};
+use crate::module::arg_parse::{parse_aggregation_options, parse_count, parse_grouping_params, parse_label_list, parse_series_selector, parse_timestamp, parse_timestamp_filter, parse_timestamp_range, parse_value_filter, CommandArgIterator};
 use crate::module::types::{RangeAlignment, RangeOptions};
-use std::iter::Skip;
-use std::vec::IntoIter;
-use valkey_module::{NextArg, ValkeyError, ValkeyResult, ValkeyString};
+use valkey_module::{NextArg, ValkeyError, ValkeyResult};
 
 const CMD_ARG_FILTER_BY_VALUE: &str = "FILTER_BY_VALUE";
 const CMD_ARG_FILTER_BY_TS: &str = "FILTER_BY_TS";
@@ -26,9 +14,8 @@ const CMD_ARG_SELECTED_LABELS: &str = "SELECTED_LABELS";
 const CMD_ARG_GROUP_BY: &str = "GROUPBY";
 const CMD_PARAM_REDUCER: &str = "REDUCE";
 const CMD_ARG_FILTER: &str = "FILTER";
-const MAX_TS_VALUES_FILTER: usize = 25;
 
-pub fn parse_range_options(args: &mut Skip<IntoIter<ValkeyString>>) -> ValkeyResult<RangeOptions> {
+pub fn parse_range_options(args: &mut CommandArgIterator) -> ValkeyResult<RangeOptions> {
 
     let date_range = parse_timestamp_range(args)?;
 

@@ -1,9 +1,7 @@
 #![feature(lazy_cell)]
 extern crate async_trait;
 extern crate croaring;
-extern crate get_size;
-extern crate smallvec;
-extern crate valkey_module_macros;
+extern crate joinkit;
 
 use valkey_module::server_events::{FlushSubevent, LoadingSubevent};
 use valkey_module::{valkey_module, Context as ValkeyContext, NotifyEvent, ValkeyString};
@@ -131,10 +129,10 @@ valkey_module! {
         ["VKM.DELETE-KEY_RANGE", commands::delete_key_range, "write deny-oom", 1, 1, 1],
         ["VKM.DELETE-RANGE", commands::delete_range, "write deny-oom", 1, 1, 1],
         ["VKM.DELETE-SERIES", commands::delete_series, "write deny-oom", 1, 1, 1],
-        ["VKM.JOIN-ASOF", commands::join_asof, "write deny-oom", 1, 1, 1],
+        ["VKM.JOIN", commands::join, "write deny-oom", 1, 1, 1],
         ["VKM.QUERY", commands::query, "write deny-oom", 1, 1, 1],
         ["VKM.QUERY-RANGE", commands::query_range, "write deny-oom", 1, 1, 1],
-        ["VKM.MRANGE", commands::range, "write deny-oom", 1, 1, 1],
+        ["VKM.MRANGE", commands::mrange, "write deny-oom", 1, 1, 1],
         ["VKM.RANGE", commands::range, "write deny-oom", 1, 1, 1],
         ["VKM.SERIES", commands::series, "write deny-oom", 1, 1, 1],
         ["VKM.TOP-QUERIES", commands::top_queries, "write deny-oom", 1, 1, 1],

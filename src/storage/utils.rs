@@ -1,5 +1,4 @@
 use enquote::enquote;
-use rand_distr::num_traits::Zero;
 use crate::common::types::{Label, Timestamp};
 
 trait ModuloSignedExt {
@@ -101,59 +100,6 @@ pub fn trim_vec_data(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start_ts:
             keep
         });
     }
-}
-
-
-// returns the number of matches
-pub(crate) fn filter_samples_by_ts<'a>(
-    timestamps: &mut [i64],
-    values: &mut [f64],
-    by_ts_args: &'a [Timestamp]
-) -> (usize, &'a [Timestamp]) {
-    let mut count = 0;
-
-    if by_ts_args.is_empty() {
-        return (0, by_ts_args);
-    }
-
-    let last_ts = timestamps[timestamps.len() - 1];
-    let first_ts = timestamps[0];
-
-    let filters_len = by_ts_args.len();
-    let last_ts_filter = by_ts_args[filters_len - 1];
-
-    if first_ts > last_ts_filter {
-        return (0, &by_ts_args[filters_len - 1..]);
-    }
-
-    if last_ts < by_ts_args[0] {
-        return (0, by_ts_args);
-    }
-
-    let mut ts_filter_index = by_ts_args.binary_search(&first_ts).unwrap_or_else(|i| i);
-
-    let mut i = 0;
-    while i < timestamps.len() && ts_filter_index < filters_len {
-        let stamps = &timestamps[i..];
-        let filter_ts = by_ts_args[ts_filter_index];
-        if stamps[stamps.len() - 1] > filter_ts {
-            break;
-        }
-        match stamps.binary_search(&filter_ts) {
-            Ok(idx) => {
-                i += idx;
-                timestamps[count] = timestamps[idx];
-                values[count] = values[idx];
-                count += 1;
-            },
-            Err(idx) => {
-                i += idx;
-            }
-        }
-        ts_filter_index += 1;
-    }
-
-    (count, &by_ts_args[ts_filter_index..])
 }
 
 pub fn format_prometheus_metric_name_into(full_name: &mut String, name: &str, labels: &[Label]) {

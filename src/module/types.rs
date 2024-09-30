@@ -1,5 +1,5 @@
 use crate::aggregators::Aggregator;
-use crate::common::types::Timestamp;
+use crate::common::types::{Sample, Timestamp};
 use crate::module::arg_parse::parse_timestamp;
 use crate::storage::time_series::TimeSeries;
 use crate::storage::MAX_TIMESTAMP;
@@ -8,7 +8,11 @@ use metricsql_runtime::types::TimestampTrait;
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::fmt::Display;
+use std::str::FromStr;
 use std::time::Duration;
+use joinkit::EitherOrBoth;
+use metricsql_common::humanize::humanize_duration;
+use metricsql_parser::ast::Operator;
 use valkey_module::{ValkeyError, ValkeyResult, ValkeyString};
 
 #[derive(Clone, Default, Debug, PartialEq, Copy)]
@@ -85,7 +89,7 @@ impl TryFrom<&ValkeyString> for TimestampRangeValue {
                     "TSDB: invalid timestamp, must be a non-negative integer",
                 ));
             }
-            Ok(TimestampRangeValue::Value(int_val))
+            Ok(Value(int_val))
         } else {
             let date_str = value.to_string_lossy();
             let ts =
@@ -139,10 +143,10 @@ impl PartialOrd for TimestampRangeValue {
 }
 
 // todo: better naming
-#[derive(Clone, Default, Debug, PartialEq, Copy)]
+#[derive(Clone, Debug, PartialEq, Copy)]
 pub struct TimestampRange {
-    start: TimestampRangeValue,
-    end: TimestampRangeValue,
+    pub start: TimestampRangeValue,
+    pub end: TimestampRangeValue,
 }
 
 impl TimestampRange {
@@ -151,14 +155,6 @@ impl TimestampRange {
             return Err(ValkeyError::Str("invalid timestamp range: start > end"));
         }
         Ok(TimestampRange { start, end })
-    }
-
-    pub fn start(&self) -> &TimestampRangeValue {
-        &self.start
-    }
-
-    pub fn end(&self) -> &TimestampRangeValue {
-        &self.end
     }
 
     pub fn get_series_range(&self, series: &TimeSeries, check_retention: bool) -> (Timestamp, Timestamp) {
@@ -174,6 +170,22 @@ impl TimestampRange {
         (start_timestamp, end_timestamp)
     }
 }
+
+impl Display for TimestampRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} to {}", self.start, self.end)
+    }
+}
+
+impl Default for TimestampRange {
+    fn default() -> Self {
+        Self {
+            start: TimestampRangeValue::Earliest,
+            end: TimestampRangeValue::Latest,
+        }
+    }
+}
+
 
 pub struct MetadataFunctionArgs {
     pub label_name: Option<String>,
@@ -339,5 +351,167 @@ impl RangeOptions {
 
     pub fn is_aggregation(&self) -> bool {
         self.aggregation.is_some()
+    }
+}
+
+#[derive(Debug, Default, Copy, Clone)]
+pub enum JoinType {
+    Left(bool),
+    Right(bool),
+    #[default]
+    Inner,
+    Full,
+    AsOf(JoinAsOfDirection, Duration),
+}
+
+impl JoinType {
+    pub fn is_asof(&self) -> bool {
+        matches!(self, JoinType::AsOf(..))
+    }
+
+    pub fn is_exclusive(&self) -> bool {
+        matches!(self, JoinType::Left(..) | JoinType::Right(..))
+    }
+}
+
+impl Display for JoinType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JoinType::Left(exclusive) => {
+                write!(f, "LEFT OUTER JOIN")?;
+                if *exclusive {
+                    write!(f, " EXCLUSIVE")?;
+                }
+            }
+            JoinType::Right(exclusive) => {
+                write!(f, "RIGHT OUTER JOIN")?;
+                if *exclusive {
+                    write!(f, " EXCLUSIVE")?;
+                }
+            }
+            JoinType::Inner => {
+                write!(f, "INNER JOIN")?;
+            }
+            JoinType::Full => {
+                write!(f, "FULL JOIN")?;
+            }
+            JoinType::AsOf(dir, tolerance) => {
+                write!(f, "ASOF JOIN")?;
+                match dir {
+                    JoinAsOfDirection::Forward => write!(f, " FORWARD")?,
+                    JoinAsOfDirection::Backward => write!(f, " BACKWARD")?,
+                }
+                if !tolerance.is_zero() {
+                    write!(f, " TOLERANCE {}", humanize_duration(tolerance))?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub enum JoinAsOfDirection {
+    #[default]
+    Forward,
+    Backward,
+}
+
+impl Display for JoinAsOfDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JoinAsOfDirection::Forward => write!(f, "Forward"),
+            JoinAsOfDirection::Backward => write!(f, "Backward"),
+        }
+    }
+}
+impl FromStr for JoinAsOfDirection {
+    type Err = ValkeyError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            s if s.eq_ignore_ascii_case("forward") => Ok(JoinAsOfDirection::Forward),
+            s if s.eq_ignore_ascii_case("backward") => Ok(JoinAsOfDirection::Backward),
+            _ => Err(ValkeyError::Str("invalid join direction")),
+        }
+    }
+}
+
+impl TryFrom<&str> for JoinAsOfDirection {
+    type Error = ValkeyError;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let direction = value.to_lowercase();
+        match direction.as_str() {
+            "forward" => Ok(JoinAsOfDirection::Forward),
+            "backward" => Ok(JoinAsOfDirection::Backward),
+            _ => Err(ValkeyError::Str("invalid join direction")),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct JoinOptions {
+    pub join_type: JoinType,
+    pub date_range: TimestampRange,
+    pub count: Option<usize>,
+    pub timestamp_filter: Option<Vec<Timestamp>>,
+    pub value_filter: Option<ValueFilter>,
+    pub transform_op: Option<Operator>
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct JoinValue {
+    pub timestamp: Timestamp,
+    pub value: EitherOrBoth<f64, f64>,
+}
+
+impl JoinValue {
+    pub fn new(timestamp: Timestamp, left: Option<f64>, right: Option<f64>) -> Self {
+        JoinValue {
+            timestamp,
+            value: match (&left, &right) {
+                (Some(l), Some(r)) => EitherOrBoth::Both(*l, *r),
+                (Some(l), None) => EitherOrBoth::Left(*l),
+                (None, Some(r)) => EitherOrBoth::Right(*r),
+                (None, None) => unreachable!(),
+            }
+        }
+    }
+
+    pub fn left(timestamp: Timestamp, value: f64) -> Self {
+        JoinValue {
+            timestamp,
+            value: EitherOrBoth::Left(value)
+        }
+    }
+    pub fn right(timestamp: Timestamp, value: f64) -> Self {
+        JoinValue {
+            timestamp,
+            value: EitherOrBoth::Right(value)
+        }
+    }
+
+    pub fn both(timestamp: Timestamp, l: f64, r: f64) -> Self {
+        JoinValue {
+            timestamp,
+            value: EitherOrBoth::Both(l, r)
+        }
+    }
+}
+
+impl From<&EitherOrBoth<&Sample, &Sample>> for JoinValue {
+    fn from(value: &EitherOrBoth<&Sample, &Sample>) -> Self {
+        match value {
+            EitherOrBoth::Both(l, r) => {
+                Self::both(l.timestamp, l.value, r.value)
+            }
+            EitherOrBoth::Left(l) => Self::left(l.timestamp, l.value),
+            EitherOrBoth::Right(r) => Self::right(r.timestamp, r.value)
+        }
+    }
+}
+
+impl From<EitherOrBoth<&Sample, &Sample>> for JoinValue {
+    fn from(value: EitherOrBoth<&Sample, &Sample>) -> Self {
+        (&value).into()
     }
 }

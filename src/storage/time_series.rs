@@ -12,7 +12,6 @@ use crate::common::types::{Label, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
 use crate::storage::constants::{DEFAULT_CHUNK_SIZE_BYTES, SPLIT_FACTOR};
-use crate::storage::timestamps_filter_iterator::TimestampsFilterIterator;
 use crate::storage::uncompressed_chunk::UncompressedChunk;
 use crate::storage::utils::format_prometheus_metric_name;
 use crate::storage::DuplicatePolicy;
@@ -413,10 +412,10 @@ impl TimeSeries {
                 if index >= self.chunks.len() {
                     continue;
                 }
-                map.entry(index).or_insert(Default::default()).push(*ts);
+                map.entry(index).or_default().push(*ts);
             }
 
-            for (index, ts) in map.iter() {
+            for (index, _ts) in map.iter() {
                 let chunk = &self.chunks[*index];
                 let sub_samples = chunk.samples_by_timestamps(timestamps)?;
                 samples.extend(sub_samples);
@@ -440,18 +439,6 @@ impl TimeSeries {
         SampleIterator::new(self, start, end)
     }
 
-    pub fn timestamp_filter_iter<'a>(
-        &'a self,
-        timestamp_filters: &'a [Timestamp],
-    ) -> impl Iterator<Item = Sample> + 'a {
-        TimestampsFilterIterator::new(self, timestamp_filters)
-    }
-
-    #[cfg(test)]
-    /// Get the last block, wrapped in RwLock.
-    pub fn get_last_block(&self) -> &TimeSeriesChunk {
-        &self.last_chunk
-    }
     pub fn overlaps(&self, start_ts: Timestamp, end_ts: Timestamp) -> bool {
         self.last_timestamp >= start_ts && self.first_timestamp <= end_ts
     }
@@ -771,7 +758,7 @@ impl<'a> SampleIterator<'a> {
                 return (Box::new(new_iter), start, false)
             }
         }
-        (Box::new(std::iter::Empty::<Sample>::default()), end, true)
+        (Box::new(std::iter::empty::<Sample>()), end, true)
     }
 }
 
