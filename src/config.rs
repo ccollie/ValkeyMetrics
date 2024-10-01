@@ -18,7 +18,7 @@ pub struct Settings {
     pub duplicate_policy: DuplicatePolicy,
     /// The maximum provider query length in bytes
     pub max_query_len: usize,
-    ///max size of rollup cache
+    /// max size of rollup cache
     pub max_rollup_cache_size: usize,
 
     /// Limits the maximum duration for automatic alert expiration, which by default is 4 times

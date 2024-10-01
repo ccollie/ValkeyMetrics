@@ -137,14 +137,7 @@ impl GorillaChunk {
     where
         F: FnMut(&mut State, &Sample) -> ControlFlow<()>,
     {
-        for value in self.xor_encoder.iter() {
-            let sample = value?;
-            if sample.timestamp < start_ts {
-                continue;
-            }
-            if sample.timestamp >= end_ts {
-                break;
-            }
+        for sample in self.range_iter(start_ts, end_ts) {
             match f(state, &sample) {
                 ControlFlow::Break(_) => break,
                 ControlFlow::Continue(_) => continue,
@@ -223,18 +216,20 @@ impl GorillaChunk {
         ChunkIter::new(self)
     }
 
+    pub fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> RangeChunkIter {
+        RangeChunkIter::new(self, start_ts, end_ts)
+    }
+
     pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
-        if self.num_samples() == 0 || timestamps.len() == 0 {
+        if self.num_samples() == 0 || timestamps.is_empty() {
             return Ok(vec![]);
         }
         let mut samples = Vec::with_capacity(timestamps.len());
         let mut timestamps = timestamps;
-        let last_timestamp = timestamps[timestamps.len() - 1];
-        for item in self.xor_encoder.iter() {
-            let sample = item?;
-            if timestamps.is_empty() || sample.timestamp > last_timestamp {
-                break;
-            }
+        let first_timestamp = timestamps[0].max(self.first_timestamp);
+        let last_timestamp = timestamps[timestamps.len() - 1].min(self.last_timestamp());
+
+        for sample in self.range_iter(first_timestamp, last_timestamp) {
             let first_ts = timestamps[0];
             match sample.timestamp.cmp(&first_ts) {
                 Ordering::Less => continue,
@@ -250,7 +245,27 @@ impl GorillaChunk {
                 }
             }
         }
+
         Ok(samples)
+    }
+
+    fn is_range_covering_full_period(&self, start_ts: Timestamp, end_ts: Timestamp) -> bool {
+        start_ts <= self.first_timestamp() && end_ts >= self.last_timestamp()
+    }
+
+    fn populate_encoder_range(
+        &self,
+        encoder: &mut XOREncoder,
+        start_ts: Timestamp,
+        end_ts: Timestamp,
+    ) -> TsdbResult<()> {
+        for value in self.xor_encoder.iter() {
+            let sample = value?;
+            if sample.timestamp < start_ts || sample.timestamp >= end_ts {
+                push_sample(encoder, &sample)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -275,32 +290,19 @@ impl Chunk for GorillaChunk {
             return Ok(0);
         }
 
-        let mut ts = self.first_timestamp();
-        if start_ts <= self.first_timestamp() {
-            if end_ts >= self.last_timestamp() {
-                self.clear();
-                return Ok(0);
-            } else {
-                ts = end_ts;
-            }
+        if self.is_range_covering_full_period(start_ts, end_ts) {
+            self.clear();
+            return Ok(0);
         }
 
-        let old_count = self.xor_encoder.num_samples;
+        let old_sample_count = self.xor_encoder.num_samples;
+        let mut new_encoder = XOREncoder::new();
 
-        let mut encoder = XOREncoder::new();
+        self.populate_encoder_range(&mut new_encoder, start_ts, end_ts)?;
 
-        for value in self.xor_encoder.iter() {
-            let sample = value?;
-            if sample.timestamp < start_ts {
-                push_sample(&mut encoder, &sample)?;
-            } else if sample.timestamp >= end_ts {
-                push_sample(&mut encoder, &sample)?;
-            }
-        }
+        self.xor_encoder = new_encoder;
 
-        // todo: ensure first_timestamp and last_timestamp are updated
-        self.xor_encoder = encoder;
-        Ok(self.num_samples() - old_count)
+        Ok(self.num_samples() - old_sample_count)
     }
 
     fn add_sample(&mut self, sample: &Sample) -> TsdbResult<()> {
@@ -356,16 +358,30 @@ impl Chunk for GorillaChunk {
         let count = self.num_samples();
         let mut xor_encoder = XOREncoder::new();
 
-        for item in self.xor_encoder.iter() {
-            let sample = item?;
-            if sample.timestamp == ts {
-                duplicate_found = true;
-                let value = dp_policy.value_on_duplicate(ts, sample.value, sample.value)?;
-                let sample = Sample::new(ts, value);
-                push_sample(&mut xor_encoder, &sample)?;
-            } else {
-                push_sample(&mut xor_encoder, &sample)?;
+        let mut iter = self.xor_encoder.iter();
+
+        let mut current = Sample::default();
+
+        // skip previous samples
+        for item in iter.by_ref() {
+            current = item?;
+            if current.timestamp >= ts {
+                break;
             }
+            push_sample(&mut xor_encoder, &current)?;
+        }
+
+        if current.timestamp == ts {
+            duplicate_found = true;
+            current.value = dp_policy.value_on_duplicate(ts, current.value, sample.value)?;
+            iter.next();
+        } else {
+            push_sample(&mut xor_encoder, sample)?;
+        }
+
+        for item in iter {
+            current = item?;
+            push_sample(&mut xor_encoder, &current)?;
         }
 
         // todo: do a self.encoder.buf.take()
@@ -423,7 +439,7 @@ fn push_sample(encoder: &mut XOREncoder, sample: &Sample) -> TsdbResult<()> {
     encoder.add_sample(sample)
         .map_err(|e| {
             println!("Error adding sample: {:?}", e);
-            TsdbError::CannotAddSample(sample.clone())
+            TsdbError::CannotAddSample(*sample)
         })
 }
 
@@ -451,6 +467,55 @@ impl<'a> Iterator for ChunkIter<'a> {
             },
             None => None,
         }
+    }
+}
+
+
+pub(crate) struct RangeChunkIter<'a> {
+    inner: XORIterator<'a>,
+    start: Timestamp,
+    end: Timestamp,
+    init: bool
+}
+
+impl<'a> RangeChunkIter<'a> {
+    pub fn new(chunk: &'a GorillaChunk, start: Timestamp, end: Timestamp) -> Self {
+        let inner = XORIterator::new(&chunk.xor_encoder);
+        Self { inner, start, end, init: false }
+    }
+
+    fn next_internal(&mut self) -> Option<Sample> {
+        match self.inner.next() {
+            Some(Ok(sample)) => Some(sample),
+            Some(Err(err)) => {
+                #[cfg(debug_assertions)]
+                eprintln!("Error decoding sample: {:?}", err);
+                None
+            },
+            None => None,
+        }
+    }
+}
+
+impl<'a> Iterator for RangeChunkIter<'a> {
+    type Item = Sample;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.init {
+            self.init = true;
+
+            while let Some(sample) = self.next_internal() {
+                if sample.timestamp > self.end {
+                    return None;
+                }
+                if sample.timestamp < self.start {
+                    continue;
+                }
+                return Some(sample);
+            }
+
+        }
+        self.next_internal()
     }
 }
 

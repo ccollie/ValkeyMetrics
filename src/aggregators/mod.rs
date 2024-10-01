@@ -2,6 +2,7 @@
 // https://github.com/cryptorelay/redis-aggregation/tree/master
 // License: Apache License 2.0
 
+use std::fmt::Display;
 use valkey_module::{ValkeyError, ValkeyString};
 
 type Value = f64;
@@ -234,9 +235,6 @@ pub struct AggStd {
 }
 
 impl AggStd {
-    fn to_string(&self) -> String {
-        serde_json::to_string(&(self.sum, self.sum_2, self.count)).unwrap()
-    }
     fn from_str(buf: &str) -> AggStd {
         let t = serde_json::from_str::<(Value, Value, usize)>(buf).unwrap();
         Self {
@@ -264,6 +262,13 @@ impl AggStd {
             let avg = self.sum / self.count as Value;
             self.sum_2 - 2. * self.sum * avg + avg * avg * self.count as Value
         }
+    }
+}
+
+impl Display for AggStd {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let repr = serde_json::to_string(&(self.sum, self.sum_2, self.count)).unwrap();
+        write!(f, "{}", repr)
     }
 }
 

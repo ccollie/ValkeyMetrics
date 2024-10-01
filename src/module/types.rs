@@ -1,47 +1,55 @@
 use crate::aggregators::Aggregator;
+use crate::common::current_time_millis;
 use crate::common::types::{Sample, Timestamp};
-use crate::module::arg_parse::parse_timestamp;
+use crate::module::arg_parse::{parse_duration_ms, parse_timestamp};
+use crate::module::transform_op::TransformOperator;
 use crate::storage::time_series::TimeSeries;
 use crate::storage::MAX_TIMESTAMP;
+use joinkit::EitherOrBoth;
+use metricsql_common::humanize::{humanize_duration, humanize_duration_ms};
 use metricsql_parser::prelude::Matchers;
 use metricsql_runtime::types::TimestampTrait;
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
 use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
-use joinkit::EitherOrBoth;
-use metricsql_common::humanize::humanize_duration;
-use metricsql_parser::ast::Operator;
 use valkey_module::{ValkeyError, ValkeyResult, ValkeyString};
 
 #[derive(Clone, Default, Debug, PartialEq, Copy)]
 pub enum TimestampRangeValue {
+    /// The timestamp of the earliest sample in the series
     Earliest,
+    /// The timestamp of the latest sample in the series
     Latest,
     #[default]
+    /// The current time
     Now,
+    /// A specific timestamp
     Value(Timestamp),
+    /// A timestamp with a given delta from the current timestamp
+    Relative(i64)
 }
 
 impl TimestampRangeValue {
-    pub fn to_timestamp(&self) -> Timestamp {
+    pub fn as_timestamp(&self) -> Timestamp {
         use TimestampRangeValue::*;
         match self {
             Earliest => 0,
             Latest => MAX_TIMESTAMP,
-            Now => Timestamp::now(),
+            Now => current_time_millis(),
             Value(ts) => *ts,
+            Relative(delta) => current_time_millis() + *delta,
         }
     }
 
-    pub fn to_series_timestamp(&self, series: &TimeSeries) -> Timestamp {
+    pub fn as_series_timestamp(&self, series: &TimeSeries) -> Timestamp {
         use TimestampRangeValue::*;
         match self {
             Earliest => series.first_timestamp,
             Latest => series.last_timestamp,
-            Now => Timestamp::now(), // todo: use valkey server value
+            Now => current_time_millis(), // todo: use valkey server value
             Value(ts) => *ts,
+            Relative(delta) => current_time_millis() + *delta,
         }
     }
 }
@@ -56,14 +64,27 @@ impl TryFrom<&str> for TimestampRangeValue {
             "+" => Ok(Latest),
             "*" => Ok(Now),
             _ => {
-                let ts =
-                    parse_timestamp(value).map_err(|_| ValkeyError::Str("invalid timestamp"))?;
+                // ergonomics. Support something like TS.RANGE key -6hrs -3hrs
+                if let Some(ch) = value.chars().next() {
+                    if ch == '-' || ch == '+' {
+                        let delta = if ch == '+' {
+                            parse_duration_ms(&value[1..])?
+                        } else {
+                            parse_duration_ms(value)?
+                        };
+                        return Ok(Relative(delta))
+                    }
+                }
+                let ts = parse_timestamp(value)
+                    .map_err(|_| ValkeyError::Str("invalid timestamp"))?;
+
                 if ts < 0 {
                     return Err(ValkeyError::Str(
                         "TSDB: invalid timestamp, must be a non-negative integer",
                     ));
                 }
-                Ok(TimestampRangeValue::Value(ts))
+
+                Ok(Value(ts))
             }
         }
     }
@@ -92,9 +113,7 @@ impl TryFrom<&ValkeyString> for TimestampRangeValue {
             Ok(Value(int_val))
         } else {
             let date_str = value.to_string_lossy();
-            let ts =
-                parse_timestamp(&date_str).map_err(|_| ValkeyError::Str("invalid timestamp"))?;
-            Ok(TimestampRangeValue::Value(ts))
+            date_str.as_str().try_into()
         }
     }
 }
@@ -113,6 +132,7 @@ impl Display for TimestampRangeValue {
             Latest => write!(f, "+"),
             Value(ts) => write!(f, "{}", ts),
             Now => write!(f, "*"),
+            Relative(delta) => write!(f, "{}", humanize_duration_ms(*delta))
         }
     }
 }
@@ -125,6 +145,7 @@ impl PartialOrd for TimestampRangeValue {
             (Now, Now) => Some(Ordering::Equal),
             (Earliest, Earliest) => Some(Ordering::Equal),
             (Latest, Latest) => Some(Ordering::Equal),
+            (Relative(x), Relative(y)) => x.partial_cmp(y),
             (Value(a), Value(b)) => a.partial_cmp(b),
             (Now, Value(v)) => {
                 let now = Timestamp::now();
@@ -134,6 +155,19 @@ impl PartialOrd for TimestampRangeValue {
                 let now = Timestamp::now();
                 v.partial_cmp(&now)
             }
+            (Relative(y), Now) => {
+                y.partial_cmp(&0i64)
+            },
+            (Now, Relative(y)) => {
+                0i64.partial_cmp(y)
+            },
+            (Value(_), Relative(y)) => {
+                0i64.partial_cmp(y)
+            },
+            (Relative(delta), Value(y)) => {
+                let relative = current_time_millis() + *delta;
+                relative.partial_cmp(y)
+            },
             (Earliest, _) => Some(Ordering::Less),
             (_, Earliest) => Some(Ordering::Greater),
             (Latest, _) => Some(Ordering::Greater),
@@ -152,21 +186,29 @@ pub struct TimestampRange {
 impl TimestampRange {
     pub fn new(start: TimestampRangeValue, end: TimestampRangeValue) -> ValkeyResult<Self> {
         if start > end {
-            return Err(ValkeyError::Str("invalid timestamp range: start > end"));
+            return Err(ValkeyError::Str("ERR invalid timestamp range: start > end"));
         }
         Ok(TimestampRange { start, end })
     }
 
     pub fn get_series_range(&self, series: &TimeSeries, check_retention: bool) -> (Timestamp, Timestamp) {
+        use TimestampRangeValue::*;
+
         // In case a retention is set shouldn't return chunks older than the retention
-        let mut start_timestamp = self.start.to_series_timestamp(series);
-        let end_timestamp = self.end.to_series_timestamp(series);
+        let mut start_timestamp = self.start.as_series_timestamp(series);
+        let end_timestamp = if let Relative(delta) = self.end {
+            start_timestamp + delta
+        } else {
+            self.end.as_series_timestamp(series)
+        };
+
         if check_retention && !series.retention.is_zero() {
             // todo: check for i64 overflow
             let retention_ms = series.retention.as_millis() as i64;
             let earliest = series.last_timestamp - retention_ms;
             start_timestamp = start_timestamp.max(earliest);
         }
+
         (start_timestamp, end_timestamp)
     }
 }
@@ -204,7 +246,7 @@ pub(crate) fn normalize_range_timestamps(
         (Some(start), Some(end)) if start > end => (end.into(), start.into()),
         (Some(start), Some(end)) => (start.into(), end.into()),
         (Some(start), None) => (
-            TimestampRangeValue::Value(start),
+            Value(start),
             Latest,
         ),
         (None, Some(end)) => (Earliest, end.into()),
@@ -262,6 +304,17 @@ pub enum RangeAlignment {
     Timestamp(Timestamp),
 }
 
+impl RangeAlignment {
+    pub fn get_aligned_timestamp(&self, start: Timestamp, end: Timestamp) -> Timestamp {
+        match self {
+            RangeAlignment::Default => 0,
+            RangeAlignment::Start => start,
+            RangeAlignment::End => end,
+            RangeAlignment::Timestamp(ts) => *ts,
+        }
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Clone, Copy)]
 pub enum BucketTimestamp {
     #[default]
@@ -271,7 +324,7 @@ pub enum BucketTimestamp {
 }
 
 impl BucketTimestamp {
-    pub fn calculate(&self, ts: crate::common::types::Timestamp, time_delta: i64) -> crate::common::types::Timestamp {
+    pub fn calculate(&self, ts: Timestamp, time_delta: i64) -> Timestamp {
         match self {
             Self::Start => ts,
             Self::Mid => ts + time_delta / 2,
@@ -313,6 +366,7 @@ pub struct AggregationOptions {
     pub aggregator: Aggregator,
     pub bucket_duration: Duration,
     pub timestamp_output: BucketTimestamp,
+    pub alignment: RangeAlignment,
     pub time_delta: i64,
     pub empty: bool
 }
@@ -331,11 +385,9 @@ pub struct RangeOptions {
     pub timestamp_filter: Option<Vec<Timestamp>>,
     pub value_filter: Option<ValueFilter>,
     pub series_selector: Matchers,
-    pub alignment: Option<RangeAlignment>,
     pub with_labels: bool,
-    pub selected_labels: BTreeSet<String>,
+    pub selected_labels: Vec<String>,
     pub grouping: Option<RangeGroupingOptions>,
-    pub latest: bool
 }
 
 impl RangeOptions {
@@ -365,10 +417,6 @@ pub enum JoinType {
 }
 
 impl JoinType {
-    pub fn is_asof(&self) -> bool {
-        matches!(self, JoinType::AsOf(..))
-    }
-
     pub fn is_exclusive(&self) -> bool {
         matches!(self, JoinType::Left(..) | JoinType::Right(..))
     }
@@ -398,8 +446,8 @@ impl Display for JoinType {
             JoinType::AsOf(dir, tolerance) => {
                 write!(f, "ASOF JOIN")?;
                 match dir {
-                    JoinAsOfDirection::Forward => write!(f, " FORWARD")?,
-                    JoinAsOfDirection::Backward => write!(f, " BACKWARD")?,
+                    JoinAsOfDirection::Next => write!(f, " NEXT")?,
+                    JoinAsOfDirection::Prior => write!(f, " PRIOR")?,
                 }
                 if !tolerance.is_zero() {
                     write!(f, " TOLERANCE {}", humanize_duration(tolerance))?;
@@ -413,15 +461,15 @@ impl Display for JoinType {
 #[derive(Debug, Default, Clone, Copy)]
 pub enum JoinAsOfDirection {
     #[default]
-    Forward,
-    Backward,
+    Prior,
+    Next,
 }
 
 impl Display for JoinAsOfDirection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            JoinAsOfDirection::Forward => write!(f, "Forward"),
-            JoinAsOfDirection::Backward => write!(f, "Backward"),
+            JoinAsOfDirection::Next => write!(f, "Next"),
+            JoinAsOfDirection::Prior => write!(f, "Prior"),
         }
     }
 }
@@ -429,8 +477,10 @@ impl FromStr for JoinAsOfDirection {
     type Err = ValkeyError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            s if s.eq_ignore_ascii_case("forward") => Ok(JoinAsOfDirection::Forward),
-            s if s.eq_ignore_ascii_case("backward") => Ok(JoinAsOfDirection::Backward),
+            s if s.eq_ignore_ascii_case("forward") => Ok(JoinAsOfDirection::Next),
+            s if s.eq_ignore_ascii_case("next") => Ok(JoinAsOfDirection::Next),
+            s if s.eq_ignore_ascii_case("prior") => Ok(JoinAsOfDirection::Prior),
+            s if s.eq_ignore_ascii_case("backward") => Ok(JoinAsOfDirection::Prior),
             _ => Err(ValkeyError::Str("invalid join direction")),
         }
     }
@@ -441,8 +491,8 @@ impl TryFrom<&str> for JoinAsOfDirection {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let direction = value.to_lowercase();
         match direction.as_str() {
-            "forward" => Ok(JoinAsOfDirection::Forward),
-            "backward" => Ok(JoinAsOfDirection::Backward),
+            "next" => Ok(JoinAsOfDirection::Next),
+            "prior" => Ok(JoinAsOfDirection::Prior),
             _ => Err(ValkeyError::Str("invalid join direction")),
         }
     }
@@ -455,12 +505,14 @@ pub struct JoinOptions {
     pub count: Option<usize>,
     pub timestamp_filter: Option<Vec<Timestamp>>,
     pub value_filter: Option<ValueFilter>,
-    pub transform_op: Option<Operator>
+    pub transform_op: Option<TransformOperator>,
+    pub aggregation: Option<AggregationOptions>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct JoinValue {
     pub timestamp: Timestamp,
+    pub other_timestamp: Option<Timestamp>,
     pub value: EitherOrBoth<f64, f64>,
 }
 
@@ -468,6 +520,7 @@ impl JoinValue {
     pub fn new(timestamp: Timestamp, left: Option<f64>, right: Option<f64>) -> Self {
         JoinValue {
             timestamp,
+            other_timestamp: None,
             value: match (&left, &right) {
                 (Some(l), Some(r)) => EitherOrBoth::Both(*l, *r),
                 (Some(l), None) => EitherOrBoth::Left(*l),
@@ -480,11 +533,13 @@ impl JoinValue {
     pub fn left(timestamp: Timestamp, value: f64) -> Self {
         JoinValue {
             timestamp,
+            other_timestamp: None,
             value: EitherOrBoth::Left(value)
         }
     }
     pub fn right(timestamp: Timestamp, value: f64) -> Self {
         JoinValue {
+            other_timestamp: None,
             timestamp,
             value: EitherOrBoth::Right(value)
         }
@@ -493,6 +548,7 @@ impl JoinValue {
     pub fn both(timestamp: Timestamp, l: f64, r: f64) -> Self {
         JoinValue {
             timestamp,
+            other_timestamp: None,
             value: EitherOrBoth::Both(l, r)
         }
     }
@@ -502,7 +558,9 @@ impl From<&EitherOrBoth<&Sample, &Sample>> for JoinValue {
     fn from(value: &EitherOrBoth<&Sample, &Sample>) -> Self {
         match value {
             EitherOrBoth::Both(l, r) => {
-                Self::both(l.timestamp, l.value, r.value)
+                let mut value = Self::both(l.timestamp, l.value, r.value);
+                value.other_timestamp = Some(r.timestamp);
+                value
             }
             EitherOrBoth::Left(l) => Self::left(l.timestamp, l.value),
             EitherOrBoth::Right(r) => Self::right(r.timestamp, r.value)

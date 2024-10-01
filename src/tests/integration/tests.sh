@@ -17,7 +17,7 @@ fi
 PROGNAME="${BASH_SOURCE[0]}"
 HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
 ROOT=$(cd $HERE/../../.. && pwd)
-MODULE="$ROOT/target/debug/libredis_promql${MODULE_EXT}"
+MODULE="$ROOT/target/debug/libvalkey_metrics${MODULE_EXT}"
 
 echo "HERE=$HERE, ROOT=$ROOT, MODULE_PATH=$MODULE"
 export PYTHONUNBUFFERED=1

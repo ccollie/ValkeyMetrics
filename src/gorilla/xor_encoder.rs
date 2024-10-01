@@ -172,7 +172,7 @@ impl XOREncoder {
     }
 
     pub fn iter(&self) -> XORIterator {
-        XORIterator::new(&self)
+        XORIterator::new(self)
     }
 
     pub(super) fn buf(&self) -> &[u8] {
@@ -238,7 +238,7 @@ impl Eq for XOREncoder {}
 
 fn save_bitwriter_to_rdb(rdb: *mut raw::RedisModuleIO, writer: &BitWriter<Vec<u8>, BigEndian>) {
     let bytes = &writer.writer;
-    raw::save_slice(rdb, &bytes);
+    raw::save_slice(rdb, bytes);
 
     // this ridiculous hack is necessary because the bitqueue is private
     let value_clone = writer.bit_queue.clone();

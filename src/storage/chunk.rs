@@ -13,6 +13,7 @@ use std::fmt::Display;
 use std::mem::size_of;
 use valkey_module::error::{Error, GenericError};
 use valkey_module::{raw, RedisModuleIO};
+use crate::module::types::ValueFilter;
 
 pub const MIN_CHUNK_SIZE: usize = 48;
 pub const MAX_CHUNK_SIZE: usize = 1048576;
@@ -106,8 +107,8 @@ pub trait Chunk: Sized {
     fn overlaps(&self, start_ts: i64, end_ts: i64) -> bool {
         self.first_timestamp() <= end_ts && self.last_timestamp() >= start_ts
     }
-    fn rdb_save(&self, rdb: *mut raw::RedisModuleIO);
-    fn rdb_load(rdb: *mut raw::RedisModuleIO) -> Result<Self, valkey_module::error::Error>;
+    fn rdb_save(&self, rdb: *mut RedisModuleIO);
+    fn rdb_load(rdb: *mut RedisModuleIO) -> Result<Self, valkey_module::error::Error>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -252,12 +253,17 @@ impl TimeSeriesChunk {
         }
     }
 
-    pub fn range_iter(
-        &self,
+    pub fn range_iter<'a>(
+        &'a self,
         start: Timestamp,
         end: Timestamp,
-    ) -> impl Iterator<Item = Sample> + '_ {
-        SampleIterator::new(self, start, end)
+    ) -> Box<dyn Iterator<Item = Sample> + 'a> {
+        use TimeSeriesChunk::*;
+        match self {
+            Uncompressed(chunk) => Box::new(chunk.range_iter(start, end)),
+            Gorilla( chunk) => Box::new(chunk.range_iter(start, end)),
+            Pco(chunk) => Box::new(chunk.range_iter(start, end)),
+        }
     }
 
     pub fn get_samples(&self, start: Timestamp, end: Timestamp) -> TsdbResult<Vec<Sample>> {
@@ -545,17 +551,22 @@ impl Chunk for TimeSeriesChunk {
     }
 }
 
-struct SampleIterator<'a> {
+pub(crate) struct ChunkSampleIterator<'a> {
     inner: Box<dyn Iterator<Item = Sample> + 'a>,
     start: Timestamp,
     end: Timestamp,
     is_init: bool,
 }
 
-impl<'a> SampleIterator<'a> {
-    fn new(chunk: &'a TimeSeriesChunk, start: Timestamp, end: Timestamp) -> Self {
+impl<'a> ChunkSampleIterator<'a> {
+    pub fn new(chunk: &'a TimeSeriesChunk,
+           start: Timestamp,
+           end: Timestamp,
+           value_filter: &'a Option<ValueFilter>,
+           ts_filter: &'a Option<Vec<Timestamp>>,
+    ) -> Self {
         let iter = if chunk.overlaps(start, end) {
-            chunk.iter()
+            Self::get_inner_iter(chunk, start, end, ts_filter, value_filter)
         } else {
             // use an empty iterator
             Box::new(std::iter::empty::<Sample>())
@@ -568,10 +579,46 @@ impl<'a> SampleIterator<'a> {
             is_init: false,
         }
     }
+
+    fn get_inner_iter(chunk: &'a TimeSeriesChunk,
+                      start: Timestamp,
+                      end: Timestamp,
+                      ts_filter: &'a Option<Vec<Timestamp>>,
+                      value_filter: &'a Option<ValueFilter>) -> Box<dyn Iterator<Item = Sample> + 'a> {
+        match (ts_filter, value_filter) {
+            (Some(timestamps), Some(value_filter)) => {
+                Box::new(chunk.samples_by_timestamps(timestamps)
+                    .unwrap_or_else(|_e| {
+                        // todo: properly handle error and log
+                        vec![]
+                    })
+                    .into_iter()
+                    .filter(move |sample| sample.value >= value_filter.min && sample.value <= value_filter.max)
+                )
+            }
+            (Some(timestamps), None) => {
+                Box::new(chunk.samples_by_timestamps(timestamps)
+                    .unwrap_or_else(|_e| {
+                        // todo: properly handle error and log
+                        vec![]
+                    }).into_iter()
+                )
+            }
+            (None, Some(filter)) => {
+                Box::new(
+                    chunk.range_iter(start, end)
+                        .filter(|sample| sample.value >= filter.min && sample.value <= filter.max)
+                )
+            }
+            _ => {
+                Box::new(chunk.range_iter(start, end))
+            }
+        }
+    }
 }
 
 // todo: implement next_chunk
-impl<'a> Iterator for SampleIterator<'a> {
+impl<'a> Iterator for ChunkSampleIterator<'a> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -30,11 +30,7 @@ impl IndexKey {
 
     pub fn split(&self) -> Option<(&str, &str)> {
         let key = self.as_str();
-        if let Some(index) = key.find('=') {
-            Some((&key[..index], &key[index + 1..self.len()]))
-        } else {
-            None
-        }
+        key.find('=').map(|index| (&key[..index], &key[index + 1..self.len()]))
     }
 
     pub(super) fn sub_string(&self, start: usize) -> &str {

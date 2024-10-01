@@ -1,24 +1,19 @@
-use crate::module::{parse_timestamp_arg, with_timeseries_mut};
-use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use crate::module::arg_parse::parse_timestamp_range;
+use crate::module::with_timeseries_mut;
+use valkey_module::{Context, NextArg, ValkeyResult, ValkeyString, ValkeyValue};
 
-/// VKM.DELETE-KEY-RANGE key  <rfc3339 | unix_timestamp | + | - | * >  <rfc3339 | unix_timestamp | + | - | * >
+/// VM.DELETE-KEY-RANGE key fromTimestamp toTimestamp
 ///
 /// Deletes the data points in the given range for the given key.
 pub fn delete_key_range(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
-    let mut args = args.into_iter().skip(1);
+    let mut args = args.into_iter().skip(1).peekable();
     let key = args.next_arg()?;
     with_timeseries_mut(ctx, &key, |series| {
-        let from = parse_timestamp_arg(args.next_str()?, "startTimestamp")?;
-        let to = parse_timestamp_arg(args.next_str()?, "endTimestamp")?;
+        let date_range = parse_timestamp_range(&mut args)?;
 
         args.done()?;
 
-        let start = from.to_timestamp();
-        let end = to.to_timestamp();
-
-        if start > end {
-            return Err(ValkeyError::Str("ERR invalid range"));
-        }
+        let (start, end) = date_range.get_series_range(series, false);
 
         let sample_count = series.remove_range(start, end)?;
 

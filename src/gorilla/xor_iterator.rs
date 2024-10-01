@@ -92,7 +92,7 @@ impl XORIterator<'_> {
         })
     }
 
-    fn read_n_sample<'a>(&mut self) -> TsdbResult<Sample> {
+    fn read_n_sample(&mut self) -> TsdbResult<Sample> {
         let previous_timestamp = self.timestamp;
         let previous_value = self.value;
         let previous_leading_bits_count = self.leading_bits_count;

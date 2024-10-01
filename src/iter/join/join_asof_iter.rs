@@ -1,5 +1,5 @@
 use crate::common::types::Sample;
-use crate::joins::asof::{merge_apply_asof, MergeAsOfMode};
+use crate::module::commands::asof::{merge_apply_asof, MergeAsOfMode};
 use joinkit::EitherOrBoth;
 use std::time::Duration;
 use crate::module::types::{JoinAsOfDirection, JoinValue};
@@ -17,8 +17,8 @@ pub struct JoinAsOfIter<'a> {
 impl<'a> JoinAsOfIter<'a> {
     pub fn new(left: &'a [Sample], right: &'a [Sample], direction: JoinAsOfDirection, tolerance: Duration) -> Self {
         let merge_mode = match direction {
-            JoinAsOfDirection::Forward => MergeAsOfMode::RollFollowing,
-            JoinAsOfDirection::Backward => MergeAsOfMode::RollPrior
+            JoinAsOfDirection::Next => MergeAsOfMode::RollFollowing,
+            JoinAsOfDirection::Prior => MergeAsOfMode::RollPrior
         };
         Self {
             init: false,

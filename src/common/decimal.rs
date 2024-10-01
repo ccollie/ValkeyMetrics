@@ -82,7 +82,7 @@ fn positive_float_to_decimal_slow(f: f64) -> (i64, i16) {
     let mut scale = 0;
     let mut prec = 1e12;
     let mut f = f;
-    if f > 1e6 || f < 1e-6 {
+    if !(1e-6..=1e6).contains(&f) {
         prec = if f > 1e6 {
             // Increase conversion precision for big numbers.
             // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/213
@@ -202,16 +202,13 @@ pub fn round_to_significant_digits_old(value: f64, digits: i32, dir: RoundDirect
     let power = value.abs().log10().floor() - (digits - 1) as f64;
     let mult = 10.0_f64.powf(power);
 
-    let mut intermediate = value / mult;
+    let intermediate = value / mult;
 
-    let intermediate = match dir {
+    match dir {
         RoundDirection::Up => intermediate.ceil(),
         RoundDirection::Down => intermediate.floor(),
         RoundDirection::Nearest => intermediate.round(),
-    };
-
-    let result = intermediate * mult;
-    result
+    }
 }
 
 pub fn round_to_significant_digits(value: f64, digits: i32, dir: RoundDirection) -> f64 {

@@ -166,7 +166,7 @@ fn get_memory_in_bytes_by_label_pair(inner: &RwLockReadGuard<IndexInner>, limit:
     for (key, sum) in items {
         acc += sum;
         if key != SENTINEL_VALUE && current != key {
-            append_key_value(&mut arr, &current, acc.into());
+            append_key_value(&mut arr, current, acc.into());
             if arr.len() >= limit {
                 break;
             }

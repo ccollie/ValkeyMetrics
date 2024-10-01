@@ -23,7 +23,6 @@ use bitstream_io::{
 };
 
 pub use bitstream_io::BigEndian;
-use get_size::GetSize;
 
 /// For writing bit values to an underlying stream in a given endianness.
 ///

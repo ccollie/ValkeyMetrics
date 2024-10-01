@@ -3,7 +3,6 @@ use valkey_module::REDISMODULE_AUX_BEFORE_RDB;
 use valkey_module::{native_types::ValkeyType, RedisModuleDefragCtx, RedisModuleString, ValkeyString};
 
 use crate::globals::with_timeseries_index;
-use crate::index::TimeSeriesIndex;
 use crate::storage::defrag_series;
 use crate::storage::time_series::TimeSeries;
 use std::os::raw::{c_int, c_void};
@@ -71,9 +70,8 @@ unsafe extern "C" fn copy(
     with_timeseries_index(&guard, |index| {
         let sm = &*(value as *mut TimeSeries);
         let mut new_series = sm.clone();
-        new_series.id = TimeSeriesIndex::next_id();
         let key = ValkeyString::from_redis_module_string(guard.ctx, tokey);
-        index.index_time_series(&new_series, key.as_slice());
+        index.index_time_series(&mut new_series, key.as_slice());
         Box::into_raw(Box::new(new_series)).cast::<c_void>()
     })
 }

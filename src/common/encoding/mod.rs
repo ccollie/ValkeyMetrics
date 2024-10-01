@@ -1,4 +1,3 @@
-mod utils;
 mod varbit_xor;
 mod varbit_ts;
 mod varbit;

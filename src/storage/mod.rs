@@ -5,6 +5,7 @@ use std::fmt::Display;
 use std::mem::size_of;
 use std::str::FromStr;
 use std::time::Duration;
+use valkey_module::ValkeyError;
 
 mod chunk;
 mod pco_chunk;
@@ -107,7 +108,7 @@ impl DuplicatePolicy {
         }
     }
 
-    pub fn to_u8(&self) -> u8 {
+    pub fn as_u8(&self) -> u8 {
         match self {
             DuplicatePolicy::Block => 0,
             DuplicatePolicy::KeepFirst => 1,
@@ -142,7 +143,7 @@ impl DuplicatePolicy {
 }
 
 impl FromStr for DuplicatePolicy {
-    type Err = TsdbError;
+    type Err = ValkeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         use DuplicatePolicy::*;
@@ -156,13 +157,15 @@ impl FromStr for DuplicatePolicy {
             "min" => Ok(Min),
             "max" => Ok(Max),
             "sum" => Ok(Sum),
-            _ => Err(TsdbError::General(format!("invalid duplicate policy: {s}"))),
+            _ => Err(ValkeyError::String(format!("invalid duplicate policy: {s}"))),
         }
     }
 }
-impl From<&str> for DuplicatePolicy {
-    fn from(s: &str) -> Self {
-        DuplicatePolicy::from_str(s).unwrap()
+
+impl TryFrom<&str> for DuplicatePolicy {
+    type Error = ValkeyError;
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        DuplicatePolicy::from_str(s)
     }
 }
 

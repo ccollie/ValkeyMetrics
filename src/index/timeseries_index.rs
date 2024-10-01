@@ -1,6 +1,6 @@
 use super::index_key::*;
 use crate::common::types::{Label, Timestamp};
-use crate::error::TsdbResult;
+use crate::error::{TsdbError, TsdbResult};
 use crate::index::filters::{get_ids_by_matchers_optimized, process_equals_match, process_iterator};
 use crate::module::{with_timeseries, VKM_SERIES_TYPE};
 use crate::storage::time_series::TimeSeries;
@@ -10,13 +10,15 @@ use metricsql_common::hash::IntMap;
 use metricsql_parser::prelude::{LabelFilter, LabelFilterOp, Matchers};
 use metricsql_runtime::types::METRIC_NAME_LABEL;
 use papaya::HashMap;
+use rand::Rng;
 use std::collections::BTreeSet;
+use std::hash::{Hash, Hasher};
 use std::ops::ControlFlow;
 use std::ops::ControlFlow::Continue;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{RwLock, RwLockReadGuard};
 use valkey_module::redisvalue::ValkeyValueKey;
-use valkey_module::{Context, ValkeyResult, ValkeyString, ValkeyValue};
+use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use xxhash_rust::xxh3::Xxh3;
 
 /// Type for the key of the index. Use instead of `String` because Valkey keys are binary safe not utf8 safe.
 pub type KeyType = Box<[u8]>;
@@ -28,28 +30,6 @@ pub type TimeSeriesIndexMap = HashMap<u32, TimeSeriesIndex>;
 // label=value
 pub type ARTBitmap = blart::TreeMap<IndexKey, Bitmap64>;
 
-// todo: in on_load, we need to set this to the last id + 1
-static TIMESERIES_ID_SEQUENCE: AtomicU64 = AtomicU64::new(1);
-static TIMESERIES_ID_MAX: AtomicU64 = AtomicU64::new(1);
-
-pub fn next_timeseries_id() -> u64 {
-    // we use Relaxed here since we only need uniqueness, not monotonicity
-    let id = TIMESERIES_ID_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    TIMESERIES_ID_MAX.fetch_max(id, Ordering::Relaxed);
-    id
-}
-
-pub fn reset_timeseries_id_sequence() {
-    TIMESERIES_ID_SEQUENCE.store(1, Ordering::SeqCst);
-    TIMESERIES_ID_MAX.store(1, Ordering::SeqCst);
-}
-
-pub fn reset_timeseries_id_after_load() -> u64 {
-    let mut max = TIMESERIES_ID_MAX.fetch_max(1, Ordering::SeqCst);
-    max += 1;
-    TIMESERIES_ID_SEQUENCE.store(max, Ordering::SeqCst);
-    max
-}
 
 #[derive(Clone, Copy)]
 pub(super) enum SetOperation {
@@ -229,6 +209,41 @@ impl IndexInner {
         }
         None
     }
+
+    // todo: why not just use a snowflake id generator ?
+    fn generate_unique_id(&self, ts: &TimeSeries) -> ValkeyResult<u64> {
+        const MAX_RETRIES: u64 = 64;
+
+        let mut hasher: Xxh3 = Default::default();
+
+        fn hash_ts(ts: &TimeSeries, state: &mut Xxh3, counter: u64) -> u64 {
+            state.reset();
+            ts.hash(state);
+            counter.hash(state);
+            state.finish()
+        }
+
+        let mut counter: u64 = 0;
+        let mut id = hash_ts(ts, &mut hasher, counter);
+
+        if self.id_to_key.contains_key(&id) {
+            return Ok(id);
+        }
+
+        let mut rng = rand::thread_rng();
+        loop {
+            id = hash_ts(ts, &mut hasher, counter);
+            if self.id_to_key.contains_key(&id) {
+                if counter >= MAX_RETRIES {
+                    return Err(ValkeyError::Str("Err - failed to generate unique id for time series"));
+                }
+                let ex: u64 = rng.gen_range(1..64);
+                counter += ex;
+                continue;
+            }
+            return Ok(id)
+        }
+    }
 }
 
 /// Index for quick access to timeseries by label, label value or metric name.
@@ -258,14 +273,16 @@ impl TimeSeriesIndex {
         inner.id_to_key.len()
     }
 
-    pub(crate) fn next_id() -> u64 {
-        next_timeseries_id()
-    }
-
-    pub(crate) fn index_time_series(&self, ts: &TimeSeries, key: &[u8]) {
-        debug_assert!(ts.id != 0);
+    pub(crate) fn index_time_series(&self, ts: &mut TimeSeries, key: &[u8]) -> TsdbResult<()> {
         let mut inner = self.inner.write().unwrap();
+
+        if ts.id == 0 {
+            ts.id = inner.generate_unique_id(ts)
+                .map_err(|e| TsdbError::General(e.to_string()))?;
+        }
+
         inner.index_time_series(ts, key);
+        Ok(())
     }
 
     pub fn reindex_timeseries(&self, ts: &TimeSeries, key: &[u8]) {
@@ -486,11 +503,11 @@ impl TimeSeriesIndex {
         let prefix_len = prefix.len();
         inner.label_index
             .prefix(prefix.as_bytes())
-            .filter_map(|(key,  map)| {
+            .map(|(key,  map)| {
                 // keys and values are expected to be utf-8. If we panic, we have bigger issues
                 let key = key.sub_string(prefix_len);
                 let k = ValkeyValueKey::from(key);
-                Some((k, map.cardinality() as usize))
+                (k, map.cardinality() as usize)
             })
             .take(limit)
             .collect()
@@ -529,7 +546,7 @@ fn filter_by_label_value_predicate(
         .prefix(prefix.as_bytes())
         .filter_map(|(key, map)| {
             let value = key.sub_string(start_pos);
-            if predicate(&value) {
+            if predicate(value) {
                 Some(map)
             } else {
                 None
@@ -623,13 +640,11 @@ mod tests {
                 ts.labels.push(label);
             }
         }
-        ts.id = TimeSeriesIndex::next_id();
         ts
     }
 
     fn create_series(metric_name: &str, labels: Vec<Label>) -> TimeSeries {
         let mut ts = TimeSeries::new();
-        ts.id = TimeSeriesIndex::next_id();
         ts.metric_name = metric_name.to_string();
         ts.labels = labels;
         ts
@@ -638,9 +653,9 @@ mod tests {
     #[test]
     fn test_index_time_series() {
         let index = TimeSeriesIndex::new();
-        let ts = create_series_from_metric_name(r#"latency{region="us-east-1",env="qa"}"#);
+        let mut ts = create_series_from_metric_name(r#"latency{region="us-east-1",env="qa"}"#);
 
-        index.index_time_series(&ts, b"time-series-1");
+        index.index_time_series(&mut ts, b"time-series-1").unwrap();
 
         assert_eq!(index.series_count(), 1);
         assert_eq!(index.label_count(), 3); // metric_name + region + env
@@ -649,9 +664,9 @@ mod tests {
     #[test]
     fn test_reindex_time_series() {
         let index = TimeSeriesIndex::new();
-        let ts = create_series_from_metric_name(r#"latency{region="us-east-1",env="qa"}"#);
+        let mut ts = create_series_from_metric_name(r#"latency{region="us-east-1",env="qa"}"#);
 
-        index.index_time_series(&ts, b"time-series-1");
+        index.index_time_series(&mut ts, b"time-series-1").unwrap();
 
         let ts = create_series_from_metric_name(r#"latency{region="us-east-1",env="prod"}"#);
         index.reindex_timeseries(&ts, b"time-series-1");
@@ -663,9 +678,9 @@ mod tests {
     #[test]
     fn test_remove_time_series() {
         let index = TimeSeriesIndex::new();
-        let ts = create_series_from_metric_name(r#"latency{region="us-east-1",env="qa"}"#);
+        let mut ts = create_series_from_metric_name(r#"latency{region="us-east-1",env="qa"}"#);
 
-        index.index_time_series(&ts, b"time-series-1");
+        index.index_time_series(&mut ts, b"time-series-1").unwrap();
         assert_eq!(index.series_count(), 1);
 
         index.remove_series(&ts);
@@ -677,17 +692,17 @@ mod tests {
     #[test]
     fn test_get_label_values() {
         let index = TimeSeriesIndex::new();
-        let ts1 = create_series("latency", vec![
+        let mut ts1 = create_series("latency", vec![
             Label { name: "region".to_string(), value: "us-east1".to_string() },
             Label { name: "env".to_string(), value: "dev".to_string() },
         ]);
-        let ts2 = create_series("latency", vec![
+        let mut ts2 = create_series("latency", vec![
             Label { name: "region".to_string(), value: "us-east2".to_string() },
             Label { name: "env".to_string(), value: "qa".to_string() },
         ]);
 
-        index.index_time_series(&ts1, b"time-series-1");
-        index.index_time_series(&ts2, b"time-series-2");
+        index.index_time_series(&mut ts1, b"time-series-1").unwrap();
+        index.index_time_series(&mut ts2, b"time-series-2").unwrap();
 
         let values = index.get_label_values("region");
         assert_eq!(values.len(), 2);
@@ -703,9 +718,9 @@ mod tests {
     #[test]
     fn test_get_id_by_name_and_labels() {
         let index = TimeSeriesIndex::new();
-        let ts = create_series_from_metric_name(r#"latency{region="us-east-1",env="qa"}"#);
+        let mut ts = create_series_from_metric_name(r#"latency{region="us-east-1",env="qa"}"#);
 
-        index.index_time_series(&ts, b"time-series-1");
+        index.index_time_series(&mut ts, b"time-series-1").unwrap();
 
         let id = index.get_id_by_name_and_labels("latency", &ts.labels).unwrap();
         assert_eq!(id, Some(ts.id));
@@ -714,12 +729,12 @@ mod tests {
     #[test]
     fn test_prometheus_name_exists() {
         let index = TimeSeriesIndex::new();
-        let ts = create_series("latency", vec![
+        let mut ts = create_series("latency", vec![
             Label { name: "region".to_string(), value: "us-east1".to_string() },
             Label { name: "env".to_string(), value: "qa".to_string() },
         ]);
 
-        index.index_time_series(&ts, b"time-series-1");
+        index.index_time_series(&mut ts, b"time-series-1").unwrap();
 
         assert!(index.prometheus_name_exists("latency", &ts.labels));
     }

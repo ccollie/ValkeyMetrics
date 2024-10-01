@@ -1,6 +1,7 @@
 use crate::module::commands::range_arg_parse::parse_range_options;
 use crate::module::commands::range_utils::get_range;
-use crate::module::get_timeseries;
+use crate::module::result::sample_to_value;
+use crate::module::with_timeseries;
 use valkey_module::{Context, NextArg, ValkeyResult, ValkeyString, ValkeyValue};
 
 pub fn range(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
@@ -10,13 +11,11 @@ pub fn range(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let options = parse_range_options(&mut args)?;
 
     args.done()?;
-    let series = get_timeseries(ctx, &key)?;
 
-    let samples = get_range(series, &options, false);
-    let result = samples.iter().map(|s| {
-        let row = vec![ValkeyValue::from(s.timestamp), ValkeyValue::from(s.value)];
-        ValkeyValue::from(row)
-    }).collect::<Vec<ValkeyValue>>();
+    with_timeseries(ctx, &key, |series| {
+        let samples = get_range(series, &options, false);
+        let result = samples.into_iter().map(sample_to_value).collect::<Vec<ValkeyValue>>();
 
-    Ok(ValkeyValue::from(result))
+        Ok(ValkeyValue::from(result))
+    })
 }

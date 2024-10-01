@@ -1,16 +1,15 @@
+use joinkit::EitherOrBoth;
 use crate::common::types::Sample;
-use crate::module::commands::join::transform_join_value;
-use crate::module::commands::join_asof_iter::JoinAsOfIter;
-use crate::module::commands::join_full_iter::JoinFullIter;
-use crate::module::commands::join_inner_iter::JoinInnerIter;
-use crate::module::commands::join_left_exclusive_iter::JoinLeftExclusiveIter;
-use crate::module::commands::join_left_iter::JoinLeftIter;
-use crate::module::commands::join_right_exclusive_iter::JoinRightExclusiveIter;
-use crate::module::commands::join_right_iter::JoinRightIter;
-use metricsql_parser::ast::Operator;
-use metricsql_parser::binaryop::get_scalar_binop_handler;
-use metricsql_parser::prelude::BinopFunc;
+use crate::iter::join::join_asof_iter::JoinAsOfIter;
+use crate::iter::join::join_full_iter::JoinFullIter;
+use crate::iter::join::join_inner_iter::JoinInnerIter;
+use crate::iter::join::join_left_exclusive_iter::JoinLeftExclusiveIter;
+use crate::iter::join::join_left_iter::JoinLeftIter;
+use crate::iter::join::join_right_exclusive_iter::JoinRightExclusiveIter;
+use crate::iter::join::join_right_iter::JoinRightIter;
 use crate::module::types::{JoinOptions, JoinType, JoinValue};
+use metricsql_parser::prelude::BinopFunc;
+use crate::module::TransformOperator;
 
 pub struct JoinTransformIter<'a> {
     inner: Box<JoinIterator<'a>>,
@@ -18,10 +17,10 @@ pub struct JoinTransformIter<'a> {
 }
 
 impl<'a> JoinTransformIter<'a> {
-    pub fn new(base: JoinIterator<'a>, op: Operator) -> Self {
+    pub fn new(base: JoinIterator<'a>, op: TransformOperator) -> Self {
         Self {
             inner: Box::new(base),
-            func: get_scalar_binop_handler(op, true)
+            func: op.get_handler()
         }
     }
 }
@@ -93,5 +92,13 @@ impl<'a> Iterator for JoinIterator<'a> {
             JoinIterator::AsOf(iter) => iter.next(),
             JoinIterator::Transform(iter) => iter.next(),
         }
+    }
+}
+
+fn transform_join_value(item: &JoinValue, f: BinopFunc) -> JoinValue {
+    match item.value {
+        EitherOrBoth::Both(l, r) => JoinValue::left(item.timestamp, f(l, r)),
+        EitherOrBoth::Left(l) => JoinValue::left(item.timestamp, f(l, f64::NAN)),
+        EitherOrBoth::Right(r) => JoinValue::left(item.timestamp, f(f64::NAN, r)),
     }
 }

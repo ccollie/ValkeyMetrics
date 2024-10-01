@@ -1,4 +1,4 @@
-use crate::common::types::{Label, Timestamp};
+use crate::common::types::{Label, Sample, Timestamp};
 use crate::storage::time_series::TimeSeries;
 use metricsql_runtime::types::{MetricName, METRIC_NAME_LABEL};
 use std::collections::HashMap;
@@ -38,15 +38,18 @@ pub(crate) fn metric_name_to_valkey_value(
 ) -> ValkeyValue {
     let mut map: HashMap<ValkeyValueKey, ValkeyValue> =
         HashMap::with_capacity(metric_name.labels.len() + 1);
+
     if !metric_name.measurement.is_empty() {
         map.insert(
             ValkeyValueKey::from(METRIC_NAME_LABEL),
             metric_name.measurement.clone().into(),
         );
     }
+
     if let Some(key) = key {
         map.insert(ValkeyValueKey::from(META_KEY_LABEL), ValkeyValue::from(key));
     }
+
     for Label { name, value } in metric_name.labels.iter() {
         map.insert(ValkeyValueKey::from(name), value.into());
     }
@@ -119,7 +122,6 @@ pub fn to_matrix_result(vals: Vec<QueryResult>) -> ValkeyValue {
             .collect();
             ValkeyValue::Map(map)
         })
-        .into_iter()
         .collect();
 
     to_success_result(map.into(), ResultType::Matrix)
@@ -233,9 +235,7 @@ fn status_element(success: bool) -> (ValkeyValueKey, ValkeyValue) {
 pub fn std_duration_to_redis_value(duration: &std::time::Duration) -> ValkeyValue {
     ValkeyValue::Integer(duration.as_secs() as i64 * 1000 + duration.subsec_millis() as i64)
 }
-pub fn string_hash_map_to_redis_value(map: &HashMap<String, String>) -> ValkeyValue {
-    ValkeyValue::from(map.clone())
-}
+
 pub(super) fn get_ts_metric_selector(ts: &TimeSeries, key: Option<&ValkeyString>) -> ValkeyValue {
     let mut map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::with_capacity(ts.labels.len() + 1);
     map.insert(
@@ -249,4 +249,9 @@ pub(super) fn get_ts_metric_selector(ts: &TimeSeries, key: Option<&ValkeyString>
         map.insert(ValkeyValueKey::String(name.into()), ValkeyValue::from(value));
     }
     ValkeyValue::Map(map)
+}
+
+pub(crate) fn sample_to_value(sample: Sample) -> ValkeyValue {
+    let row = vec![ValkeyValue::from(sample.timestamp), ValkeyValue::from(sample.value)];
+    ValkeyValue::from(row)
 }

@@ -2,14 +2,8 @@ use crate::aggregators::Aggregator;
 use crate::common::current_time_millis;
 use crate::common::types::{Label, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
-use crate::module::types::{
-    AggregationOptions,
-    BucketTimestamp,
-    RangeGroupingOptions,
-    TimestampRange,
-    TimestampRangeValue,
-    ValueFilter
-};
+use crate::module::transform_op::TransformOperator;
+use crate::module::types::*;
 use crate::storage::{DuplicatePolicy, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
 use chrono::DateTime;
 use metricsql_parser::parser::{parse_duration_value, parse_metric_name as parse_metric, parse_number};
@@ -19,12 +13,26 @@ use std::collections::BTreeSet;
 use std::iter::{Peekable, Skip};
 use std::time::Duration;
 use std::vec::IntoIter;
-use metricsql_parser::ast::Operator;
 use valkey_module::{NextArg, ValkeyError, ValkeyResult, ValkeyString};
 
 const MAX_TS_VALUES_FILTER: usize = 16;
-const CMD_ARG_COUNT: &str = "COUNT";
-const CMD_PARAM_REDUCER: &str = "REDUCE";
+pub const CMD_ARG_COUNT: &str = "COUNT";
+pub const CMD_PARAM_REDUCER: &str = "REDUCE";
+const CMD_PARAM_ALIGN: &str = "ALIGN";
+pub const CMD_ARG_FILTER_BY_VALUE: &str = "FILTER_BY_VALUE";
+pub const CMD_ARG_FILTER_BY_TS: &str = "FILTER_BY_TS";
+pub const CMD_ARG_AGGREGATION: &str = "AGGREGATION";
+pub const CMD_ARG_FILTER: &str = "FILTER";
+pub const CMD_ARG_EMPTY: &str = "EMPTY";
+pub const CMD_ARG_GROUP_BY: &str = "GROUPBY";
+pub const CMD_ARG_BUCKET_TIMESTAMP: &str = "BUCKETTIMESTAMP";
+pub const CMD_ARG_RETENTION: &str = "RETENTION";
+pub const CMD_ARG_DUPLICATE_POLICY: &str = "DUPLICATE_POLICY";
+pub const CMD_ARG_CHUNK_SIZE: &str = "CHUNK_SIZE";
+pub const CMD_ARG_DEDUPE_INTERVAL: &str = "DEDUPE_INTERVAL";
+pub const CMD_ARG_WITH_LABELS: &str = "WITHLABELS";
+pub const CMD_ARG_SELECTED_LABELS: &str = "SELECTED_LABELS";
+
 
 pub type CommandArgIterator = Peekable<Skip<IntoIter<ValkeyString>>>;
 
@@ -49,15 +57,15 @@ pub fn parse_integer_arg(arg: &ValkeyString, name: &str, allow_negative: bool) -
     } else {
         let num = parse_number_arg(arg, name)?;
         if num != num.floor() {
-            return Err(ValkeyError::Str("TSDB: value must be an integer"));
+            return Err(ValkeyError::Str("ERR: value must be an integer"));
         }
         if num > i64::MAX as f64 {
-            return Err(ValkeyError::Str("TSDB: value is too large"));
+            return Err(ValkeyError::Str("ERR: value is too large"));
         }
         num as i64
     };
     if !allow_negative && value < 0 {
-        let msg = format!("TSDB: {} must be a non-negative integer", name);
+        let msg = format!("ERR: {} must be a non-negative integer", name);
         return Err(ValkeyError::String(msg));
     }
     Ok(value)
@@ -119,11 +127,18 @@ pub fn parse_duration_arg(arg: &ValkeyString) -> ValkeyResult<Duration> {
 }
 
 pub fn parse_duration(arg: &str) -> ValkeyResult<Duration> {
-    match parse_duration_value(arg, 1) {
+    match parse_duration_ms(arg) {
         Ok(d) => Ok(Duration::from_millis(d as u64)),
+        Err(e) => Err(e)
+    }
+}
+
+pub fn parse_duration_ms(arg: &str) -> ValkeyResult<i64> {
+    match parse_duration_value(arg, 1) {
+        Ok(d) => Ok(d),
         Err(_e) => {
             match arg.parse::<i64>() {
-                Ok(v) => Ok(Duration::from_millis(v as u64)),
+                Ok(v) => Ok(v),
                 Err(_e) => {
                     let str = format!("ERR: failed to parse duration: {}", arg);
                     Err(ValkeyError::String(str))
@@ -131,12 +146,6 @@ pub fn parse_duration(arg: &str) -> ValkeyResult<Duration> {
             }
         },
     }
-}
-
-pub fn parse_double(arg: &str) -> ValkeyResult<f64> {
-    arg.parse::<f64>().map_err(|_e| {
-        ValkeyError::Str("TSDB: invalid value")
-    })
 }
 
 pub fn parse_number_with_unit(arg: &str) -> TsdbResult<f64> {
@@ -157,29 +166,8 @@ pub fn parse_metric_name(arg: &str) -> TsdbResult<Vec<Label>> {
     })
 }
 
-pub fn parse_operator(arg: &str) -> ValkeyResult<Operator> {
-    if let Ok(value) = Operator::try_from(arg) {
-        return Ok(value);
-    }
-    let lower = arg.to_ascii_lowercase();
-    match lower.as_str() {
-        "add" => Ok(Operator::Add),
-        "sub" => Ok(Operator::Sub),
-        "mul" => Ok(Operator::Mul),
-        "div" => Ok(Operator::Div),
-        "mod" => Ok(Operator::Mod),
-        "pow" => Ok(Operator::Pow),
-        "eq" => Ok(Operator::Eql),
-        "ne" | "neq" => Ok(Operator::NotEq),
-        "gt" => Ok(Operator::Gt),
-        "gte" => Ok(Operator::Gte),
-        "lt" => Ok(Operator::Lt),
-        "lte" => Ok(Operator::Lte),
-        _ => {
-            let msg = format!("Unknown operator: {}", arg);
-            Err(ValkeyError::String(msg))
-        }
-    }
+pub fn parse_operator(arg: &str) -> ValkeyResult<TransformOperator> {
+    TransformOperator::try_from(arg)
 }
 
 pub fn parse_chunk_size(args: &mut CommandArgIterator) -> ValkeyResult<usize> {
@@ -305,6 +293,13 @@ pub(crate) fn advance_if_next_token(args: &mut CommandArgIterator, token: &str) 
     }
 }
 
+pub(crate) fn expect_token(args: &mut CommandArgIterator, token: &str) -> ValkeyResult<()> {
+    if !advance_if_next_token(args, token) {
+        return Err(ValkeyError::Str("ERR: unexpected token"));
+    }
+    Ok(())
+}
+
 pub(crate) fn advance_if_next_token_one_of<'a>(args: &mut CommandArgIterator, token: &'a [&str]) -> Option<&'a str> {
     if let Some(next) = args.peek() {
         let str = next.to_string_lossy();
@@ -334,7 +329,7 @@ fn is_token_or_end(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool
     }
 }
 
-pub fn parse_label_list(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool) -> ValkeyResult<BTreeSet<String>> {
+pub fn parse_label_list(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool) -> ValkeyResult<Vec<String>> {
     let mut labels: BTreeSet<String> = BTreeSet::new();
 
     loop {
@@ -349,7 +344,8 @@ pub fn parse_label_list(args: &mut CommandArgIterator, is_cmd_token: fn(&str) ->
         labels.insert(label.to_string());
     }
 
-    Ok(labels)
+    let temp = labels.into_iter().collect();
+    Ok(temp)
 }
 
 pub fn parse_dedupe_interval(args: &mut CommandArgIterator) -> ValkeyResult<Duration> {
@@ -361,13 +357,28 @@ pub fn parse_dedupe_interval(args: &mut CommandArgIterator) -> ValkeyResult<Dura
     }
 }
 
-const CMD_ARG_EMPTY: &str = "EMPTY";
-const CMD_ARG_BUCKET_TIMESTAMP: &str = "BUCKETTIMESTAMP";
+pub fn parse_series_selector_list(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool) -> ValkeyResult<Vec<Matchers>> {
+    let mut matchers = vec![];
+
+    while let Some(next) = args.peek() {
+        let arg = next.try_as_str()?;
+        if is_cmd_token(arg) {
+            break;
+        }
+        if let Ok(selector) = parse_series_selector(arg) {
+            matchers.push(selector);
+        } else {
+            return Err(ValkeyError::Str("ERR invalid FILTER series selector"));
+        }
+    }
+
+    Ok(matchers)
+}
 
 pub fn parse_aggregation_options(args: &mut CommandArgIterator) -> ValkeyResult<AggregationOptions> {
     // AGGREGATION token already seen
     let agg_str = args.next_str()
-        .map_err(|_e| ValkeyError::Str("TSDB: Error parsing AGGREGATION"))?;
+        .map_err(|_e| ValkeyError::Str("ERR: Error parsing AGGREGATION"))?;
     let aggregator = Aggregator::try_from(agg_str)?;
     let bucket_duration = parse_duration_arg(&args.next_arg()?)
         .map_err(|_e| ValkeyError::Str("Error parsing bucketDuration"))?;
@@ -376,25 +387,31 @@ pub fn parse_aggregation_options(args: &mut CommandArgIterator) -> ValkeyResult<
         aggregator,
         bucket_duration,
         timestamp_output: BucketTimestamp::Start,
+        alignment: RangeAlignment::default(),
         time_delta: 0,
         empty: false,
     };
+
     let mut arg_count: usize = 0;
 
-    while let Ok(arg) = args.next_str() {
-        match arg {
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_EMPTY) => {
+    let valid_tokens = [CMD_PARAM_ALIGN, CMD_ARG_EMPTY, CMD_ARG_BUCKET_TIMESTAMP];
+
+    while let Some(token) = advance_if_next_token_one_of(args, &valid_tokens) {
+        match token {
+            CMD_ARG_EMPTY => {
                 aggr.empty = true;
                 arg_count += 1;
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_BUCKET_TIMESTAMP) => {
+            CMD_ARG_BUCKET_TIMESTAMP => {
                 let next = args.next_str()?;
                 arg_count += 1;
                 aggr.timestamp_output = BucketTimestamp::try_from(next)?;
             }
-            _ => {
-                return Err(ValkeyError::Str("TSDB: unknown AGGREGATION option"))
+            CMD_PARAM_ALIGN => {
+                let next = args.next_str()?;
+                aggr.alignment = parse_alignment(next)?;
             }
+            _ => break
         }
         if arg_count == 3 {
             break;
@@ -404,22 +421,42 @@ pub fn parse_aggregation_options(args: &mut CommandArgIterator) -> ValkeyResult<
     Ok(aggr)
 }
 
+fn parse_alignment(align: &str) -> ValkeyResult<RangeAlignment> {
+    let alignment = match align {
+        arg if arg.eq_ignore_ascii_case("start") => RangeAlignment::Start,
+        arg if arg.eq_ignore_ascii_case("end") => RangeAlignment::End,
+        arg if arg.len() == 1 => {
+            let c = arg.chars().next().unwrap();
+            match c {
+                '-' => RangeAlignment::Start,
+                '+' => RangeAlignment::End,
+                _ => return Err(ValkeyError::Str("TSDB: unknown ALIGN parameter")),
+            }
+        }
+        _ => {
+            let timestamp = parse_timestamp(align)
+                .map_err(|_| ValkeyError::Str("TSDB: unknown ALIGN parameter"))?;
+            RangeAlignment::Timestamp(timestamp)
+        }
+    };
+    Ok(alignment)
+}
 
 pub fn parse_grouping_params(args: &mut CommandArgIterator) -> ValkeyResult<RangeGroupingOptions> {
     // GROUPBY token already seen
     let label = args.next_str()?;
     let token = args.next_str()
-        .map_err(|_| ValkeyError::Str("TSDB: missing REDUCE"))?;
+        .map_err(|_| ValkeyError::Str("ERR: missing REDUCE"))?;
     if !token.eq_ignore_ascii_case(CMD_PARAM_REDUCER) {
-        let msg = format!("TSDB: expected \"{CMD_PARAM_REDUCER}\", found \"{token}\"");
+        let msg = format!("ERR: expected \"{CMD_PARAM_REDUCER}\", found \"{token}\"");
         return Err(ValkeyError::String(msg));
     }
     let agg_str = args.next_str()
-        .map_err(|_e| ValkeyError::Str("TSDB: Error parsing grouping reducer"))?;
+        .map_err(|_e| ValkeyError::Str("ERR: Error parsing grouping reducer"))?;
 
     let aggregator = Aggregator::try_from(agg_str)
         .map_err(|_| {
-            let msg = format!("TSDB: invalid grouping aggregator \"{}\"", agg_str);
+            let msg = format!("ERR: invalid grouping aggregator \"{}\"", agg_str);
             ValkeyError::String(msg)
         })?;
 

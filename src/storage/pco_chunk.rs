@@ -8,7 +8,12 @@ use crate::error::{TsdbError, TsdbResult};
 use crate::storage::chunk::Chunk;
 use crate::storage::utils::{get_timestamp_index_bounds, trim_vec_data};
 use crate::storage::{DuplicatePolicy, Sample, SeriesSlice, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
-use metricsql_encoding::encoders::pco::{decode as pco_decode, encode as pco_encode, encode_with_options as pco_encode_with_options, CompressorConfig};
+use metricsql_encoding::encoders::pco::{
+    decode as pco_decode,
+    encode as pco_encode,
+    encode_with_options as pco_encode_with_options,
+    CompressorConfig
+};
 use pco::DEFAULT_COMPRESSION_LEVEL;
 use valkey_module::raw;
 
@@ -248,8 +253,12 @@ impl PcoChunk {
         PcoChunkIterator::new(self)
     }
 
+    pub fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> impl Iterator<Item = Sample> + '_ {
+        PcoChunkIterator::new_range(self, start_ts, end_ts)
+    }
+
     pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
-        if self.num_samples() == 0 || timestamps.len() == 0 {
+        if self.num_samples() == 0 || timestamps.is_empty() {
             return Ok(vec![]);
         }
         let mut state = timestamps;
@@ -259,14 +268,11 @@ impl PcoChunk {
         self.process_range(first_timestamp, last_timestamp, &mut state, |state, timestamps, values| {
             let mut samples = Vec::with_capacity(timestamps.len());
             for ts in state.iter() {
-                match timestamps.binary_search(&ts) {
-                    Ok(i) => {
-                        samples.push(Sample {
-                            timestamp: timestamps[i],
-                            value: values[i],
-                        })
-                    }
-                    _ => {}
+                if let Ok(i) = timestamps.binary_search(ts) {
+                    samples.push(Sample {
+                        timestamp: timestamps[i],
+                        value: values[i],
+                    })
                 }
             }
             Ok(samples)
@@ -486,36 +492,75 @@ fn decompress_timestamps(compressed: &[u8], dst: &mut Vec<i64>) -> TsdbResult<()
 }
 
 
-pub struct PcoChunkIterator {
+pub struct PcoChunkIterator<'a> {
+    chunk: &'a PcoChunk,
     timestamps: Vec<Timestamp>,
     values: Vec<f64>,
     idx: usize,
+    start: Timestamp,
+    end: Timestamp,
+    is_init: bool,
 }
 
-impl PcoChunkIterator {
-    fn new(chunk: &PcoChunk) -> Self {
-        // todo: make this lazier. ie only decompress afrer first call to next
-        let mut timestamps = Vec::with_capacity(chunk.num_samples());
-        let mut values = Vec::with_capacity(chunk.num_samples());
+impl<'a> PcoChunkIterator<'a> {
+    fn new(chunk: &'a PcoChunk) -> Self {
+        Self {
+            chunk,
+            timestamps: vec![],
+            values: vec![],
+            idx: 0,
+            start: i64::MAX,
+            end: i64::MIN,
+            is_init: false,
+        }
+    }
 
-        match chunk.decompress(&mut timestamps, &mut values) {
-            Ok(_) => {}
+    fn new_range(chunk: &'a PcoChunk, start_ts: Timestamp, end_ts: Timestamp) -> Self {
+        let mut iter = PcoChunkIterator::new(chunk);
+        iter.start = start_ts;
+        iter.end = end_ts;
+        iter
+    }
+
+    fn has_range(&self) -> bool {
+        self.start < self.end
+    }
+
+    fn init(&mut self) {
+        let capacity = self.chunk.num_samples();
+        let mut timestamps = Vec::with_capacity(capacity);
+        let mut values = Vec::with_capacity(capacity);
+
+        match self.chunk.decompress(&mut timestamps, &mut values) {
+            Ok(_) => {
+                if self.has_range() {
+                    if let Some((start_index, end_index)) = get_timestamp_index_bounds(&timestamps, self.start, self.end) {
+                        timestamps.drain(end_index..);
+                        values.drain(end_index..);
+                        self.idx = start_index;
+                    } else {
+                        // dates are out of range
+                        timestamps = vec![];
+                        values = vec![];
+                    }
+                }
+                self.timestamps = timestamps;
+                self.values = values;
+            }
             Err(_idx) => {
                 // todo: log
             }
         }
-        Self {
-            timestamps,
-            values,
-            idx: 0
-        }
     }
 }
 
-impl Iterator for PcoChunkIterator {
+impl<'a> Iterator for PcoChunkIterator<'a> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.is_init {
+            self.init();
+        }
         if self.idx >= self.timestamps.len() {
             return None;
         }

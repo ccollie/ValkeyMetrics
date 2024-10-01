@@ -1,6 +1,5 @@
 use crate::error::{TsdbError, TsdbResult};
 use crate::globals::with_timeseries_index;
-use crate::index::TimeSeriesIndex;
 use crate::module::arg_parse::*;
 use crate::module::VKM_SERIES_TYPE;
 use crate::storage::time_series::TimeSeries;
@@ -8,16 +7,12 @@ use crate::storage::TimeSeriesOptions;
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
 
-const CMD_ARG_RETENTION: &str = "RETENTION";
-const CMD_ARG_DUPLICATE_POLICY: &str = "DUPLICATE_POLICY";
-const CMD_ARG_CHUNK_SIZE: &str = "CHUNK_SIZE";
-const CMD_ARG_DEDUPE_INTERVAL: &str = "DEDUPE_INTERVAL";
 const CMD_ARG_SIGNIFICANT_DIGITS: &str = "SIGNIFICANT_DIGITS";
 const MAX_SIGNIFICANT_DIGITS: u8 = 16;
 
 /// Create a new time series
 ///
-/// VKM.CREATE key metric
+/// VM.CREATE-SERIES key metric
 ///   [RETENTION retentionPeriod]
 ///   [ENCODING <COMPRESSED|UNCOMPRESSED>]
 ///   [CHUNK_SIZE size]
@@ -37,7 +32,7 @@ pub fn create(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     key.set_value(&VKM_SERIES_TYPE, ts)?;
 
     ctx.replicate_verbatim();
-    ctx.notify_keyspace_event(NotifyEvent::MODULE, "VKM.CREATE-SERIES", &parsed_key);
+    ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.CREATE-SERIES", &parsed_key);
 
     VALKEY_OK
 }
@@ -99,8 +94,7 @@ pub(crate) fn create_series(
             return Err(TsdbError::DuplicateMetric(ts.prometheus_metric_name()));
         }
 
-        ts.id = TimeSeriesIndex::next_id();
-        index.index_time_series(&ts, key.iter().as_slice());
+        index.index_time_series(&mut ts, key.iter().as_slice())?;
         Ok(ts)
     })
 }
@@ -109,14 +103,14 @@ pub(crate) fn create_series_ex(ctx: &Context, key: &ValkeyString, options: TimeS
     let _key = ValkeyKeyWritable::open(ctx.ctx, key);
     // check if this refers to an existing series
     if !_key.is_empty() {
-        return Err(ValkeyError::Str("TSDB: the key already exists"));
+        return Err(ValkeyError::Str("ERR: the key already exists"));
     }
 
     let ts = create_series(key, options, ctx)?;
     _key.set_value(&VKM_SERIES_TYPE, ts)?;
 
     ctx.replicate_verbatim();
-    ctx.notify_keyspace_event(NotifyEvent::MODULE, "PROM.CREATE-SERIES", key);
+    ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.CREATE-SERIES", key);
     ctx.log_verbose("series created");
 
     Ok(())

@@ -20,7 +20,7 @@ const CMD_ARG_ROUNDING: &str = "ROUNDING";
 
 
 ///
-/// VKM.QUERY-RANGE <query>
+/// VM.QUERY-RANGE <query>
 ///     [START rfc3339 | unix_timestamp | + | - | * ]
 ///     [END rfc3339 | unix_timestamp | + | - | * ]
 ///     [STEP duration]
@@ -106,7 +106,7 @@ pub fn query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     }
 
     let start = if let Some(val) = time_value {
-        val.to_timestamp()
+        val.as_timestamp()
     } else {
         current_time_millis()
     };
@@ -152,7 +152,7 @@ fn handle_query_result(result: RuntimeResult<Vec<QueryResult>>) -> ValkeyResult 
     match result {
         Ok(result) => Ok(to_matrix_result(result)),
         Err(e) => {
-            let err_msg = format!("PROM: Error: {:?}", e);
+            let err_msg = format!("ERR: {:?}", e);
             Err(ValkeyError::String(err_msg.to_string()))
         }
     }

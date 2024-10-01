@@ -1,12 +1,13 @@
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
+use crate::module::types::ValueFilter;
 use crate::storage::chunk::Chunk;
 use crate::storage::slice_iter::SeriesSliceIterator;
 use crate::storage::utils::get_timestamp_index_bounds;
 use crate::storage::{DuplicatePolicy, Sample, SAMPLE_SIZE};
-use std::mem::size_of;
 use get_size::GetSize;
 use serde::{Deserialize, Serialize};
+use std::mem::size_of;
 use valkey_module::raw;
 
 // todo: move to constants
@@ -44,10 +45,11 @@ impl UncompressedChunk {
     }
 
     pub fn with_max_size(size: usize) -> Self {
-        let mut res = Self::default();
-        res.max_size = size;
-        res.max_elements = size / SAMPLE_SIZE;
-        res
+        Self {
+            max_size: size,
+            max_elements: size / SAMPLE_SIZE,
+            ..Default::default()
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -129,7 +131,7 @@ impl UncompressedChunk {
     }
 
     fn find_timestamp_index(&self, ts: Timestamp) -> (usize, bool) {
-        if self.len() > 32 {
+        if self.len() > 128 {
             match self.timestamps.binary_search(&ts) {
                 Ok(idx) => (idx, true),
                 Err(idx) => (idx, false),
@@ -144,6 +146,61 @@ impl UncompressedChunk {
 
     pub fn iter(&self) -> impl Iterator<Item=Sample> + '_ {
         SeriesSliceIterator::new(&self.timestamps, &self.values)
+    }
+
+    pub fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> impl Iterator<Item=Sample> + '_ {
+        let (first, _) = self.find_timestamp_index(start_ts);
+        let (last, _) = self.find_timestamp_index(end_ts);
+        let ts_slice = &self.timestamps[first..last];
+        let values = &self.values[first..last];
+        SeriesSliceIterator::new(ts_slice, values)
+    }
+
+    // this is unnecessarily complex.
+    pub fn filtered_iter<'a>(&'a self,
+                       start_ts: Timestamp,
+                       end_ts: Timestamp,
+                       ts_filter: &Option<Vec<Timestamp>>,
+                       values_filter: &'a Option<ValueFilter>
+                    ) -> Box<dyn Iterator<Item=Sample> + 'a> {
+
+        match (ts_filter, values_filter) {
+            (Some(timestamps), Some(values_filter)) => {
+                Box::new(self.samples_by_timestamps(timestamps)
+                    .unwrap_or_default() // todo: raise error
+                    .into_iter()
+                    .filter(move |sample: &Sample| -> bool {
+                        sample.timestamp <= end_ts && sample.timestamp >= start_ts &&
+                        sample.value >= values_filter.min && sample.value <= values_filter.max
+                    }))
+            }
+            (Some(timestamps), None) => {
+                Box::new(self.samples_by_timestamps(timestamps)
+                    .unwrap_or_default() // todo: raise error
+                    .into_iter()
+                    .filter(move |sample: &Sample| -> bool {
+                        sample.timestamp <= end_ts && sample.timestamp >= start_ts
+                    }))
+            }
+            (None, Some(values_filter)) => {
+                Box::new(self.timestamps.iter()
+                    .zip(self.values.iter())
+                    .filter(move |(timestamp, value)| -> bool {
+                        **timestamp >= start_ts && **timestamp <= end_ts &&
+                            **value >= values_filter.min && **value <= values_filter.max
+                    })
+                    .map(|(timestamp, value )| Sample { timestamp: *timestamp, value: *value }))
+            }
+            (None, None) => {
+                Box::new(self.timestamps.iter()
+                    .zip(self.values.iter())
+                    .filter(move |(timestamp, _)| -> bool {
+                        **timestamp >= start_ts && **timestamp <= end_ts
+                    })
+                    .map(|(timestamp, value )| Sample { timestamp: *timestamp, value: *value })
+                )
+            }
+        }
     }
 
     pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {

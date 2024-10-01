@@ -2,7 +2,7 @@ use crate::common::types::Sample;
 use joinkit::Joinkit;
 use crate::module::types::JoinValue;
 
-// todo: accept iterators instead of slices
+// todo: accept iter instead of slices
 pub struct JoinRightExclusiveIter<'a> {
     iter: Box<dyn Iterator<Item = &'a Sample> + 'a>
 }

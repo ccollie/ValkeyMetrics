@@ -1,8 +1,0 @@
-#-vv
---env oss
---clear-logs
---enable-debug-command
---enable-protected-configs
---module ./target/debug/libredis_promql.dylib
---oss-redis-path /opt/homebrew/opt/valkey
-#--debug

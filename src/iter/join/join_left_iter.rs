@@ -1,24 +1,23 @@
 use crate::common::types::Sample;
-use crate::module::commands::join::convert_join_item;
 use joinkit::{EitherOrBoth, Joinkit};
 use crate::module::types::JoinValue;
+use super::convert_join_item;
 
-pub struct JoinFullIter<'a> {
-    inner: Box<dyn Iterator<Item=EitherOrBoth<&'a Sample, &'a Sample>> + 'a>
+pub struct JoinLeftIter<'a> {
+    inner: Box<dyn Iterator<Item = EitherOrBoth<&'a Sample, &'a Sample>> + 'a>
 }
 
-impl<'a> JoinFullIter<'a> {
+impl<'a> JoinLeftIter<'a> {
     pub fn new(left: &'a [Sample], right: &'a [Sample]) -> Self {
         let iter = left.iter()
-            .merge_join_full_outer_by(right, |x, y| x.timestamp.cmp(&y.timestamp));
-
+            .merge_join_left_outer_by(right, |x, y| x.timestamp.cmp(&y.timestamp));
         Self {
-            inner: Box::new(iter)
+            inner: Box::new(iter),
         }
     }
 }
 
-impl<'a> Iterator for JoinFullIter<'a> {
+impl<'a> Iterator for JoinLeftIter<'a> {
     type Item = JoinValue;
 
     fn next(&mut self) -> Option<Self::Item> {

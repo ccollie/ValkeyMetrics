@@ -1,6 +1,0 @@
-#-vv
---clear-logs
---enable-debug-command
---enable-protected-configs
---module target/debug/libredis_promql.so
-#--debug
