@@ -1,0 +1,3 @@
+```aiignore
+VM.MGET key
+```

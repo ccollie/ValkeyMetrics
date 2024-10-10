@@ -8,7 +8,7 @@ extern crate smallvec;
 extern crate valkey_module_macros;
 
 use valkey_module::server_events::{FlushSubevent, LoadingSubevent};
-use valkey_module::{valkey_module, Context as ValkeyContext, NotifyEvent, ValkeyString};
+use valkey_module::{valkey_module, Context as ValkeyContext, Context, NotifyEvent, Status, ValkeyString};
 use valkey_module_macros::{config_changed_event_handler, flush_event_handler, loading_event_handler};
 
 mod aggregators;
@@ -33,6 +33,14 @@ use module::*;
 pub const VKMETRICS_VERSION: i32 = 1;
 pub const MODULE_NAME: &str = "VKMetrics";
 pub const MODULE_TYPE: &str = "vkmetrics";
+
+fn initialize(_ctx: &Context, _args: &[ValkeyString]) -> Status {
+    Status::Ok
+}
+
+fn deinitialize(_ctx: &Context) -> Status {
+    Status::Ok
+}
 
 #[config_changed_event_handler]
 fn config_changed_event_handler(ctx: &ValkeyContext, _changed_configs: &[&str]) {
@@ -124,29 +132,31 @@ valkey_module! {
     version: VKMETRICS_VERSION,
     allocator: (get_allocator!(), get_allocator!()),
     data_types: [VKM_SERIES_TYPE],
+    init: initialize,
+    deinit: deinitialize,
     commands: [
         ["VM.CREATE-SERIES", commands::create, "write deny-oom", 1, 1, 1],
         ["VM.ALTER-SERIES", commands::alter, "write deny-oom", 1, 1, 1],
-        ["VM.ADD", commands::add, "write deny-oom", 1, 1, 1],
-        ["VM.GET", commands::get, "write deny-oom", 1, 1, 1],
-        ["VM.MGET", commands::mget, "write deny-oom", 1, 1, 1],
-        ["VM.COLLATE", commands::collate, "write deny-oom", 1, 1, 1],
+        ["VM.ADD", commands::add, "write fast deny-oom", 1, 1, 1],
+        ["VM.GET", commands::get, "readonly fast", 1, 1, 1],
+        ["VM.MGET", commands::mget, "readonly fast", 1, 1, 1],
+        ["VM.COLLATE", commands::collate, "readonly", 1, 1, 1],
         ["VM.MADD", commands::madd, "write deny-oom", 1, 1, 1],
-        ["VM.DELETE-KEY_RANGE", commands::delete_key_range, "write deny-oom", 1, 1, 1],
+        ["VM.DELETE-KEY-RANGE", commands::delete_key_range, "write deny-oom", 1, 1, 1],
         ["VM.DELETE-RANGE", commands::delete_range, "write deny-oom", 1, 1, 1],
         ["VM.DELETE-SERIES", commands::delete_series, "write deny-oom", 1, 1, 1],
-        ["VM.JOIN", commands::join, "write deny-oom", 1, 1, 1],
-        ["VM.QUERY", commands::query, "write deny-oom", 1, 1, 1],
-        ["VM.QUERY-RANGE", commands::query_range, "write deny-oom", 1, 1, 1],
-        ["VM.MRANGE", commands::mrange, "write deny-oom", 1, 1, 1],
-        ["VM.RANGE", commands::range, "write deny-oom", 1, 1, 1],
-        ["VM.SERIES", commands::series, "write deny-oom", 1, 1, 1],
-        ["VM.TOP-QUERIES", commands::top_queries, "write deny-oom", 1, 1, 1],
-        ["VM.ACTIVE-QUERIES", commands::active_queries, "write deny-oom", 1, 1, 1],
-        ["VM.CARDINALITY", commands::cardinality, "write deny-oom", 1, 1, 1],
-        ["VM.LABEL-NAMES", commands::label_names, "write deny-oom", 1, 1, 1],
-        ["VM.LABEL-VALUES", commands::label_values, "write deny-oom", 1, 1, 1],
-        ["VM.STATS", commands::stats, "write deny-oom", 1, 1, 1],
+        ["VM.JOIN", commands::join, "readonly", 1, 1, 1],
+        ["VM.QUERY", commands::query, "readonly deny-oom", 1, 1, 1],
+        ["VM.QUERY-RANGE", commands::query_range, "readonly deny-oom", 1, 1, 1],
+        ["VM.MRANGE", commands::mrange, "readonly deny-oom", 1, 1, 1],
+        ["VM.RANGE", commands::range, "readonly deny-oom", 1, 1, 1],
+        ["VM.SERIES", commands::series, "readonly fast", 1, 1, 1],
+        ["VM.TOP-QUERIES", commands::top_queries, "readonly fast", 1, 1, 1],
+        ["VM.ACTIVE-QUERIES", commands::active_queries, "readonly fast", 1, 1, 1],
+        ["VM.CARDINALITY", commands::cardinality, "readonly fast", 1, 1, 1],
+        ["VM.LABEL-NAMES", commands::label_names, "readonly fast", 1, 1, 1],
+        ["VM.LABEL-VALUES", commands::label_values, "readonly fast", 1, 1, 1],
+        ["VM.STATS", commands::stats, "readonly", 1, 1, 1],
         ["VM.RESET-ROLLUP-CACHE", commands::reset_rollup_cache, "write deny-oom", 1, 1, 1],
     ],
      event_handlers: [
