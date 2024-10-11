@@ -1,5 +1,5 @@
 use crate::common::types::{Label, Sample, Timestamp};
-use crate::storage::time_series::TimeSeries;
+use crate::series::time_series::TimeSeries;
 use metricsql_runtime::types::{MetricName, METRIC_NAME_LABEL};
 use std::collections::HashMap;
 use std::fmt::Display;

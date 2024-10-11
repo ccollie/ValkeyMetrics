@@ -1,10 +1,7 @@
 use crate::common::types::{PooledTimestampVec, PooledValuesVec, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
-use crate::storage::gorilla_chunk::GorillaChunk;
-use crate::storage::merge::merge;
-use crate::storage::pco_chunk::PcoChunk;
-use crate::storage::uncompressed_chunk::UncompressedChunk;
-use crate::storage::{DuplicatePolicy, Sample, SeriesSlice};
+use crate::series::merge::merge;
+use crate::series::{DuplicatePolicy, Sample, SeriesSlice};
 use ahash::AHashSet;
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
@@ -14,11 +11,11 @@ use std::mem::size_of;
 use valkey_module::error::{Error, GenericError};
 use valkey_module::{raw, RedisModuleIO};
 use crate::module::types::ValueFilter;
+use super::{GorillaChunk, PcoChunk, UncompressedChunk};
 
 pub const MIN_CHUNK_SIZE: usize = 48;
 pub const MAX_CHUNK_SIZE: usize = 1048576;
 pub const OVERFLOW_THRESHOLD: f64 = 0.2;
-
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[derive(GetSize)]
@@ -715,7 +712,7 @@ pub fn merge_by_capacity(
 #[cfg(test)]
 mod tests {
     use crate::error::TsdbError;
-    use crate::storage::{Chunk, Sample, TimeSeriesChunk};
+    use crate::series::{Chunk, Sample, TimeSeriesChunk};
     use crate::tests::generators::create_rng;
     use rand::Rng;
 

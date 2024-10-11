@@ -1,14 +1,13 @@
-use crate::index::index_key::format_key_for_label_prefix;
-use crate::index::timeseries_index::SetOperation;
-use crate::index::ARTBitmap;
+use crate::series::index::index_key::format_key_for_label_prefix;
+use crate::series::index::timeseries_index::SetOperation;
+use super::{ARTBitmap, IdBitmap};
 use blart::AsBytes;
-use croaring::Bitmap64;
 use metricsql_common::prelude::StringMatchHandler;
 use metricsql_parser::label::{LabelFilterOp, Matchers};
 use metricsql_runtime::{create_label_filter_matchers, LabelFilterVec, TagFilter};
 
 
-pub fn process_equals_match(label_index: &ARTBitmap, key: &String, dest: &mut Bitmap64, op: SetOperation) {
+pub fn process_equals_match(label_index: &ARTBitmap, key: &String, dest: &mut IdBitmap, op: SetOperation) {
     if let Some(map) = label_index.get(key.as_bytes()) {
         process_iterator(std::iter::once(map), dest, op);
     } else {
@@ -19,25 +18,25 @@ pub fn process_equals_match(label_index: &ARTBitmap, key: &String, dest: &mut Bi
 fn process_filter(
     label_index: &ARTBitmap,
     filter: &TagFilter,
-    dest: &mut Bitmap64,
+    dest: &mut IdBitmap,
     op: SetOperation,
     key_buf: &mut String,
 ) {
     use LabelFilterOp::*;
 
     #[inline]
-    fn handle_match_all(label_index: &ARTBitmap, key_buf: &String, dest: &mut Bitmap64, op: SetOperation) {
+    fn handle_match_all(label_index: &ARTBitmap, key_buf: &String, dest: &mut IdBitmap, op: SetOperation) {
         let iter = label_index.prefix(key_buf.as_bytes()).map(|(_, map)| map);
         process_iterator(iter, dest, op);
     }
 
-    fn handle_match_none(dest: &mut Bitmap64, op: SetOperation) {
+    fn handle_match_none(dest: &mut IdBitmap, op: SetOperation) {
         if op == SetOperation::Intersection {
             dest.clear();
         }
     }
 
-    fn handle_general_match(label_index: &ARTBitmap, filter: &TagFilter, dest: &mut Bitmap64, op: SetOperation, key_buf: &mut String) {
+    fn handle_general_match(label_index: &ARTBitmap, filter: &TagFilter, dest: &mut IdBitmap, op: SetOperation, key_buf: &mut String) {
         format_key_for_label_prefix(key_buf, &filter.key);
         let start_pos = key_buf.len();
         let matcher = &filter.matcher;
@@ -120,7 +119,7 @@ pub fn filter_value_by_matcher(
     }
 }
 
-pub fn process_iterator<'a>(mut iter: impl Iterator<Item = &'a Bitmap64>, dest: &mut Bitmap64, op: SetOperation) {
+pub fn process_iterator<'a>(mut iter: impl Iterator<Item = &'a IdBitmap>, dest: &mut IdBitmap, op: SetOperation) {
     match op {
         SetOperation::Union => {
             for map in iter {
@@ -151,7 +150,7 @@ pub fn process_iterator<'a>(mut iter: impl Iterator<Item = &'a Bitmap64>, dest: 
 pub fn get_ids_by_matchers_optimized(
     label_index: &ARTBitmap,
     matchers: &Matchers,
-    dest: &mut Bitmap64
+    dest: &mut IdBitmap
 ) {
     let mut key_buf = String::with_capacity(64);
 
@@ -162,9 +161,9 @@ pub fn get_ids_by_matchers_optimized(
 
 pub fn exec_label_matches(label_index: &ARTBitmap,
                     matchers: &LabelFilterVec,
-                    dest: &mut Bitmap64,
+                    dest: &mut IdBitmap,
                     key_buf: &mut String) {
-    let mut intersects = Bitmap64::new();
+    let mut intersects = IdBitmap::new();
     for filters in matchers.iter() {
         exec_filter_list(label_index, filters, &mut intersects, key_buf);
         dest.or_inplace(&intersects);
@@ -174,7 +173,7 @@ pub fn exec_label_matches(label_index: &ARTBitmap,
 
 // execute ANDed list of filters
 #[inline]
-fn exec_filter_list(label_index: &ARTBitmap, filters: &[TagFilter], dest: &mut Bitmap64, key_buf: &mut String) {
+fn exec_filter_list(label_index: &ARTBitmap, filters: &[TagFilter], dest: &mut IdBitmap, key_buf: &mut String) {
     for filter in filters.iter() {
         process_filter(label_index, filter, dest, SetOperation::Intersection, key_buf);
         if dest.is_empty() {

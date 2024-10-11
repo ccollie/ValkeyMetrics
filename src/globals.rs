@@ -1,4 +1,4 @@
-use crate::index::{TimeSeriesIndex, TimeSeriesIndexMap};
+use crate::series::index::{TimeSeriesIndex, TimeSeriesIndexMap};
 use crate::provider::TsdbDataProvider;
 use metricsql_runtime::prelude::Context as QueryContext;
 use papaya::Guard;

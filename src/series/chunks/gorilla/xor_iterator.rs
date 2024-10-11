@@ -6,7 +6,7 @@ use nom::{
     number::complete::be_f64,
     sequence::tuple
 };
-use crate::gorilla::XOREncoder;
+use super::XOREncoder;
 
 #[derive(Debug)]
 pub struct XORIterator<'a> {

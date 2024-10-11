@@ -7,7 +7,7 @@ use crate::module::commands::range_utils::{aggregate_samples, get_sample_iterato
 use crate::module::result::sample_to_value;
 use crate::module::types::{AggregationOptions, RangeGroupingOptions, RangeOptions};
 use crate::module::VKM_SERIES_TYPE;
-use crate::storage::time_series::{SeriesSampleIterator, TimeSeries};
+use crate::series::time_series::{SeriesSampleIterator, TimeSeries};
 use ahash::AHashMap;
 use valkey_module::{Context, NextArg, ValkeyResult, ValkeyString, ValkeyValue};
 

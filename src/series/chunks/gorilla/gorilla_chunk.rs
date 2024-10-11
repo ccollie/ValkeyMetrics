@@ -2,9 +2,9 @@ use std::cmp::Ordering;
 use crate::common::current_time_millis;
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
-use crate::gorilla::{XOREncoder, XORIterator};
-use crate::storage::chunk::Chunk;
-use crate::storage::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES};
+use super::{XOREncoder, XORIterator};
+use crate::series::chunks::chunk::Chunk;
+use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES};
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use std::mem::size_of;
@@ -74,7 +74,7 @@ impl GorillaChunk {
         Ok(())
     }
 
-    pub(super) fn compress(&mut self, timestamps: &[Timestamp], values: &[f64]) -> TsdbResult<()> {
+    pub(in crate::series) fn compress(&mut self, timestamps: &[Timestamp], values: &[f64]) -> TsdbResult<()> {
         debug_assert_eq!(timestamps.len(), values.len());
         let mut encoder = XOREncoder::new();
         for (ts, value) in timestamps.iter().zip(values.iter()) {
@@ -85,7 +85,7 @@ impl GorillaChunk {
         Ok(())
     }
 
-    pub(super) fn decompress(
+    pub(in crate::series) fn decompress(
         &self,
         timestamps: &mut Vec<Timestamp>,
         values: &mut Vec<f64>,
@@ -525,10 +525,10 @@ mod tests {
     use std::time::Duration;
 
     use crate::error::TsdbError;
-    use crate::storage::chunk::Chunk;
-    use crate::storage::gorilla_chunk::GorillaChunk;
-    use crate::storage::series_data::SeriesData;
-    use crate::storage::{DuplicatePolicy, Sample};
+    use crate::series::chunks::chunk::Chunk;
+    use crate::series::chunks::gorilla::gorilla_chunk::GorillaChunk;
+    use crate::series::series_data::SeriesData;
+    use crate::series::{DuplicatePolicy, Sample};
     use crate::tests::generators::{create_rng, generate_series_data, generate_timestamps, GeneratorOptions, RandAlgo};
 
     fn decompress(chunk: &GorillaChunk) -> SeriesData {

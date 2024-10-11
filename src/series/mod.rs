@@ -7,22 +7,20 @@ use std::str::FromStr;
 use std::time::Duration;
 use valkey_module::ValkeyError;
 
-mod chunk;
-mod pco_chunk;
 mod constants;
 mod merge;
 mod slice;
 pub mod time_series;
-mod uncompressed_chunk;
 pub(crate) mod utils;
 pub(crate) mod series_data;
 mod defrag;
-mod gorilla_chunk;
 mod slice_iter;
+pub mod index;
+mod chunks;
 
 use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
-pub(super) use chunk::*;
+pub(super) use chunks::*;
 pub(crate) use constants::*;
 pub(crate) use defrag::*;
 pub(crate) use slice::*;
@@ -219,7 +217,7 @@ impl TimeSeriesOptions {
 #[cfg(test)]
 mod tests {
     use crate::error::TsdbError;
-    use crate::storage::DuplicatePolicy;
+    use crate::series::DuplicatePolicy;
     use std::str::FromStr;
 
     #[test]

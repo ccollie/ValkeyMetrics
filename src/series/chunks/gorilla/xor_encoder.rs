@@ -2,7 +2,7 @@ use std::mem::size_of_val;
 use crate::common::bitwriter::{BigEndian, BitWrite, BitWriter};
 use crate::common::types::Sample;
 use crate::common::{write_uvarint, write_varbit_ts, write_varbit_xor, write_varint};
-use crate::gorilla::xor_iterator::XORIterator;
+use crate::series::chunks::gorilla::xor_iterator::XORIterator;
 use bitstream_io::BitQueue;
 use get_size::GetSize;
 use smallvec::SmallVec;
@@ -175,7 +175,7 @@ impl XOREncoder {
         XORIterator::new(self)
     }
 
-    pub(super) fn buf(&self) -> &[u8] {
+    pub(crate) fn buf(&self) -> &[u8] {
         &self.writer.writer
     }
 

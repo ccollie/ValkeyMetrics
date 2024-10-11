@@ -5,20 +5,15 @@ use std::mem::size_of;
 
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
-use crate::storage::chunk::Chunk;
-use crate::storage::utils::{get_timestamp_index_bounds, trim_vec_data};
-use crate::storage::{DuplicatePolicy, Sample, SeriesSlice, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
-use metricsql_encoding::encoders::pco::{
-    decode as pco_decode,
-    encode as pco_encode,
-    encode_with_options as pco_encode_with_options,
-    CompressorConfig
-};
+use crate::series::chunks::Chunk;
+use crate::series::utils::{get_timestamp_index_bounds, trim_vec_data};
+use crate::series::{DuplicatePolicy, Sample, SeriesSlice, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
+use super::pco_utils::{pco_decode, pco_encode, encode_with_options, CompressorConfig};
 use pco::DEFAULT_COMPRESSION_LEVEL;
 use valkey_module::raw;
 
 /// items above this count will cause value and timestamp encoding/decoding to happen in parallel
-pub(super) const COMPRESSION_PARALLELIZATION_THRESHOLD: usize = 1024;
+pub(in crate::series) const COMPRESSION_PARALLELIZATION_THRESHOLD: usize = 1024;
 
 /// `CompressedBlock` holds information about location and time range of a block of compressed data.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -95,7 +90,7 @@ impl PcoChunk {
         Ok(())
     }
 
-    pub(super) fn compress(&mut self, timestamps: &[Timestamp], values: &[f64]) -> TsdbResult<()> {
+    pub(in crate::series) fn compress(&mut self, timestamps: &[Timestamp], values: &[f64]) -> TsdbResult<()> {
         if timestamps.is_empty() {
             return Ok(());
         }
@@ -134,7 +129,7 @@ impl PcoChunk {
         Ok(())
     }
 
-    pub(super) fn decompress(
+    pub(in crate::series) fn decompress(
         &self,
         timestamps: &mut Vec<Timestamp>,
         values: &mut Vec<f64>,
@@ -479,7 +474,7 @@ fn compress_timestamps(compressed: &mut Vec<u8>, timestamps: &[Timestamp]) -> Ts
         compression_level: DEFAULT_COMPRESSION_LEVEL,
         delta_encoding_order: 2
     };
-    pco_encode_with_options(timestamps, compressed, config)
+    encode_with_options(timestamps, compressed, config)
         .map_err(|e| TsdbError::CannotSerialize(format!("timestamps: {}", e)))
 }
 
@@ -577,10 +572,10 @@ mod tests {
     use rand::Rng;
 
     use crate::error::TsdbError;
-    use crate::storage::chunk::Chunk;
-    use crate::storage::pco_chunk::PcoChunk;
-    use crate::storage::series_data::SeriesData;
-    use crate::storage::{DuplicatePolicy, Sample};
+    use crate::series::chunks::chunk::Chunk;
+    use crate::series::chunks::pco::pco_chunk::PcoChunk;
+    use crate::series::series_data::SeriesData;
+    use crate::series::{DuplicatePolicy, Sample};
     use crate::tests::generators::{create_rng, generate_series_data, generate_timestamps, GeneratorOptions, RandAlgo};
 
     fn decompress(chunk: &PcoChunk) -> SeriesData {

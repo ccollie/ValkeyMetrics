@@ -1,8 +1,8 @@
 use crate::common::types::{Label, Timestamp};
 use crate::globals::with_timeseries_index;
-use crate::index::TimeSeriesIndex;
+use crate::series::index::TimeSeriesIndex;
 use crate::module::VKM_SERIES_TYPE;
-use crate::storage::time_series::TimeSeries;
+use crate::series::time_series::TimeSeries;
 use async_trait::async_trait;
 use metricsql_runtime::prelude::{Deadline, MetricStorage, QueryResult, QueryResults, RuntimeError, RuntimeResult, SearchQuery};
 use metricsql_runtime::types::MetricName;
@@ -32,7 +32,7 @@ impl TsdbDataProvider {
                         }
                         Err(e) => {
                             ctx.log_warning(&format!("PROMQL: Error: {:?}", e));
-                            // TODO!: we need a specific error for storage backends
+                            // TODO!: we need a specific error for series backends
                             Err(RuntimeError::General("Error".to_string()))
                         }
                     }

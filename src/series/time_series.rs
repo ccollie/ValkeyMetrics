@@ -1,14 +1,23 @@
 use std::hash::Hash;
-use super::{merge_by_capacity, validate_chunk_size, Chunk, ChunkCompression, ChunkSampleIterator, Sample, TimeSeriesChunk, TimeSeriesOptions};
+use super::{
+    merge_by_capacity,
+    validate_chunk_size,
+    Chunk,
+    ChunkCompression,
+    ChunkSampleIterator,
+    Sample,
+    TimeSeriesChunk,
+    TimeSeriesOptions,
+    UncompressedChunk
+};
 use crate::common::decimal::{round_to_significant_digits, RoundDirection};
 use crate::common::types::{Label, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
 use crate::module::types::ValueFilter;
-use crate::storage::constants::{DEFAULT_CHUNK_SIZE_BYTES, SPLIT_FACTOR};
-use crate::storage::uncompressed_chunk::UncompressedChunk;
-use crate::storage::utils::format_prometheus_metric_name;
-use crate::storage::DuplicatePolicy;
+use crate::series::constants::{DEFAULT_CHUNK_SIZE_BYTES, SPLIT_FACTOR};
+use crate::series::utils::format_prometheus_metric_name;
+use crate::series::DuplicatePolicy;
 use get_size::GetSize;
 use metricsql_common::hash::IntMap;
 use smallvec::SmallVec;
@@ -17,13 +26,18 @@ use std::time::Duration;
 use valkey_module::error::GenericError;
 use valkey_module::raw;
 
+#[cfg(feature = "id64")]
+pub type TimeseriesId = u64;
+#[cfg(not(feature = "id64"))]
+pub type TimeseriesId = u32;
+
 /// Represents a time series. The time series consists of time series blocks, each containing BLOCK_SIZE_FOR_TIME_SERIES
 /// data points. All but the last block are compressed.
 #[derive(Clone, Debug, PartialEq)]
 #[derive(GetSize)]
 pub struct TimeSeries {
     /// fixed internal id used in indexing
-    pub id: u64,
+    pub id: TimeseriesId,
 
     /// Name of the metric
     /// For example, given `http_requests_total{method="POST", status="500"}`
@@ -552,7 +566,7 @@ impl TimeSeries {
     }
 
     pub fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
-        raw::save_unsigned(rdb, self.id);
+        raw::save_unsigned(rdb, self.id as u64);
         raw::save_string(rdb, &self.metric_name);
         raw::save_unsigned(rdb, self.labels.len() as u64);
         for label in self.labels.iter() {
@@ -586,7 +600,7 @@ impl TimeSeries {
     }
 
      fn load_internal(rdb: *mut raw::RedisModuleIO, _encver: i32) -> Result<Self, valkey_module::error::Error> {
-        let id = raw::load_unsigned(rdb)?;
+        let id = raw::load_unsigned(rdb)? as TimeseriesId;
         let metric_name = raw::load_string(rdb)?.into();
         let labels_len = raw::load_unsigned(rdb)? as usize;
         let mut labels = Vec::with_capacity(labels_len);

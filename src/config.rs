@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::Duration;
-use crate::storage::{DEFAULT_CHUNK_SIZE_BYTES, DuplicatePolicy};
+use crate::series::{DEFAULT_CHUNK_SIZE_BYTES, DuplicatePolicy};
 
 pub const DEFAULT_RULE_UPDATE_ENTRIES_LIMIT: usize = 10;
 pub const DEFAULT_MAX_SERIES_LIMIT: usize = 30_000;
@@ -62,7 +62,7 @@ pub struct Settings {
 
     /// Delay between rules evaluation within the group. Could be important if there are chained rules
     /// inside the group and processing need to wait for previous rule results to be persisted by
-    /// remote storage before evaluating the next rule.
+    /// remote series before evaluating the next rule.
     /// Keep it equal or bigger than -remoteWrite.flushInterval.
     pub replay_rules_delay: Duration,
 

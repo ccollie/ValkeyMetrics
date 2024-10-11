@@ -1,6 +1,6 @@
 use crate::common::types::Timestamp;
-use crate::storage::utils::get_timestamp_index;
-use crate::storage::Sample;
+use crate::series::utils::get_timestamp_index;
+use crate::series::Sample;
 
 #[derive(Debug, Clone)]
 pub struct SeriesSlice<'a> {

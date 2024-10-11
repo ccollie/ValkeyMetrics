@@ -6,7 +6,7 @@ use crate::module::arg_parse::*;
 use crate::module::result::sample_to_value;
 use crate::module::types::{JoinAsOfDirection, JoinOptions, JoinType, JoinValue};
 use crate::module::{invalid_series_key_error, VKM_SERIES_TYPE};
-use crate::storage::time_series::TimeSeries;
+use crate::series::time_series::TimeSeries;
 use joinkit::EitherOrBoth;
 use metricsql_parser::binaryop::BinopFunc;
 use std::time::Duration;

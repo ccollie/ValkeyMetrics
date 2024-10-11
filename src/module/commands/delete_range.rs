@@ -1,7 +1,7 @@
 use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::{parse_series_selector, parse_timestamp_range};
 use crate::module::VKM_SERIES_TYPE;
-use crate::storage::time_series::TimeSeries;
+use crate::series::time_series::TimeSeries;
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
 // todo: change cmd name to delete_series_mrange. we want another function to delete the series

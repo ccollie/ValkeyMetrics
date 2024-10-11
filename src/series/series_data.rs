@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use crate::error::TsdbResult;
-use crate::storage::{DuplicatePolicy, Sample};
+use crate::series::{DuplicatePolicy, Sample};
 
 // Time series measurements.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]

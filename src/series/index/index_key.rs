@@ -33,7 +33,7 @@ impl IndexKey {
         key.find('=').map(|index| (&key[..index], &key[index + 1..self.len()]))
     }
 
-    pub(super) fn sub_string(&self, start: usize) -> &str {
+    pub(crate) fn sub_string(&self, start: usize) -> &str {
         let buf = &self.0[start .. self.0.len() - 1];
         std::str::from_utf8(buf).unwrap()
     }

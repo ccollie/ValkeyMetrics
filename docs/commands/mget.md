@@ -1,3 +1,5 @@
 ```aiignore
-VM.MGET key
+VM.MGET FILTER selector...
+    [WITHLABELS]
+    [SELECTED_LABELS label..]
 ```

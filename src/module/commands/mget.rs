@@ -10,6 +10,9 @@ struct MGetOptions {
     with_labels: bool,
     selected_labels: Vec<String>,
 }
+/// VM.MGET selector
+///   [WITHLABELS]
+///   [SELECTED_LABELS label...]
 pub fn mget(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1).peekable();
 
@@ -63,28 +66,23 @@ pub fn mget(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 fn parse_mget_options(args: &mut CommandArgIterator) -> ValkeyResult<MGetOptions> {
 
     const CMD_TOKENS: &[&str] = &[
-        CMD_ARG_FILTER,
         CMD_ARG_WITH_LABELS,
-        CMD_ARG_SELECTED_LABELS
     ];
 
     fn is_mget_command_keyword(arg: &str) -> bool {
         CMD_TOKENS.contains(&arg)
     }
 
+    let filter = parse_series_selector(args.next_str()?)?;
     let mut options = MGetOptions {
         with_labels: false,
-        filter: Matchers::default(),
+        filter,
         selected_labels: Default::default(),
     };
 
     while let Ok(arg) = args.next_str() {
         let token = arg.to_ascii_uppercase();
         match token.as_str() {
-            CMD_ARG_FILTER => {
-                let filter = args.next_str()?;
-                options.filter = parse_series_selector(filter)?;
-            }
             CMD_ARG_WITH_LABELS => {
                 options.with_labels = true;
             }

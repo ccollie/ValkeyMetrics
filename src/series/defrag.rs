@@ -1,6 +1,6 @@
 use crate::error::TsdbResult;
-use crate::storage::{Chunk, merge_by_capacity};
-use crate::storage::time_series::TimeSeries;
+use crate::series::{Chunk, merge_by_capacity};
+use crate::series::time_series::TimeSeries;
 
 pub fn defrag_series(series: &mut TimeSeries) -> TsdbResult<()> {
     series.trim()?;

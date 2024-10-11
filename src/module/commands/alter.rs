@@ -1,8 +1,8 @@
 use crate::globals::with_timeseries_index;
 use crate::module::commands::parse_create_options;
 use crate::module::with_timeseries_mut;
-use crate::storage::time_series::TimeSeries;
-use crate::storage::TimeSeriesOptions;
+use crate::series::time_series::TimeSeries;
+use crate::series::TimeSeriesOptions;
 use valkey_module::{Context, NotifyEvent, ValkeyResult, ValkeyString, VALKEY_OK};
 
 pub fn alter(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {

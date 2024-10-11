@@ -1,9 +1,8 @@
-use crate::error::{TsdbError, TsdbResult};
 use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::*;
 use crate::module::VKM_SERIES_TYPE;
-use crate::storage::time_series::TimeSeries;
-use crate::storage::TimeSeriesOptions;
+use crate::series::time_series::TimeSeries;
+use crate::series::TimeSeriesOptions;
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
 
@@ -23,11 +22,11 @@ pub fn create(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let key = ValkeyKeyWritable::open(ctx.ctx, &parsed_key);
     // check if this refers to an existing series
     if !key.is_empty() {
-        return Err(ValkeyError::Str("TSDB: the key already exists"));
+        return Err(ValkeyError::Str("ERR: the key already exists"));
     }
 
     let ts = create_series(&parsed_key, options, ctx)
-        .map_err(|_| ValkeyError::Str("TSDB: failed to create series"))?;
+        .map_err(|_| ValkeyError::Str("ERR: failed to create series"))?;
 
     key.set_value(&VKM_SERIES_TYPE, ts)?;
 
@@ -85,13 +84,14 @@ pub(crate) fn create_series(
     key: &ValkeyString,
     options: TimeSeriesOptions,
     ctx: &Context,
-) -> TsdbResult<TimeSeries> {
+) -> ValkeyResult<TimeSeries> {
     let mut ts = TimeSeries::with_options(options)?;
     with_timeseries_index(ctx, |index| {
         // will return an error if the series already exists
         let existing_id = index.get_id_by_name_and_labels(&ts.metric_name, &ts.labels)?;
         if let Some(_id) = existing_id {
-            return Err(TsdbError::DuplicateMetric(ts.prometheus_metric_name()));
+            let msg = format!("ERR: the series already exists : \"{}\"", ts.prometheus_metric_name());
+            return Err(ValkeyError::String(msg));
         }
 
         index.index_time_series(&mut ts, key.iter().as_slice())?;

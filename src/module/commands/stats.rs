@@ -1,5 +1,5 @@
 use crate::globals::with_timeseries_index;
-use crate::index::{IndexInner, TimeSeriesIndex};
+use crate::series::index::{IndexInner, TimeSeriesIndex};
 use crate::module::arg_parse::parse_integer_arg;
 use std::collections::HashMap;
 use std::sync::RwLockReadGuard;

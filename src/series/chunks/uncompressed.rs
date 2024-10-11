@@ -1,10 +1,10 @@
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::module::types::ValueFilter;
-use crate::storage::chunk::Chunk;
-use crate::storage::slice_iter::SeriesSliceIterator;
-use crate::storage::utils::get_timestamp_index_bounds;
-use crate::storage::{DuplicatePolicy, Sample, SAMPLE_SIZE};
+use crate::series::chunks::Chunk;
+use crate::series::slice_iter::SeriesSliceIterator;
+use crate::series::utils::get_timestamp_index_bounds;
+use crate::series::{DuplicatePolicy, Sample, SAMPLE_SIZE};
 use get_size::GetSize;
 use serde::{Deserialize, Serialize};
 use std::mem::size_of;
@@ -380,8 +380,8 @@ impl Chunk for UncompressedChunk {
 #[cfg(test)]
 mod tests {
     use crate::error::TsdbError;
-    use crate::storage::uncompressed_chunk::UncompressedChunk;
-    use crate::storage::{Chunk, Sample};
+    use crate::series::chunks::uncompressed::UncompressedChunk;
+    use crate::series::{Chunk, Sample};
     use crate::tests::generators::create_rng;
     use rand::Rng;
 

@@ -1,4 +1,4 @@
-use crate::storage::series_data::SeriesData;
+use crate::series::series_data::SeriesData;
 use crate::common::current_time_millis;
 use crate::common::types::Timestamp;
 use crate::tests::generators::generators::{

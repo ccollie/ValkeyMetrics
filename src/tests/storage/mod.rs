@@ -1,7 +1,7 @@
 use rand::Rng;
 use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
-use crate::storage::{Chunk, TimeSeriesChunk};
+use crate::series::{Chunk, TimeSeriesChunk};
 use crate::tests::generators::create_rng;
 
 pub fn saturate_chunk(start_ts: Timestamp, chunk: &mut TimeSeriesChunk) -> TsdbResult<()> {

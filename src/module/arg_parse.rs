@@ -4,7 +4,7 @@ use crate::common::types::{Label, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
 use crate::module::transform_op::TransformOperator;
 use crate::module::types::*;
-use crate::storage::{DuplicatePolicy, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
+use crate::series::{DuplicatePolicy, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
 use chrono::DateTime;
 use metricsql_parser::parser::{parse_duration_value, parse_metric_name as parse_metric, parse_number};
 use metricsql_parser::prelude::Matchers;

@@ -1,5 +1,6 @@
 #![feature(lazy_cell)]
 extern crate async_trait;
+extern crate cfg_if;
 extern crate croaring;
 extern crate get_size;
 extern crate joinkit;
@@ -16,18 +17,16 @@ mod common;
 mod config;
 mod error;
 mod globals;
-mod index;
 mod module;
 mod provider;
-mod storage;
+mod series;
 
 #[cfg(test)]
 mod tests;
-mod gorilla;
 mod iter;
 
 use crate::globals::{clear_timeseries_index, with_timeseries_index};
-use crate::storage::time_series::TimeSeries;
+use crate::series::time_series::TimeSeries;
 use module::*;
 
 pub const VKMETRICS_VERSION: i32 = 1;
@@ -106,7 +105,7 @@ fn on_event(ctx: &ValkeyContext, _event_type: NotifyEvent, event: &str, key: &[u
         "rename_from" => {
             // RenameSeriesFrom(ctx, key);
         }
-        "storage.alter" => remove_key_from_index(ctx, key),
+        "series.alter" => remove_key_from_index(ctx, key),
         _ => {
             // ctx.log_warning(&format!("Unknown event: {}", event));
         }
@@ -127,6 +126,7 @@ macro_rules! get_allocator {
     };
 }
 
+// https://github.com/redis/redis/blob/a38c29b6c861ee59637acdb1618f8f84645061d5/src/module.c
 valkey_module! {
     name: MODULE_NAME,
     version: VKMETRICS_VERSION,
@@ -139,25 +139,25 @@ valkey_module! {
         ["VM.ALTER-SERIES", commands::alter, "write deny-oom", 1, 1, 1],
         ["VM.ADD", commands::add, "write fast deny-oom", 1, 1, 1],
         ["VM.GET", commands::get, "readonly fast", 1, 1, 1],
-        ["VM.MGET", commands::mget, "readonly fast", 1, 1, 1],
-        ["VM.COLLATE", commands::collate, "readonly", 1, 1, 1],
-        ["VM.MADD", commands::madd, "write deny-oom", 1, 1, 1],
+        ["VM.MGET", commands::mget, "readonly fast", 0, 0, -1],
+        ["VM.COLLATE", commands::collate, "readonly", 0, 0, 0],
+        ["VM.MADD", commands::madd, "write deny-oom", 1, -1, 3],
         ["VM.DELETE-KEY-RANGE", commands::delete_key_range, "write deny-oom", 1, 1, 1],
-        ["VM.DELETE-RANGE", commands::delete_range, "write deny-oom", 1, 1, 1],
+        ["VM.DELETE-RANGE", commands::delete_range, "write deny-oom", 0, 0, -1],
         ["VM.DELETE-SERIES", commands::delete_series, "write deny-oom", 1, 1, 1],
-        ["VM.JOIN", commands::join, "readonly", 1, 1, 1],
-        ["VM.QUERY", commands::query, "readonly deny-oom", 1, 1, 1],
-        ["VM.QUERY-RANGE", commands::query_range, "readonly deny-oom", 1, 1, 1],
-        ["VM.MRANGE", commands::mrange, "readonly deny-oom", 1, 1, 1],
+        ["VM.JOIN", commands::join, "readonly", 1, 2, 1],
+        ["VM.QUERY", commands::query, "readonly deny-oom", 0, 0, 0],
+        ["VM.QUERY-RANGE", commands::query_range, "readonly deny-oom", 0, 0, 0],
+        ["VM.MRANGE", commands::mrange, "readonly deny-oom", 0, 0, -1],
         ["VM.RANGE", commands::range, "readonly deny-oom", 1, 1, 1],
-        ["VM.SERIES", commands::series, "readonly fast", 1, 1, 1],
-        ["VM.TOP-QUERIES", commands::top_queries, "readonly fast", 1, 1, 1],
-        ["VM.ACTIVE-QUERIES", commands::active_queries, "readonly fast", 1, 1, 1],
-        ["VM.CARDINALITY", commands::cardinality, "readonly fast", 1, 1, 1],
-        ["VM.LABEL-NAMES", commands::label_names, "readonly fast", 1, 1, 1],
-        ["VM.LABEL-VALUES", commands::label_values, "readonly fast", 1, 1, 1],
-        ["VM.STATS", commands::stats, "readonly", 1, 1, 1],
-        ["VM.RESET-ROLLUP-CACHE", commands::reset_rollup_cache, "write deny-oom", 1, 1, 1],
+        ["VM.SERIES", commands::series, "readonly fast", 0, 0, 0],
+        ["VM.TOP-QUERIES", commands::top_queries, "readonly fast", 0, 0, 0],
+        ["VM.ACTIVE-QUERIES", commands::active_queries, "readonly fast", 0, 0, 0],
+        ["VM.CARDINALITY", commands::cardinality, "readonly fast", 0, 0, -1],
+        ["VM.LABEL-NAMES", commands::label_names, "readonly fast", 0, 0, 0],
+        ["VM.LABEL-VALUES", commands::label_values, "readonly fast", 0, 0, 0],
+        ["VM.STATS", commands::stats, "readonly", 0, 0, 0],
+        ["VM.RESET-ROLLUP-CACHE", commands::reset_rollup_cache, "write deny-oom", 0, 0, 0],
     ],
      event_handlers: [
         [@SET @STRING @GENERIC @EVICTED @EXPIRED @TRIMMED: on_event]

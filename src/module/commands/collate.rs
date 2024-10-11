@@ -6,7 +6,7 @@ use crate::module::commands::range_utils::get_series_labels;
 use crate::module::result::sample_to_value;
 use crate::module::types::TimestampRange;
 use crate::module::{get_series_iterator, VKM_SERIES_TYPE};
-use crate::storage::time_series::TimeSeries;
+use crate::series::time_series::{TimeSeries, TimeseriesId};
 use ahash::HashMapExt;
 use metricsql_common::hash::IntMap;
 use std::cmp::Ordering;
@@ -39,21 +39,21 @@ pub fn collate(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 }
 
 struct SeriesMeta {
-    id: u64,
+    id: TimeseriesId,
     key: ValkeyString,
     labels: Vec<ValkeyValue>,
 }
 
-type PerTimestampData = BTreeMap<Timestamp, IntMap<u64, f64>>;
+type PerTimestampData = BTreeMap<Timestamp, IntMap<TimeseriesId, f64>>;
 
 struct SeriesSample {
-    id: u64,
+    id: TimeseriesId,
     timestamp: Timestamp,
     value: f64
 }
 
 impl SeriesSample {
-    fn new(id: u64, timestamp: Timestamp, value: f64) -> SeriesSample {
+    fn new(id: TimeseriesId, timestamp: Timestamp, value: f64) -> SeriesSample {
         SeriesSample {
             id,
             timestamp,
@@ -114,7 +114,7 @@ fn handle_collate(ctx: &Context, options: CollateOptions) -> ValkeyResult {
 fn get_base_output(metas: Vec<SeriesMeta>, data: PerTimestampData, count: usize) -> ValkeyValue {
     let mut count = count;
 
-    let mut series_data_map: IntMap<u64, Vec<ValkeyValue>> = IntMap::with_capacity(metas.len());
+    let mut series_data_map: IntMap<TimeseriesId, Vec<ValkeyValue>> = IntMap::with_capacity(metas.len());
 
     for (ts, series_data) in data.into_iter() {
         for meta in metas.iter() {

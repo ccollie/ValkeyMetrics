@@ -1,7 +1,7 @@
 use crate::arg_parse::*;
 use crate::module::commands::create_series;
 use crate::module::{get_timeseries_mut, VKM_SERIES_TYPE};
-use crate::storage::TimeSeriesOptions;
+use crate::series::TimeSeriesOptions;
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 

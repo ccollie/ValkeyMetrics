@@ -1,8 +1,8 @@
 use crate::common::types::Sample;
 use crate::iter::sample_slice_iterator::SampleSliceIter;
 use crate::iter::vec_sample_iterator::VecSampleIterator;
-use crate::storage::time_series::SeriesSampleIterator;
-use crate::storage::ChunkSampleIterator;
+use crate::series::time_series::SeriesSampleIterator;
+use crate::series::ChunkSampleIterator;
 
 pub enum SampleIter<'a> {
     Series(SeriesSampleIterator<'a>),
