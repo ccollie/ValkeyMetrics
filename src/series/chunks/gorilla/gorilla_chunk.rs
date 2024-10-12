@@ -1,12 +1,12 @@
-use std::cmp::Ordering;
+use super::{XOREncoder, XORIterator};
 use crate::common::current_time_millis;
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
-use super::{XOREncoder, XORIterator};
 use crate::series::chunks::chunk::Chunk;
 use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES};
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
+use std::cmp::Ordering;
 use std::mem::size_of;
 use std::ops::ControlFlow;
 use valkey_module::error::Error as ValkeyError;
@@ -521,47 +521,24 @@ impl<'a> Iterator for RangeChunkIter<'a> {
 
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
     use std::time::Duration;
 
     use crate::error::TsdbError;
     use crate::series::chunks::chunk::Chunk;
     use crate::series::chunks::gorilla::gorilla_chunk::GorillaChunk;
-    use crate::series::series_data::SeriesData;
+    use crate::series::test_utils::generate_random_samples;
     use crate::series::{DuplicatePolicy, Sample};
-    use crate::tests::generators::{create_rng, generate_series_data, generate_timestamps, GeneratorOptions, RandAlgo};
+    use crate::tests::generators::{generate_timestamps, GeneratorOptions};
 
-    fn decompress(chunk: &GorillaChunk) -> SeriesData {
-        let mut timestamps = vec![];
-        let mut values = vec![];
-        chunk.decompress(&mut timestamps, &mut values).unwrap();
-        SeriesData::new_with_data(timestamps, values)
+    fn decompress(chunk: &GorillaChunk) -> Vec<Sample> {
+        chunk.iter().collect()
     }
 
-    pub(crate) fn saturate_compressed_chunk(chunk: &mut GorillaChunk) {
-        let mut rng = create_rng(None).unwrap();
-        let mut ts: i64 = 1;
-        loop {
-            let sample = Sample {
-                timestamp: ts,
-                value: rng.gen_range(0.0..100.0),
-            };
-            ts += rng.gen_range(1000..20000);
-            match chunk.add_sample(&sample) {
-                Ok(_) => {}
-                Err(TsdbError::CapacityFull(_)) => {
-                    break
-                }
-                Err(e) => panic!("unexpected error: {:?}", e),
-            }
+    fn populate_series_data(chunk: &mut GorillaChunk, count: usize) {
+        let samples = generate_random_samples(0, count);
+        for sample in samples {
+            chunk.add_sample(&sample).unwrap();
         }
-    }
-
-    fn populate_series_data(chunk: &mut GorillaChunk, samples: usize) {
-        let mut options = GeneratorOptions::default();
-        options.samples = samples;
-        let data = generate_series_data(&options).unwrap();
-        chunk.set_data(&data.timestamps, &data.values).unwrap();
     }
 
     fn compare_chunks(chunk1: &GorillaChunk, chunk2: &GorillaChunk) {
@@ -573,18 +550,16 @@ mod tests {
     fn test_chunk_compress() {
         let mut chunk = GorillaChunk::with_max_size(16384);
         let mut options = GeneratorOptions::default();
-        options.samples = 1000;
-        options.range = 0.0..100.0;
-        options.typ = RandAlgo::MackeyGlass;
   //    options.significant_digits = Some(8);
-        let data = generate_series_data(&options).unwrap();
+        let data = generate_random_samples(0, 1000);
+
         for sample in data.iter() {
             chunk.add_sample(&sample).unwrap();
         }
         assert_eq!(chunk.num_samples(), data.len());
-        assert_eq!(chunk.first_timestamp(), data.timestamps[0]);
-        assert_eq!(chunk.last_timestamp(), data.timestamps[data.len() - 1]);
-        assert_eq!(chunk.last_value(), data.values[data.len() - 1]);
+        assert_eq!(chunk.first_timestamp(), data[0].timestamp);
+        assert_eq!(chunk.last_timestamp(), data[data.len() - 1].timestamp);
+        assert_eq!(chunk.last_value(), data[data.len() - 1].value);
     }
 
     #[test]
@@ -603,11 +578,13 @@ mod tests {
 
     #[test]
     fn test_clear() {
-        let mut chunk = GorillaChunk::default();
-        let mut options = GeneratorOptions::default();
-        options.samples = 500;
-        let data = generate_series_data(&options).unwrap();
-        chunk.set_data(&data.timestamps, &data.values).unwrap();
+        let mut chunk = GorillaChunk::with_max_size(16384);
+        let data = generate_random_samples(0, 500);
+
+        for datum in data.iter() {
+            chunk.add_sample(datum).unwrap();
+        }
+
         assert_eq!(chunk.num_samples(), data.len());
         chunk.clear();
         assert_eq!(chunk.num_samples(), 0);
@@ -618,22 +595,39 @@ mod tests {
     #[test]
     fn test_upsert() {
         for chunk_size in (64..8192).step_by(64) {
-            let mut options = GeneratorOptions::default();
-            options.samples = 200;
-            let data = generate_series_data(&options).unwrap();
+            let mut samples = generate_random_samples(0, 200);
             let mut chunk = GorillaChunk::with_max_size(chunk_size);
 
-            for mut sample in data.iter() {
+            for mut sample in samples.iter_mut() {
                 chunk.upsert_sample(&mut sample, DuplicatePolicy::KeepLast).unwrap();
             }
-            assert_eq!(chunk.num_samples(), data.len());
+            assert_eq!(chunk.num_samples(), samples.len());
         }
     }
 
     #[test]
     fn test_upsert_while_at_capacity() {
         let mut chunk = GorillaChunk::with_max_size(4096);
-        saturate_compressed_chunk(&mut chunk);
+
+        let mut ts = 1000;
+        let mut value: f64 = 1.0;
+
+        loop {
+            let sample = Sample {
+                timestamp: ts,
+                value
+            };
+            ts += 1000;
+            value *= 2.0;
+
+            match chunk.add_sample(&sample) {
+                Ok(_) => {}
+                Err(TsdbError::CapacityFull(_)) => {
+                    break
+                }
+                Err(e) => panic!("unexpected error: {:?}", e),
+            }
+        }
 
         let timestamp = chunk.last_timestamp();
 
@@ -654,56 +648,54 @@ mod tests {
 
     #[test]
     fn test_split() {
-        let mut chunk = GorillaChunk::default();
-        let mut options = GeneratorOptions::default();
-        options.samples = 500;
-        let data = generate_series_data(&options).unwrap();
-        chunk.set_data(&data.timestamps, &data.values).unwrap();
+        const COUNT: usize = 500;
+        let mut samples = generate_random_samples(0, COUNT);
+        let mut chunk = GorillaChunk::with_max_size(16384);
 
-        let count = data.len();
+        for sample in samples.iter() {
+            chunk.add_sample(&sample).unwrap();
+        }
+
+        let count = samples.len();
         let mid = count / 2;
 
         let right = chunk.split().unwrap();
         assert_eq!(chunk.num_samples(), mid);
         assert_eq!(right.num_samples(), mid);
 
-        let (l_times, r_times) = data.timestamps.split_at(mid);
-        let (l_values, r_values) = data.values.split_at(mid);
+        let (left_samples, right_samples) = samples.split_at(mid);
 
         let right_decompressed = decompress(&right);
-        assert_eq!(right_decompressed.timestamps, r_times);
-        assert_eq!(right_decompressed.values, r_values);
+        assert_eq!(right_decompressed, right_samples);
 
         let left_decompressed = decompress(&chunk);
-        assert_eq!(left_decompressed.timestamps, l_times);
-        assert_eq!(left_decompressed.values, l_values);
+        assert_eq!(left_decompressed, left_samples);
     }
 
     #[test]
     fn test_split_odd() {
+        const COUNT: usize = 51;
+        let mut samples = generate_random_samples(0, COUNT);
         let mut chunk = GorillaChunk::default();
-        let mut options = GeneratorOptions::default();
-        options.samples = 51;
-        let data = generate_series_data(&options).unwrap();
-        chunk.set_data(&data.timestamps, &data.values).unwrap();
 
-        let count = data.len();
+        for sample in samples.iter() {
+            chunk.add_sample(&sample).unwrap();
+        }
+
+        let count = samples.len();
         let mid = count / 2;
 
         let right = chunk.split().unwrap();
         assert_eq!(chunk.num_samples(), mid);
         assert_eq!(right.num_samples(), mid + 1);
 
-        let (l_times, r_times) = data.timestamps.split_at(mid);
-        let (l_values, r_values) = data.values.split_at(mid);
+        let (left_samples, right_samples) = samples.split_at(mid);
 
         let right_decompressed = decompress(&right);
-        assert_eq!(right_decompressed.timestamps, r_times);
-        assert_eq!(right_decompressed.values, r_values);
+        assert_eq!(right_decompressed, right_samples);
 
         let left_decompressed = decompress(&chunk);
-        assert_eq!(left_decompressed.timestamps, l_times);
-        assert_eq!(left_decompressed.values, l_values);
+        assert_eq!(left_decompressed, left_samples);
     }
 
 }

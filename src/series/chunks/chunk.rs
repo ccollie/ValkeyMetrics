@@ -15,7 +15,6 @@ use super::{GorillaChunk, PcoChunk, UncompressedChunk};
 
 pub const MIN_CHUNK_SIZE: usize = 48;
 pub const MAX_CHUNK_SIZE: usize = 1048576;
-pub const OVERFLOW_THRESHOLD: f64 = 0.2;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[derive(GetSize)]
@@ -308,7 +307,6 @@ impl TimeSeriesChunk {
 
     /// Merge a range of samples from another chunk into this chunk.
     /// If the chunk is full or the other chunk is empty, returns 0.
-    /// If the other chunk is compressed, it will be decompressed first.
     /// Duplicate values are handled according to `duplicate_policy`.
     /// Samples with timestamps before `retention_threshold` will be ignored, whether
     /// they fall with the given range [start_ts..end_ts].
@@ -715,23 +713,4 @@ mod tests {
     use crate::series::{Chunk, Sample, TimeSeriesChunk};
     use crate::tests::generators::create_rng;
     use rand::Rng;
-
-    pub fn saturate_chunk(chunk: &mut TimeSeriesChunk) {
-        let mut rng = create_rng(None).unwrap();
-        let mut ts: i64 = 10000;
-        loop {
-            let sample = Sample {
-                timestamp: ts,
-                value: rng.gen_range(0.0..100.0),
-            };
-            ts += rng.gen_range(1000..20000);
-            match chunk.add_sample(&sample) {
-                Ok(_) => {}
-                Err(TsdbError::CapacityFull(_)) => {
-                    break
-                }
-                Err(e) => panic!("unexpected error: {:?}", e),
-            }
-        }
-    }
 }

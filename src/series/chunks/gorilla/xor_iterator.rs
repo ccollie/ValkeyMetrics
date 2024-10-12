@@ -1,11 +1,13 @@
 use crate::common::types::Sample;
-use crate::common::{read_uvarint, read_varbit_ts, read_varbit_xor, read_varint, NomBitInput};
+use crate::common::{read_uvarint, read_varint, NomBitInput};
 use crate::error::{TsdbError, TsdbResult};
 use nom::{
     bytes,
     number::complete::be_f64,
     sequence::tuple
 };
+use super::varbit_ts::read_varbit_ts;
+use super::varbit_xor::read_varbit_xor;
 use super::XOREncoder;
 
 #[derive(Debug)]

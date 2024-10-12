@@ -1,4 +1,3 @@
-use std::hash::Hash;
 use super::{
     merge_by_capacity,
     validate_chunk_size,
@@ -21,6 +20,7 @@ use crate::series::DuplicatePolicy;
 use get_size::GetSize;
 use metricsql_common::hash::IntMap;
 use smallvec::SmallVec;
+use std::hash::Hash;
 use std::mem::size_of;
 use std::time::Duration;
 use valkey_module::error::GenericError;
@@ -796,7 +796,7 @@ impl<'a> Iterator for SeriesSampleIterator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::generators::{generate_series_data, GeneratorOptions};
+    use crate::series::test_utils::generate_random_samples;
 
     #[test]
     fn test_one_entry() {
@@ -818,22 +818,19 @@ mod tests {
     #[test]
     fn test_1000_entries() {
         let mut ts = TimeSeries::new();
-        let mut options = GeneratorOptions::default();
-        options.samples = 1000;
-        let data = generate_series_data(&options).unwrap();
+        let data = generate_random_samples(0, 1000);
+
         for sample in data.iter() {
             ts.add(sample.timestamp, sample.value, None).unwrap();
         }
 
         assert_eq!(ts.total_samples, 1000);
-        assert_eq!(ts.first_timestamp, data.first_timestamp());
-        assert_eq!(ts.last_timestamp, data.last_timestamp());
+        assert_eq!(ts.first_timestamp, data[0].timestamp);
+        assert_eq!(ts.last_timestamp, data[data.len() - 1].timestamp);
 
-        let mut i: usize = 0;
-        for sample in ts.iter() {
-            assert_eq!(sample.timestamp, data.timestamps[i]);
-            assert_eq!(sample.value, data.values[i]);
-            i += 1;
+        for (sample, orig) in ts.iter().zip(data.iter()) {
+            assert_eq!(sample.timestamp, orig.timestamp);
+            assert_eq!(sample.value, orig.value);
         }
     }
 

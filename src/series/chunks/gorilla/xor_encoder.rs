@@ -1,7 +1,7 @@
 use std::mem::size_of_val;
 use crate::common::bitwriter::{BigEndian, BitWrite, BitWriter};
 use crate::common::types::Sample;
-use crate::common::{write_uvarint, write_varbit_ts, write_varbit_xor, write_varint};
+use crate::common::{write_uvarint, write_varint};
 use crate::series::chunks::gorilla::xor_iterator::XORIterator;
 use bitstream_io::BitQueue;
 use get_size::GetSize;
@@ -9,7 +9,8 @@ use smallvec::SmallVec;
 use std::io::Write;
 use valkey_module::error::Error as ValkeyError;
 use valkey_module::raw;
-
+use super::varbit_ts::write_varbit_ts;
+use super::varbit_xor::write_varbit_xor;
 
 #[derive(Debug)]
 pub struct XOREncoder {
@@ -290,36 +291,4 @@ fn bitwriter_equals(a: &BitWriter<Vec<u8>, BigEndian>, b: &BitWriter<Vec<u8>, Bi
 
 #[cfg(test)]
 mod tests {
-    use crate::common::types::Sample;
-    use rand::{Rng, SeedableRng};
-
-    fn generate_random_test_data(seed: u64) -> Vec<Vec<Sample>> {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-
-        let mut test_cases = Vec::with_capacity(128);
-        for _ in 0..128 {
-            let mut timestamp: i64 = rng.gen_range(1234567890..1357908642);
-            let vec_size = rng.gen_range(1..129);
-            let mut vec = Vec::with_capacity(vec_size);
-
-            let mut value: f64 = if rng.gen_bool(0.5) {
-                rng.gen_range(-100000000.0..1000000.0)
-            } else {
-                rng.gen_range(-10000.0..10000.0)
-            };
-            vec.push(Sample { timestamp, value });
-
-            for _ in 1..vec_size {
-                timestamp += rng.gen_range(1..30);
-                if rng.gen_bool(0.33) {
-                    value += 1.0;
-                } else if rng.gen_bool(0.33) {
-                    value = rng.gen();
-                }
-                vec.push(Sample { timestamp, value });
-            }
-            test_cases.push(vec);
-        }
-        test_cases
-    }
 }

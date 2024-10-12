@@ -7,8 +7,5 @@ pub use chunk::*;
 pub use gorilla::{
     GorillaChunk,
 };
-pub use pco::{
-    PcoChunk,
-    PcoChunkIterator
-};
+pub use pco::{ PcoChunk };
 pub use uncompressed::*;

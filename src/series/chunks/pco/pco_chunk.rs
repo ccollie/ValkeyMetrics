@@ -3,12 +3,12 @@ use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use serde::{Deserialize, Serialize};
 use std::mem::size_of;
 
+use super::pco_utils::{encode_with_options, pco_decode, pco_encode, CompressorConfig};
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::series::chunks::Chunk;
 use crate::series::utils::{get_timestamp_index_bounds, trim_vec_data};
 use crate::series::{DuplicatePolicy, Sample, SeriesSlice, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
-use super::pco_utils::{pco_decode, pco_encode, encode_with_options, CompressorConfig};
 use pco::DEFAULT_COMPRESSION_LEVEL;
 use valkey_module::raw;
 
@@ -525,6 +525,7 @@ impl<'a> PcoChunkIterator<'a> {
         let capacity = self.chunk.num_samples();
         let mut timestamps = Vec::with_capacity(capacity);
         let mut values = Vec::with_capacity(capacity);
+        self.is_init = true;
 
         match self.chunk.decompress(&mut timestamps, &mut values) {
             Ok(_) => {
@@ -567,48 +568,32 @@ impl<'a> Iterator for PcoChunkIterator<'a> {
 }
 #[cfg(test)]
 mod tests {
+    use crate::series::test_utils::generate_random_samples;
     use std::time::Duration;
 
-    use rand::Rng;
-
     use crate::error::TsdbError;
-    use crate::series::chunks::chunk::Chunk;
-    use crate::series::chunks::pco::pco_chunk::PcoChunk;
-    use crate::series::series_data::SeriesData;
+    use crate::series::chunks::Chunk;
+    use crate::series::chunks::PcoChunk;
     use crate::series::{DuplicatePolicy, Sample};
-    use crate::tests::generators::{create_rng, generate_series_data, generate_timestamps, GeneratorOptions, RandAlgo};
+    use crate::tests::generators::generate_timestamps;
 
-    fn decompress(chunk: &PcoChunk) -> SeriesData {
-        let mut timestamps = vec![];
-        let mut values = vec![];
-        chunk.decompress(&mut timestamps, &mut values).unwrap();
-        SeriesData::new_with_data(timestamps, values)
+    fn decompress(chunk: &PcoChunk) -> Vec<Sample> {
+        chunk.iter().collect()
     }
 
-    pub(crate) fn saturate_compressed_chunk(chunk: &mut PcoChunk) {
-        let mut rng = create_rng(None).unwrap();
-        let mut ts: i64 = 1;
+    fn saturate_chunk(chunk: &mut PcoChunk) {
         loop {
-            let sample = Sample {
-                timestamp: ts,
-                value: rng.gen_range(0.0..100.0),
-            };
-            ts += rng.gen_range(1000..20000);
-            match chunk.add_sample(&sample) {
-                Ok(_) => {}
-                Err(TsdbError::CapacityFull(_)) => {
-                    break
+            let samples = generate_random_samples(0, 250);
+            for sample in samples {
+                match chunk.add_sample(&sample) {
+                    Ok(_) => {}
+                    Err(TsdbError::CapacityFull(_)) => {
+                        break
+                    }
+                    Err(e) => panic!("unexpected error: {:?}", e),
                 }
-                Err(e) => panic!("unexpected error: {:?}", e),
             }
         }
-    }
-
-    fn populate_series_data(chunk: &mut PcoChunk, samples: usize) {
-        let mut options = GeneratorOptions::default();
-        options.samples = samples;
-        let data = generate_series_data(&options).unwrap();
-        chunk.set_data(&data.timestamps, &data.values).unwrap();
     }
 
     fn compare_chunks(chunk1: &PcoChunk, chunk2: &PcoChunk) {
@@ -624,16 +609,15 @@ mod tests {
     #[test]
     fn test_chunk_compress() {
         let mut chunk = PcoChunk::default();
-        let mut options = GeneratorOptions::default();
-        options.samples = 1000;
-        options.range = 0.0..100.0;
-        options.typ = RandAlgo::Uniform;
-        let data = generate_series_data(&options).unwrap();
-        chunk.set_data(&data.timestamps, &data.values).unwrap();
+        let data = generate_random_samples(0, 1000);
+        let timestamps: Vec<i64> = data.map(|x| x.timestamp).collect();
+        let values: Vec<f64> = data.map(|x| x.value).collect();
+
+        chunk.set_data(&timestamps, &values).unwrap();
         assert_eq!(chunk.num_samples(), data.len());
-        assert_eq!(chunk.min_time, data.timestamps[0]);
-        assert_eq!(chunk.max_time, data.timestamps[data.len() - 1]);
-        assert_eq!(chunk.last_value, data.values[data.len() - 1]);
+        assert_eq!(chunk.min_time, timestamps[0]);
+        assert_eq!(chunk.max_time, timestamps[data.len() - 1]);
+        assert_eq!(chunk.last_value, values[data.len() - 1]);
         assert!(chunk.timestamps.len() > 0);
         assert!(chunk.values.len() > 0);
     }
@@ -655,10 +639,11 @@ mod tests {
     #[test]
     fn test_clear() {
         let mut chunk = PcoChunk::default();
-        let mut options = GeneratorOptions::default();
-        options.samples = 500;
-        let data = generate_series_data(&options).unwrap();
-        chunk.set_data(&data.timestamps, &data.values).unwrap();
+        let data = generate_random_samples(0, 1000);
+        let timestamps: Vec<i64> = data.map(|x| x.timestamp).collect();
+        let values: Vec<f64> = data.map(|x| x.value).collect();
+
+        chunk.set_data(&timestamps, &values).unwrap();
         assert_eq!(chunk.num_samples(), data.len());
         chunk.clear();
         assert_eq!(chunk.num_samples(), 0);
@@ -672,9 +657,7 @@ mod tests {
     #[test]
     fn test_upsert() {
         for chunk_size in (64..8192).step_by(64) {
-            let mut options = GeneratorOptions::default();
-            options.samples = 500;
-            let data = generate_series_data(&options).unwrap();
+            let data = generate_random_samples(0, 500);
             let mut chunk = PcoChunk::with_max_size(chunk_size);
 
             for mut sample in data.iter() {
@@ -687,7 +670,7 @@ mod tests {
     #[test]
     fn test_upsert_while_at_capacity() {
         let mut chunk = PcoChunk::with_max_size(4096);
-        saturate_compressed_chunk(&mut chunk);
+        saturate_chunk(&mut chunk);
 
         let timestamp = chunk.last_timestamp();
 
@@ -709,55 +692,49 @@ mod tests {
     #[test]
     fn test_split() {
         let mut chunk = PcoChunk::default();
-        let mut options = GeneratorOptions::default();
-        options.samples = 500;
-        let data = generate_series_data(&options).unwrap();
-        chunk.set_data(&data.timestamps, &data.values).unwrap();
+        let mut data = generate_random_samples(0, 500);
 
         let count = data.len();
         let mid = count / 2;
+
+        let (left_samples, right_samples) = data.split_at(mid);
 
         let right = chunk.split().unwrap();
         assert_eq!(chunk.num_samples(), mid);
         assert_eq!(right.num_samples(), mid);
 
-        let (l_times, r_times) = data.timestamps.split_at(mid);
-        let (l_values, r_values) = data.values.split_at(mid);
+        let (left_samples, right_samples) = data.split_at(mid);
 
         let right_decompressed = decompress(&right);
-        assert_eq!(right_decompressed.timestamps, r_times);
-        assert_eq!(right_decompressed.values, r_values);
+        assert_eq!(right_decompressed, right_samples);
 
         let left_decompressed = decompress(&chunk);
-        assert_eq!(left_decompressed.timestamps, l_times);
-        assert_eq!(left_decompressed.values, l_values);
+        assert_eq!(left_decompressed, left_samples);
     }
 
     #[test]
     fn test_split_odd() {
         let mut chunk = PcoChunk::default();
-        let mut options = GeneratorOptions::default();
-        options.samples = 51;
-        let data = generate_series_data(&options).unwrap();
-        chunk.set_data(&data.timestamps, &data.values).unwrap();
+        let mut samples = generate_random_samples(1, 51);
 
-        let count = data.len();
+        for sample in samples.iter() {
+            chunk.add_sample(sample).unwrap();
+        }
+
+        let count = samples.len();
         let mid = count / 2;
 
         let right = chunk.split().unwrap();
         assert_eq!(chunk.num_samples(), mid);
         assert_eq!(right.num_samples(), mid + 1);
 
-        let (l_times, r_times) = data.timestamps.split_at(mid);
-        let (l_values, r_values) = data.values.split_at(mid);
+        let (left_samples, right_samples) = samples.split_at(mid);
 
         let right_decompressed = decompress(&right);
-        assert_eq!(right_decompressed.timestamps, r_times);
-        assert_eq!(right_decompressed.values, r_values);
+        assert_eq!(right_decompressed, right_samples);
 
         let left_decompressed = decompress(&chunk);
-        assert_eq!(left_decompressed.timestamps, l_times);
-        assert_eq!(left_decompressed.values, l_values);
+        assert_eq!(left_decompressed, left_samples);
     }
 
 }

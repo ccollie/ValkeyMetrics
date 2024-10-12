@@ -17,6 +17,7 @@ mod defrag;
 mod slice_iter;
 pub mod index;
 mod chunks;
+mod test_utils;
 
 use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};

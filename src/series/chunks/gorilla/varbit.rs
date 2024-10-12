@@ -140,7 +140,7 @@ pub fn read_varbit_uint(input: NomBitInput) -> IResult<NomBitInput, u64> {
 #[cfg(test)]
 mod tests {
     use crate::common::bitwriter::{BitWrite, BitWriter};
-    use crate::common::{read_varbit_int, write_varbit};
+    use super::{read_varbit_int, write_varbit};
     use bitstream_io::BigEndian;
 
     #[test]
