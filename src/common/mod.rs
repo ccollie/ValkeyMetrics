@@ -3,8 +3,6 @@ mod utils;
 pub mod decimal;
 mod encoding;
 pub mod bitwriter;
-mod parse;
-pub mod constants;
 
 pub use utils::*;
 

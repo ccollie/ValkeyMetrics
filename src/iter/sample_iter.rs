@@ -15,11 +15,9 @@ impl<'a> SampleIter<'a> {
     pub fn slice(slice: &'a [Sample]) -> Self {
         SampleIter::Slice(SampleSliceIter::new(slice))
     }
-
     pub fn series(iter: SeriesSampleIterator<'a>) -> Self {
         SampleIter::Series(iter)
     }
-
     pub fn chunk(iter: ChunkSampleIterator<'a>) -> Self {
         SampleIter::Chunk(iter)
     }
