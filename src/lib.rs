@@ -151,6 +151,7 @@ valkey_module! {
         ["VM.MRANGE", commands::mrange, "readonly deny-oom", 0, 0, -1],
         ["VM.RANGE", commands::range, "readonly deny-oom", 1, 1, 1],
         ["VM.SERIES", commands::series, "readonly fast", 0, 0, 0],
+        ["VM.SERIES-INFO", commands::info, "readonly fast", 1, 1, 1],
         ["VM.TOP-QUERIES", commands::top_queries, "readonly fast", 0, 0, 0],
         ["VM.ACTIVE-QUERIES", commands::active_queries, "readonly fast", 0, 0, 0],
         ["VM.CARDINALITY", commands::cardinality, "readonly fast", 0, 0, -1],

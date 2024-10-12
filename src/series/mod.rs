@@ -25,6 +25,7 @@ pub(super) use chunks::*;
 pub(crate) use constants::*;
 pub(crate) use defrag::*;
 pub(crate) use slice::*;
+pub(crate) use time_series::*;
 
 pub const SAMPLE_SIZE: usize = size_of::<Sample>();
 

@@ -1,8 +1,7 @@
 use crate::common::types::Label;
 use crate::module::result::META_KEY_LABEL;
 use crate::module::with_timeseries_mut;
-use crate::storage::time_series::TimeSeries;
-use crate::storage::{Chunk, TimeSeriesChunk};
+use crate::series::{Chunk, TimeSeries, TimeSeriesChunk};
 use metricsql_runtime::prelude::METRIC_NAME_LABEL;
 use std::collections::HashMap;
 use valkey_module::redisvalue::ValkeyValueKey;
@@ -33,7 +32,7 @@ pub fn info(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
 fn get_ts_info(ts: &TimeSeries, debug: bool, key: Option<&ValkeyString>) -> ValkeyValue {
     let mut map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::with_capacity(ts.labels.len() + 1);
-    let metric = ts.get_prometheus_metric_name();
+    let metric = ts.prometheus_metric_name();
     map.insert("metric".into(), metric.into());
     map.insert("totalSamples".into(), ts.total_samples.into());
     map.insert("memoryUsage".into(), ts.memory_usage().into());
