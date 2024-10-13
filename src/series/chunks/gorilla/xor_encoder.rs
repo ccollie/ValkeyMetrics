@@ -82,7 +82,7 @@ impl XOREncoder {
         match self.num_samples {
             0 => self.write_first_sample(sample),
             1 => self.write_second_sample(sample),
-            _ => self.write_n_sample(sample),
+            _ => self.write_nth_sample(sample),
         }
     }
 
@@ -134,7 +134,7 @@ impl XOREncoder {
         Ok(())
     }
 
-    fn write_n_sample(&mut self, sample: &Sample) -> std::io::Result<()> {
+    fn write_nth_sample(&mut self, sample: &Sample) -> std::io::Result<()> {
         let timestamp = sample.timestamp;
         let value = sample.value;
 
@@ -166,10 +166,6 @@ impl XOREncoder {
         self.num_samples += 1;
 
         Ok(())
-    }
-
-    pub fn buf_len(&self) -> usize {
-        self.writer.writer.len()
     }
 
     pub fn iter(&self) -> XORIterator {

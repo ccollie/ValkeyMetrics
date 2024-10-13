@@ -709,8 +709,4 @@ pub fn merge_by_capacity(
 
 #[cfg(test)]
 mod tests {
-    use crate::error::TsdbError;
-    use crate::series::{Chunk, Sample, TimeSeriesChunk};
-    use crate::tests::generators::create_rng;
-    use rand::Rng;
 }

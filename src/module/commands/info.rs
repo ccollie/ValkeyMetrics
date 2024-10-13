@@ -1,6 +1,6 @@
 use crate::common::types::Label;
 use crate::module::result::META_KEY_LABEL;
-use crate::module::with_timeseries_mut;
+use crate::module::with_timeseries;
 use crate::series::{Chunk, TimeSeries, TimeSeriesChunk};
 use metricsql_runtime::prelude::METRIC_NAME_LABEL;
 use std::collections::HashMap;
@@ -22,10 +22,9 @@ pub fn info(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         false
     };
 
-    // todo: handle debug
     args.done()?;
 
-    with_timeseries_mut(ctx, &key, |series| {
+    with_timeseries(ctx, &key, |series| {
         Ok(get_ts_info(series, debugging, None))
     })
 }
@@ -43,14 +42,12 @@ fn get_ts_info(ts: &TimeSeries, debug: bool, key: Option<&ValkeyString>) -> Valk
     map.insert("chunkSize".into(), ts.chunk_size_bytes.into());
     map.insert("chunkType".into(), ts.chunk_compression.name().into());
 
-    map.insert(
-        ValkeyValueKey::String(METRIC_NAME_LABEL.into()),
-        ValkeyValue::from(&ts.metric_name),
-    );
     if let Some(key) = key {
         map.insert(ValkeyValueKey::String(META_KEY_LABEL.into()), ValkeyValue::from(key));
     }
+
     let mut labels_map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::with_capacity(ts.labels.len() + 1);
+    labels_map.insert(METRIC_NAME_LABEL.into(), ValkeyValue::from(&ts.metric_name));
     for Label { name, value } in ts.labels.iter() {
         labels_map.insert(ValkeyValueKey::String(name.into()), ValkeyValue::from(value));
     }

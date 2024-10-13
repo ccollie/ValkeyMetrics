@@ -32,7 +32,7 @@ pub type TimeseriesId = u64;
 pub type TimeseriesId = u32;
 
 /// Represents a time series. The time series consists of time series blocks, each containing BLOCK_SIZE_FOR_TIME_SERIES
-/// data points. All but the last block are compressed.
+/// data points.
 #[derive(Clone, Debug, PartialEq)]
 #[derive(GetSize)]
 pub struct TimeSeries {
@@ -99,10 +99,6 @@ impl TimeSeries {
         }
         res.duplicate_policy = options.duplicate_policy.unwrap_or(DuplicatePolicy::KeepLast);
         // res.chunk_compression = options.encoding.unwrap_or(Encoding::Compressed);
-        if let Some(metric_name) = options.metric_name {
-            // todo: validate against regex
-            res.metric_name = metric_name;
-        }
         if let Some(retention) = options.retention {
             res.retention = retention;
         }
@@ -113,10 +109,14 @@ impl TimeSeries {
         // todo: make sure labels are sorted and dont contain __name__
         let label = options.labels
             .iter()
-            .find(|x| x.name == METRIC_NAME_LABEL)
-            .ok_or(TsdbError::InvalidMetric("NONE".to_string()))?; // better error
+            .find(|x| x.name == METRIC_NAME_LABEL); // better error
 
-        options.metric_name = Some(label.value.clone());
+        if let Some(label) = label {
+            res.metric_name = label.value.clone();
+        } else {
+            return Err(TsdbError::InvalidMetric("ERR expected METRIC name label".to_string()));
+        }
+
         options.labels.retain(|x| x.name != METRIC_NAME_LABEL);
 
         res.labels = options.labels;

@@ -107,7 +107,7 @@ impl GorillaChunk {
         if self.is_empty() {
             return 0.0;
         }
-        let compressed_size = self.xor_encoder.buf_len();
+        let compressed_size = self.xor_encoder.buf().len();
         let uncompressed_size = self.num_samples() * (size_of::<i64>() + size_of::<f64>());
         (uncompressed_size / compressed_size) as f64
     }
@@ -534,13 +534,6 @@ mod tests {
         chunk.iter().collect()
     }
 
-    fn populate_series_data(chunk: &mut GorillaChunk, count: usize) {
-        let samples = generate_random_samples(0, count);
-        for sample in samples {
-            chunk.add_sample(&sample).unwrap();
-        }
-    }
-
     fn compare_chunks(chunk1: &GorillaChunk, chunk2: &GorillaChunk) {
         assert_eq!(chunk1.xor_encoder, chunk2.xor_encoder, "xor chunks do not match");
         assert_eq!(chunk1.max_size, chunk2.max_size);
@@ -549,7 +542,7 @@ mod tests {
     #[test]
     fn test_chunk_compress() {
         let mut chunk = GorillaChunk::with_max_size(16384);
-        let mut options = GeneratorOptions::default();
+        let options = GeneratorOptions::default();
   //    options.significant_digits = Some(8);
         let data = generate_random_samples(0, 1000);
 
@@ -649,7 +642,7 @@ mod tests {
     #[test]
     fn test_split() {
         const COUNT: usize = 500;
-        let mut samples = generate_random_samples(0, COUNT);
+        let samples = generate_random_samples(0, COUNT);
         let mut chunk = GorillaChunk::with_max_size(16384);
 
         for sample in samples.iter() {
@@ -675,7 +668,7 @@ mod tests {
     #[test]
     fn test_split_odd() {
         const COUNT: usize = 51;
-        let mut samples = generate_random_samples(0, COUNT);
+        let samples = generate_random_samples(0, COUNT);
         let mut chunk = GorillaChunk::default();
 
         for sample in samples.iter() {

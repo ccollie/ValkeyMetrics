@@ -19,19 +19,8 @@ const MAX_SIGNIFICANT_DIGITS: u8 = 16;
 ///   [DEDUPE_INTERVAL duplicateTimediff]
 pub fn create(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let (parsed_key, options) = parse_create_options(args)?;
-    let key = ValkeyKeyWritable::open(ctx.ctx, &parsed_key);
-    // check if this refers to an existing series
-    if !key.is_empty() {
-        return Err(ValkeyError::Str("ERR: the key already exists"));
-    }
 
-    let ts = create_series(&parsed_key, options, ctx)
-        .map_err(|_| ValkeyError::Str("ERR: failed to create series"))?;
-
-    key.set_value(&VKM_SERIES_TYPE, ts)?;
-
-    ctx.replicate_verbatim();
-    ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.CREATE-SERIES", &parsed_key);
+    create_and_store_series(ctx, &parsed_key, options)?;
 
     VALKEY_OK
 }
@@ -45,7 +34,7 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
 
     let metric = args.next_string()?;
     options.labels = parse_metric_name(&metric)
-        .map_err(|_| ValkeyError::Str("ERR invalid METRIC"))?;
+        .map_err(|e| ValkeyError::String(format!("ERR invalid METRIC {:?}", e)))?;
 
     while let Ok(arg) = args.next_str() {
         match arg {
@@ -99,7 +88,7 @@ pub(crate) fn create_series(
     })
 }
 
-pub(crate) fn create_series_ex(ctx: &Context, key: &ValkeyString, options: TimeSeriesOptions) -> ValkeyResult<()> {
+pub(crate) fn create_and_store_series(ctx: &Context, key: &ValkeyString, options: TimeSeriesOptions) -> ValkeyResult<()> {
     let _key = ValkeyKeyWritable::open(ctx.ctx, key);
     // check if this refers to an existing series
     if !_key.is_empty() {

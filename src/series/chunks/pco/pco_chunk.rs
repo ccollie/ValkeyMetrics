@@ -610,8 +610,8 @@ mod tests {
     fn test_chunk_compress() {
         let mut chunk = PcoChunk::default();
         let data = generate_random_samples(0, 1000);
-        let timestamps: Vec<i64> = data.map(|x| x.timestamp).collect();
-        let values: Vec<f64> = data.map(|x| x.value).collect();
+        let timestamps: Vec<i64> = data.iter().map(|x| x.timestamp).collect();
+        let values: Vec<f64> = data.iter().map(|x| x.value).collect();
 
         chunk.set_data(&timestamps, &values).unwrap();
         assert_eq!(chunk.num_samples(), data.len());
@@ -640,8 +640,8 @@ mod tests {
     fn test_clear() {
         let mut chunk = PcoChunk::default();
         let data = generate_random_samples(0, 1000);
-        let timestamps: Vec<i64> = data.map(|x| x.timestamp).collect();
-        let values: Vec<f64> = data.map(|x| x.value).collect();
+        let timestamps: Vec<i64> = data.iter().map(|x| x.timestamp).collect();
+        let values: Vec<f64> = data.iter().map(|x| x.value).collect();
 
         chunk.set_data(&timestamps, &values).unwrap();
         assert_eq!(chunk.num_samples(), data.len());
@@ -657,11 +657,11 @@ mod tests {
     #[test]
     fn test_upsert() {
         for chunk_size in (64..8192).step_by(64) {
-            let data = generate_random_samples(0, 500);
+            let mut data = generate_random_samples(0, 500);
             let mut chunk = PcoChunk::with_max_size(chunk_size);
 
-            for mut sample in data.iter() {
-                chunk.upsert_sample(&mut sample, DuplicatePolicy::KeepLast).unwrap();
+            for sample in data.iter_mut() {
+                chunk.upsert_sample(sample, DuplicatePolicy::KeepLast).unwrap();
             }
             assert_eq!(chunk.num_samples(), data.len());
         }
@@ -692,12 +692,10 @@ mod tests {
     #[test]
     fn test_split() {
         let mut chunk = PcoChunk::default();
-        let mut data = generate_random_samples(0, 500);
+        let data = generate_random_samples(0, 500);
 
         let count = data.len();
         let mid = count / 2;
-
-        let (left_samples, right_samples) = data.split_at(mid);
 
         let right = chunk.split().unwrap();
         assert_eq!(chunk.num_samples(), mid);
@@ -715,7 +713,7 @@ mod tests {
     #[test]
     fn test_split_odd() {
         let mut chunk = PcoChunk::default();
-        let mut samples = generate_random_samples(1, 51);
+        let samples = generate_random_samples(1, 51);
 
         for sample in samples.iter() {
             chunk.add_sample(sample).unwrap();

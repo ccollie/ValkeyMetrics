@@ -50,7 +50,7 @@ pub fn generate_random_test_data(seed: u64) -> Vec<Sample> {
 
 pub fn saturate_chunk(chunk: &mut TimeSeriesChunk) {
     loop {
-        let mut samples = generate_random_samples(13, 1000);
+        let samples = generate_random_samples(13, 1000);
         for sample in samples.iter() {
             match chunk.add_sample(sample) {
                 Ok(_) => {}
