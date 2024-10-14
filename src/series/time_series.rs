@@ -1,4 +1,4 @@
-use super::{merge_by_capacity, validate_chunk_size, Chunk, ChunkCompression, ChunkEncoding, ChunkSampleIterator, Sample, TimeSeriesChunk, TimeSeriesOptions, UncompressedChunk};
+use super::{merge_by_capacity, validate_chunk_size, Chunk, ChunkCompression, ChunkEncoding, ChunkSampleIterator, Sample, TimeSeriesOptions};
 use crate::common::decimal::{round_to_significant_digits, RoundDirection};
 use crate::common::types::{Label, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
@@ -15,6 +15,7 @@ use std::mem::size_of;
 use std::time::Duration;
 use valkey_module::error::GenericError;
 use valkey_module::raw;
+use crate::series::chunks::timeseries_chunk::TimeSeriesChunk;
 
 #[cfg(feature = "id64")]
 pub type TimeseriesId = u64;
@@ -228,13 +229,7 @@ impl TimeSeries {
 
     /// Add a new chunk and compact the current chunk if necessary.
     fn add_chunk_with_sample(&mut self, sample: &Sample) -> TsdbResult<()> {
-        let chunks_len = self.chunks.len();
-
-        // The last block is full. So, compress it and append it time_series_block_compressed.
-        let chunk_size = self.chunk_size_bytes;
-        let compression = self.chunk_compression;
         let min_timestamp = self.get_min_timestamp();
-        let duplicate_policy = self.duplicate_policy;
 
         // arrrgh! rust treats vecs as a single unit wrt borrowing, but the following iterator trick
         // seems to work
@@ -243,6 +238,7 @@ impl TimeSeries {
 
         // check if previous block has capacity, and if so merge into it
         if let Some(prev_chunk) = iter.next() {
+            let duplicate_policy = self.duplicate_policy;
             if let Some(deleted_count) = merge_by_capacity(
                 prev_chunk,
                 last_chunk,
@@ -255,44 +251,26 @@ impl TimeSeries {
             }
         }
 
-        // if the last chunk is uncompressed, create a new compressed block and move samples to it
-        if let TimeSeriesChunk::Uncompressed(uncompressed_chunk) = last_chunk {
-            let new_chunk = TimeSeriesChunk::new(
-                compression,
-                chunk_size,
-                &uncompressed_chunk.samples,
-            )?;
-
-            // clear last chunk for reuse
-            last_chunk.clear();
-
-            // insert new chunk before last block
-            self.chunks.insert(chunks_len - 1, new_chunk);
-            // res
-        } else {
-            // TODO !!!! construct proper type
-            let mut new_chunk = TimeSeriesChunk::Uncompressed(UncompressedChunk::with_max_size(
-                self.chunk_size_bytes,
-            ));
-            new_chunk.add_sample(sample)?;
-            self.chunks.push(new_chunk);
-
-            return Ok(());
-        }
+        let mut chunk = self.create_chunk();
+        chunk.add_sample(sample)?;
+        self.chunks.push(chunk);
 
         Ok(())
     }
 
-    fn append_uncompressed_chunk(&mut self) {
-        let new_chunk =
-            TimeSeriesChunk::Uncompressed(UncompressedChunk::with_max_size(self.chunk_size_bytes));
+    fn append_chunk(&mut self) {
+        let new_chunk = self.create_chunk();
         self.chunks.push(new_chunk);
+    }
+
+    fn create_chunk(&mut self) -> TimeSeriesChunk {
+        TimeSeriesChunk::new(self.chunk_compression, self.chunk_size_bytes)
     }
 
     #[inline]
     fn get_last_chunk(&mut self) -> &mut TimeSeriesChunk {
         if self.chunks.is_empty() {
-            self.append_uncompressed_chunk();
+            self.append_chunk();
         }
         self.chunks.last_mut().unwrap()
     }

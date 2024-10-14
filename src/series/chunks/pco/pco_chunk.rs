@@ -50,10 +50,7 @@ impl PcoChunk {
         res
     }
 
-    pub fn with_values(
-        max_size: usize,
-        samples: &[Sample],
-    ) -> TsdbResult<Self> {
+    pub fn with_values(max_size: usize, samples: &[Sample]) -> TsdbResult<Self> {
         debug_assert!(!samples.is_empty());
         let mut res = Self::default();
         res.max_size = max_size;

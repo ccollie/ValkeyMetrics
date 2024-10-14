@@ -38,10 +38,7 @@ impl GorillaChunk {
         }
     }
 
-    pub fn with_values(
-        max_size: usize,
-        samples: &[Sample],
-    ) -> TsdbResult<Self> {
+    pub fn with_values(max_size: usize, samples: &[Sample]) -> TsdbResult<Self> {
         let mut res = Self::default();
         res.max_size = max_size;
 
@@ -49,6 +46,7 @@ impl GorillaChunk {
         if count > 0 {
             res.set_data(samples)?;
         }
+
         Ok(res)
     }
 

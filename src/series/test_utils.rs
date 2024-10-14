@@ -1,6 +1,3 @@
-use crate::error::TsdbError;
-use crate::series::{Chunk, TimeSeriesChunk};
-
 use crate::common::types::Sample;
 use rand::{Rng, SeedableRng};
 
@@ -46,19 +43,4 @@ pub fn generate_random_test_data_ex(seed: u64, cases: usize) -> Vec<Vec<Sample>>
 pub fn generate_random_test_data(seed: u64) -> Vec<Sample> {
     let mut cases = generate_random_test_data_ex(seed, 1);
     cases.remove(0)
-}
-
-pub fn saturate_chunk(chunk: &mut TimeSeriesChunk) {
-    loop {
-        let samples = generate_random_samples(13, 1000);
-        for sample in samples.iter() {
-            match chunk.add_sample(sample) {
-                Ok(_) => {}
-                Err(TsdbError::CapacityFull(_)) => {
-                    break
-                }
-                Err(e) => panic!("unexpected error: {:?}", e),
-            }
-        }
-    }
 }
