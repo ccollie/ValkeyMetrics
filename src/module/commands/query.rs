@@ -1,36 +1,32 @@
-use crate::common::{current_time_millis, duration_to_chrono};
+use crate::common::duration_to_chrono;
 use crate::config::get_global_settings;
 use crate::globals::get_query_context;
+use crate::module::arg_parse::{parse_duration_arg, parse_timestamp_range};
+use crate::module::parse_timestamp_arg;
 use crate::module::result::to_matrix_result;
-use crate::module::{normalize_range_args, parse_timestamp_arg};
 use metricsql_runtime::execution::query::{
     query as engine_query, query_range as engine_query_range,
 };
 use metricsql_runtime::prelude::query::QueryParams;
 use metricsql_runtime::{QueryResult, RuntimeResult};
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString};
-use crate::module::arg_parse::{parse_duration_arg};
-use crate::module::types::TimestampRangeValue;
 
-const CMD_ARG_START: &str = "START";
-const CMD_ARG_END: &str = "END";
-const CMD_ARG_TIME: &str = "TIME";
 const CMD_ARG_STEP: &str = "STEP";
 const CMD_ARG_ROUNDING: &str = "ROUNDING";
 
 
 ///
-/// VM.QUERY-RANGE <query>
-///     [START rfc3339 | unix_timestamp | + | - | * ]
-///     [END rfc3339 | unix_timestamp | + | - | * ]
+/// VM.QUERY-RANGE fromTimestamp toTimestamp query
 ///     [STEP duration]
 ///     [ROUNDING digits]
 ///
 pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
-    let mut args = args.into_iter().skip(1);
+    let mut args = args.into_iter().skip(1).peekable();
+
+    let time_range = parse_timestamp_range(&mut args)?;
+
     let query = args.next_string()?;
-    let mut start_value: Option<TimestampRangeValue> = None;
-    let mut end_value: Option<TimestampRangeValue> = None;
+
     let mut step_value: Option<chrono::Duration> = None;
 
     let config = get_global_settings();
@@ -38,14 +34,6 @@ pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
 
     while let Ok(arg) = args.next_str() {
         match arg {
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_START) => {
-                let next = args.next_str()?;
-                start_value = Some(parse_timestamp_arg(next, "START")?);
-            }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_END) => {
-                let next = args.next_str()?;
-                end_value = Some(parse_timestamp_arg(next, "END")?);
-            }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_STEP) => {
                 let next = args.next_arg()?;
                 step_value = Some(parse_step(&next)?);
@@ -60,7 +48,7 @@ pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
         };
     }
 
-    let (start, end) = normalize_range_args(start_value, end_value)?;
+    let (start, end) = time_range.get_timestamps();
 
     let step = normalize_step(step_value)?;
 
@@ -76,25 +64,23 @@ pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
 }
 
 ///
-/// VKM.QUERY <query>
-///         [TIME rfc3339 | unix_timestamp | * | + ]
+/// VKM.QUERY timestamp query
 ///         [TIMEOUT duration]
 ///         [ROUNDING digits]
 ///
 pub fn query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1);
+
+    let ts_arg = args.next_str()?;
+    let time_value = parse_timestamp_arg(ts_arg, "timestamp")?;
+
     let query = args.next_string()?;
-    let mut time_value: Option<TimestampRangeValue> = None;
 
     let config = get_global_settings();
     let mut round_digits: u8 = config.round_digits.unwrap_or(100);
 
     while let Ok(arg) = args.next_str() {
         match arg {
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_TIME) => {
-                let next = args.next_str()?;
-                time_value = Some(parse_timestamp_arg(next, "TIME")?);
-            }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_ROUNDING) => {
                 round_digits = args.next_u64()?.max(100) as u8;
             }
@@ -105,11 +91,7 @@ pub fn query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         };
     }
 
-    let start = if let Some(val) = time_value {
-        val.as_timestamp()
-    } else {
-        current_time_millis()
-    };
+    let start = time_value.as_timestamp();
 
     let mut query_params: QueryParams = get_default_query_params();
     query_params.query = query.to_string();

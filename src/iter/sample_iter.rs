@@ -21,6 +21,9 @@ impl<'a> SampleIter<'a> {
     pub fn chunk(iter: ChunkSampleIterator<'a>) -> Self {
         SampleIter::Chunk(iter)
     }
+    pub fn vec(samples: Vec<Sample>) -> Self {
+        SampleIter::Vec(VecSampleIterator::new(samples))
+    }
 }
 
 

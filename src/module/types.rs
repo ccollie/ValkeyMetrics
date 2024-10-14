@@ -211,6 +211,19 @@ impl TimestampRange {
 
         (start_timestamp, end_timestamp)
     }
+
+    pub fn get_timestamps(&self) -> (Timestamp, Timestamp) {
+        use TimestampRangeValue::*;
+
+        let start_timestamp = self.start.as_timestamp();
+        let end_timestamp = if let Relative(delta) = self.end {
+            start_timestamp + delta
+        } else {
+            self.end.as_timestamp()
+        };
+
+        (start_timestamp, end_timestamp)
+    }
 }
 
 impl Display for TimestampRange {
@@ -230,28 +243,10 @@ impl Default for TimestampRange {
 
 
 pub struct MetadataFunctionArgs {
-    pub label_name: Option<String>,
     pub start: Timestamp,
     pub end: Timestamp,
     pub matchers: Vec<Matchers>,
     pub limit: Option<usize>,
-}
-
-pub(crate) fn normalize_range_timestamps(
-    start: Option<Timestamp>,
-    end: Option<Timestamp>,
-) -> (TimestampRangeValue, TimestampRangeValue) {
-    use TimestampRangeValue::*;
-    match (start, end) {
-        (Some(start), Some(end)) if start > end => (end.into(), start.into()),
-        (Some(start), Some(end)) => (start.into(), end.into()),
-        (Some(start), None) => (
-            Value(start),
-            Latest,
-        ),
-        (None, Some(end)) => (Earliest, end.into()),
-        (None, None) => (Earliest, Latest),
-    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Default)]
@@ -414,12 +409,6 @@ pub enum JoinType {
     Inner,
     Full,
     AsOf(JoinAsOfDirection, Duration),
-}
-
-impl JoinType {
-    pub fn is_exclusive(&self) -> bool {
-        matches!(self, JoinType::Left(..) | JoinType::Right(..))
-    }
 }
 
 impl Display for JoinType {

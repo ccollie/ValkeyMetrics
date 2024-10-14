@@ -2,7 +2,7 @@ use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::*;
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::TimeSeries;
-use crate::series::TimeSeriesOptions;
+use crate::series::{ChunkEncoding, TimeSeriesOptions};
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
 
@@ -57,6 +57,15 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_CHUNK_SIZE) => {
                 options.chunk_size(parse_chunk_size(&mut args)?);
+            }
+            arg if arg.eq_ignore_ascii_case(CMD_ARG_ENCODING) => {
+                let enc = args.next_string()?;
+                match ChunkEncoding::try_from(enc.as_str()) {
+                    Ok(encoding) => { options.encoding = Some(encoding); }
+                    Err(_) => {
+                        return Err(ValkeyError::Str("Err invalid chunk encoding"));
+                    }
+                }
             }
             _ => {
                 let msg = format!("ERR invalid argument '{}'", arg);

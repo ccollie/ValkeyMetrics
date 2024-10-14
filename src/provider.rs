@@ -31,7 +31,7 @@ impl TsdbDataProvider {
                             Ok(Some(QueryResult::new(metric, timestamps, values)))
                         }
                         Err(e) => {
-                            ctx.log_warning(&format!("PROMQL: Error: {:?}", e));
+                            ctx.log_warning(&format!("VM: Error: {:?}", e));
                             // TODO!: we need a specific error for series backends
                             Err(RuntimeError::General("Error".to_string()))
                         }

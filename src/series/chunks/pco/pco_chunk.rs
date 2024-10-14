@@ -2,7 +2,7 @@ use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use serde::{Deserialize, Serialize};
 use std::mem::size_of;
-
+use ahash::AHashSet;
 use super::pco_utils::{encode_with_options, pco_decode, pco_encode, CompressorConfig};
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
@@ -52,13 +52,20 @@ impl PcoChunk {
 
     pub fn with_values(
         max_size: usize,
-        timestamps: &[Timestamp],
-        values: &[f64],
+        samples: &[Sample],
     ) -> TsdbResult<Self> {
-        debug_assert_eq!(timestamps.len(), values.len());
+        debug_assert!(!samples.is_empty());
         let mut res = Self::default();
         res.max_size = max_size;
-        res.compress(timestamps, values)?;
+
+        let count = samples.len();
+        if count > 0 {
+            let mut timestamps = get_pooled_vec_i64(count);
+            let mut values = get_pooled_vec_f64(count);
+
+            res.compress(&mut timestamps, &mut values)?;
+        }
+
         Ok(res)
     }
 
@@ -83,9 +90,16 @@ impl PcoChunk {
         self.last_value = f64::NAN; // todo - use option instead
     }
 
-    pub fn set_data(&mut self, timestamps: &[i64], values: &[f64]) -> TsdbResult<()> {
-        debug_assert_eq!(timestamps.len(), values.len());
-        self.compress(timestamps, values)?;
+    pub fn set_data(&mut self, samples: &[Sample]) -> TsdbResult<()> {
+        let mut timestamps = get_pooled_vec_i64(self.count);
+        let mut values = get_pooled_vec_f64(self.count);
+
+        for sample in samples {
+            timestamps.push(sample.timestamp);
+            values.push(sample.value);
+        }
+
+        self.compress(&mut timestamps, &mut values)?;
         // todo: complain if size > max_size
         Ok(())
     }
@@ -151,6 +165,23 @@ impl PcoChunk {
             decompress_values(&self.values, values)?
         }
         Ok(())
+    }
+
+    fn decompress_samples(&self) -> TsdbResult<Vec<Sample>> {
+        if self.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut timestamps = get_pooled_vec_i64(self.count);
+        let mut values = get_pooled_vec_f64(self.count);
+
+        self.decompress(&mut timestamps, &mut values)?;
+
+        let samples = timestamps.iter().zip(values.iter())
+            .map(|(ts, value)| Sample { timestamp: *ts, value: *value })
+            .collect();
+
+        Ok(samples)
     }
 
     pub fn timestamp_compression_ratio(&self) -> f64 {
@@ -273,7 +304,62 @@ impl PcoChunk {
             Ok(samples)
         })
     }
+
+    pub fn merge_samples(
+        &mut self,
+        samples: &[Sample],
+        dp_policy: DuplicatePolicy,
+        blocked: &mut AHashSet<Timestamp>
+    ) -> TsdbResult<usize> {
+        if samples.len() == 1 {
+            let mut first = samples[0];
+            if self.is_empty() {
+                self.add_sample(&first)?;
+            } else {
+                self.upsert_sample(&mut first, dp_policy)?;
+            }
+            return Ok(self.count)
+        }
+        // we don't do streaming compression, so we have to accumulate all the samples
+        // in a new chunk and then swap it with the old one
+        let mut timestamps = get_pooled_vec_i64(self.count);
+        let mut values = get_pooled_vec_f64(self.count);
+
+        if self.is_empty() {
+            for sample in samples {
+                timestamps.push(sample.timestamp);
+                values.push(sample.value);
+            }
+
+            self.compress(&timestamps, &values)?;
+            return Ok(timestamps.len())
+        }
+
+        self.decompress(&mut timestamps, &mut values)?;
+
+        for sample in samples {
+            let ts = sample.timestamp;
+            match timestamps.binary_search(&ts) {
+                Ok(pos) => {
+                    if let Ok(val) = dp_policy.duplicate_value(ts, values[pos], sample.value) {
+                        values[pos] = val;
+                    } else {
+                        blocked.insert(ts);
+                    }
+                }
+                Err(idx) => {
+                    timestamps.insert(idx, ts);
+                    values.insert(idx, sample.value);
+                }
+            };
+        }
+
+        self.compress(&timestamps, &values)?;
+
+        Ok(timestamps.len())
+    }
 }
+
 
 impl Chunk for PcoChunk {
     fn first_timestamp(&self) -> Timestamp {
@@ -338,15 +424,20 @@ impl Chunk for PcoChunk {
         &self,
         start: Timestamp,
         end: Timestamp,
-        timestamps: &mut Vec<Timestamp>,
-        values: &mut Vec<f64>,
-    ) -> TsdbResult<()> {
+    ) -> TsdbResult<Vec<Sample>> {
         if self.is_empty() {
-            return Ok(());
+            return Ok(vec![]);
         }
-        self.decompress(timestamps, values)?;
-        trim_vec_data(timestamps, values, start, end);
-        Ok(())
+        let mut timestamps = get_pooled_vec_i64(self.count.min(4));
+        let mut values = get_pooled_vec_f64(self.count.min(4));
+        self.decompress(&mut timestamps, &mut values)?;
+
+        trim_vec_data(&mut timestamps, &mut values, start, end);
+
+        Ok(timestamps.iter()
+            .zip(values.iter())
+            .map(|(timestamp, value)| Sample { timestamp: *timestamp, value: *value })
+            .collect())
     }
 
     fn upsert_sample(
@@ -362,7 +453,7 @@ impl Chunk for PcoChunk {
             return Ok(1)
         }
 
-        // we currently don't do streaming compression, so we have to accumulate all the samples
+        // we don't do streaming compression, so we have to accumulate all the samples
         // in a new chunk and then swap it with the old one
         let mut timestamps = get_pooled_vec_i64(self.count);
         let mut values = get_pooled_vec_f64(self.count);
@@ -371,7 +462,7 @@ impl Chunk for PcoChunk {
         match timestamps.binary_search(&ts) {
             Ok(pos) => {
                 duplicate_found = true;
-                values[pos] = dp_policy.value_on_duplicate(ts, values[pos], sample.value)?;
+                values[pos] = dp_policy.duplicate_value(ts, values[pos], sample.value)?;
             }
             Err(idx) => {
                 timestamps.insert(idx, ts);
@@ -610,14 +701,12 @@ mod tests {
     fn test_chunk_compress() {
         let mut chunk = PcoChunk::default();
         let data = generate_random_samples(0, 1000);
-        let timestamps: Vec<i64> = data.iter().map(|x| x.timestamp).collect();
-        let values: Vec<f64> = data.iter().map(|x| x.value).collect();
 
-        chunk.set_data(&timestamps, &values).unwrap();
+        chunk.set_data(&data).unwrap();
         assert_eq!(chunk.num_samples(), data.len());
-        assert_eq!(chunk.min_time, timestamps[0]);
-        assert_eq!(chunk.max_time, timestamps[data.len() - 1]);
-        assert_eq!(chunk.last_value, values[data.len() - 1]);
+        assert_eq!(chunk.min_time, data[0].timestamp);
+        assert_eq!(chunk.max_time, data[data.len() - 1].timestamp);
+        assert_eq!(chunk.last_value, data[data.len() - 1].value);
         assert!(chunk.timestamps.len() > 0);
         assert!(chunk.values.len() > 0);
     }
@@ -625,25 +714,18 @@ mod tests {
     #[test]
     fn test_compress_decompress() {
         let mut chunk = PcoChunk::default();
-        let timestamps = generate_timestamps(1000, 1000, Duration::from_secs(5));
-        let values = timestamps.iter().map(|x| *x as f64).collect::<Vec<f64>>();
-
-        chunk.set_data(&timestamps, &values).unwrap();
-        let mut timestamps2 = vec![];
-        let mut values2 = vec![];
-        chunk.decompress(&mut timestamps2, &mut values2).unwrap();
-        assert_eq!(timestamps, timestamps2);
-        assert_eq!(values, values2);
+        let data = generate_random_samples(0, 1000);
+        chunk.set_data(&data).unwrap();
+        let actual = chunk.decompress_samples().unwrap();
+        assert_eq!(actual, data);
     }
 
     #[test]
     fn test_clear() {
         let mut chunk = PcoChunk::default();
         let data = generate_random_samples(0, 1000);
-        let timestamps: Vec<i64> = data.iter().map(|x| x.timestamp).collect();
-        let values: Vec<f64> = data.iter().map(|x| x.value).collect();
 
-        chunk.set_data(&timestamps, &values).unwrap();
+        chunk.set_data(&data).unwrap();
         assert_eq!(chunk.num_samples(), data.len());
         chunk.clear();
         assert_eq!(chunk.num_samples(), 0);

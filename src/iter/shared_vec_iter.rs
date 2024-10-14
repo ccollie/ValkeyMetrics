@@ -2,7 +2,7 @@
 /// the same label). To calculate aggregations across multiple groups, we cannot use a consuming
 /// iterator, since the first group would consume the results from a series.
 ///
-/// Therefore when grouping, we convert the iterator to a vec and create a simple proxying iterator
+/// Therefore, when grouping, we convert the iterator to a vec and create a simple proxying iterator
 /// on top of it.
 pub struct SharedVecIter<'a, T: Copy> {
     index: usize,

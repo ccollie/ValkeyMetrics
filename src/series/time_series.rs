@@ -1,14 +1,4 @@
-use super::{
-    merge_by_capacity,
-    validate_chunk_size,
-    Chunk,
-    ChunkCompression,
-    ChunkSampleIterator,
-    Sample,
-    TimeSeriesChunk,
-    TimeSeriesOptions,
-    UncompressedChunk
-};
+use super::{merge_by_capacity, validate_chunk_size, Chunk, ChunkCompression, ChunkEncoding, ChunkSampleIterator, Sample, TimeSeriesChunk, TimeSeriesOptions, UncompressedChunk};
 use crate::common::decimal::{round_to_significant_digits, RoundDirection};
 use crate::common::types::{Label, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
@@ -97,8 +87,20 @@ impl TimeSeries {
             validate_chunk_size(chunk_size)?;
             res.chunk_size_bytes = chunk_size;
         }
+
+        if let Some(encoding) = options.encoding {
+            match encoding {
+                ChunkEncoding::Compressed => {
+                    res.chunk_compression = ChunkCompression::Gorilla
+                }
+                ChunkEncoding::Uncompressed => {
+                    res.chunk_compression = ChunkCompression::Uncompressed
+                }
+            }
+        }
+
         res.duplicate_policy = options.duplicate_policy.unwrap_or(DuplicatePolicy::KeepLast);
-        // res.chunk_compression = options.encoding.unwrap_or(Encoding::Compressed);
+
         if let Some(retention) = options.retention {
             res.retention = retention;
         }
@@ -258,8 +260,7 @@ impl TimeSeries {
             let new_chunk = TimeSeriesChunk::new(
                 compression,
                 chunk_size,
-                &uncompressed_chunk.timestamps,
-                &uncompressed_chunk.values,
+                &uncompressed_chunk.samples,
             )?;
 
             // clear last chunk for reuse
@@ -269,6 +270,7 @@ impl TimeSeries {
             self.chunks.insert(chunks_len - 1, new_chunk);
             // res
         } else {
+            // TODO !!!! construct proper type
             let mut new_chunk = TimeSeriesChunk::Uncompressed(UncompressedChunk::with_max_size(
                 self.chunk_size_bytes,
             ));
@@ -391,7 +393,11 @@ impl TimeSeries {
             if first > end_time {
                 break;
             }
-            chunk.get_range(first, end_time, timestamps, values)?;
+            let samples = chunk.get_samples(start_time, end_time)?;
+            for Sample { timestamp, value } in samples {
+                timestamps.push(timestamp);
+                values.push(value);
+            }
         }
 
         Ok(())

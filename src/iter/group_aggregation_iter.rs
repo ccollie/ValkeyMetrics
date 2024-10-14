@@ -53,7 +53,7 @@ impl<'a> Iterator for GroupAggregationIter<'a> {
             }
         }
 
-        // i dont this condition is necessary
+        // i don't think this condition is necessary
         if self.bucket_count > 0 {
             let value = self.finalize_bucket(self.last_sample.timestamp);
             return Some(value);

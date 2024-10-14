@@ -11,3 +11,4 @@ mod vec_sample_iterator;
 pub use multi_series_sample_iter::MultiSeriesSampleIter;
 pub use group_aggregation_iter::GroupAggregationIter;
 pub use sample_iter::SampleIter;
+pub use sample_slice_iterator::SampleSliceIter;

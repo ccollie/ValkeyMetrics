@@ -13,37 +13,14 @@ impl<'a> SeriesSlice<'a> {
         Self { timestamps, values }
     }
 
-    pub fn skip_values_before(&mut self, ts: Timestamp) {
-        if let Some(idx) = get_timestamp_index(self.timestamps, ts) {
-            self.timestamps = &self.timestamps[idx..];
-            self.values = &self.values[idx..];
-        }
-    }
     pub fn split_at(&self, n: usize) -> (Self, Self) {
         let (timestamps1, timestamps2) = self.timestamps.split_at(n);
         let (values1, values2) = self.values.split_at(n);
         (Self::new(timestamps1, values1), Self::new(timestamps2, values2))
     }
 
-    pub fn split_at_timestamp(&self, ts: Timestamp) -> (Self, Self) {
-        let idx = get_timestamp_index(self.timestamps, ts).unwrap_or(self.timestamps.len());
-        self.split_at(idx)
-    }
-
-    pub fn take(&self, n: usize) -> Self {
-        let (left, _) = self.split_at(n);
-        left
-    }
-
-    pub fn truncate(&mut self, n: usize) {
-        self.timestamps = &self.timestamps[..n];
-        self.values = &self.values[..n];
-    }
     pub fn len(&self) -> usize {
         self.timestamps.len()
-    }
-    pub fn is_empty(&self) -> bool {
-        self.timestamps.is_empty()
     }
     pub fn last_timestamp(&self) -> Timestamp {
         self.timestamps[self.timestamps.len() - 1]

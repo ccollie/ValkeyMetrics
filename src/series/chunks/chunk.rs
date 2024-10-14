@@ -1,17 +1,15 @@
-use crate::common::types::{PooledTimestampVec, PooledValuesVec, Timestamp};
+use super::{GorillaChunk, PcoChunk, UncompressedChunk};
+use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
-use crate::series::merge::merge;
-use crate::series::{DuplicatePolicy, Sample, SeriesSlice};
+use crate::module::types::ValueFilter;
+use crate::series::{DuplicatePolicy, Sample};
 use ahash::AHashSet;
 use get_size::GetSize;
-use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::mem::size_of;
 use valkey_module::error::{Error, GenericError};
 use valkey_module::{raw, RedisModuleIO};
-use crate::module::types::ValueFilter;
-use super::{GorillaChunk, PcoChunk, UncompressedChunk};
 
 pub const MIN_CHUNK_SIZE: usize = 48;
 pub const MAX_CHUNK_SIZE: usize = 1048576;
@@ -27,14 +25,6 @@ pub enum ChunkCompression {
 }
 
 impl ChunkCompression {
-    pub fn is_compressed(&self) -> bool {
-        !self.is_uncompressed()
-    }
-
-    pub fn is_uncompressed(&self) -> bool {
-        matches!(self, ChunkCompression::Uncompressed)
-    }
-
     pub fn name(&self) -> &'static str {
         match self {
             ChunkCompression::Uncompressed => "uncompressed",
@@ -90,9 +80,7 @@ pub trait Chunk: Sized {
         &self,
         start: Timestamp,
         end: Timestamp,
-        timestamps: &mut Vec<i64>,
-        values: &mut Vec<f64>,
-    ) -> TsdbResult<()>;
+    ) -> TsdbResult<Vec<Sample>>;
 
     fn upsert_sample(
         &mut self,
@@ -104,7 +92,7 @@ pub trait Chunk: Sized {
         self.first_timestamp() <= end_ts && self.last_timestamp() >= start_ts
     }
     fn rdb_save(&self, rdb: *mut RedisModuleIO);
-    fn rdb_load(rdb: *mut RedisModuleIO) -> Result<Self, valkey_module::error::Error>;
+    fn rdb_load(rdb: *mut RedisModuleIO) -> Result<Self, Error>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -119,29 +107,23 @@ impl TimeSeriesChunk {
     pub fn new(
         compression: ChunkCompression,
         chunk_size: usize,
-        timestamps: &[Timestamp],
-        values: &[f64],
+        samples: &[Sample],
     ) -> TsdbResult<Self> {
         use TimeSeriesChunk::*;
         match compression {
             ChunkCompression::Uncompressed => {
-                let chunk =
-                    UncompressedChunk::new(chunk_size, timestamps.to_vec(), values.to_vec());
+                let chunk = UncompressedChunk::new(chunk_size, samples);
                 Ok(Uncompressed(chunk))
             }
             ChunkCompression::Gorilla => {
-                let chunk = GorillaChunk::with_values(chunk_size, timestamps, values)?;
+                let chunk = GorillaChunk::with_values(chunk_size, samples)?;
                 Ok(Gorilla(chunk))
             }
             ChunkCompression::Pco => {
-                let chunk = PcoChunk::with_values(chunk_size, timestamps, values)?;
+                let chunk = PcoChunk::with_values(chunk_size, samples)?;
                 Ok(Pco(chunk))
             }
         }
-    }
-
-    pub fn is_compressed(&self) -> bool {
-        matches!(self, TimeSeriesChunk::Uncompressed(_))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -221,23 +203,23 @@ impl TimeSeriesChunk {
         first_time <= end_time && last_time >= start_time
     }
 
-    pub fn process_range<F, State, R>(
-        &self,
-        state: &mut State,
-        start: Timestamp,
-        end: Timestamp,
-        f: F,
-    ) -> TsdbResult<R>
-    where
-        F: FnMut(&mut State, &[i64], &[f64]) -> TsdbResult<R>,
-    {
-        use TimeSeriesChunk::*;
-        match self {
-            Uncompressed(chunk) => chunk.process_range(start, end, state, f),
-            Gorilla(chunk) => chunk.process_range(start, end, state, f),
-            Pco(chunk) => chunk.process_range(start, end, state, f),
-        }
-    }
+    // pub fn process_range<F, State, R>(
+    //     &self,
+    //     state: &mut State,
+    //     start: Timestamp,
+    //     end: Timestamp,
+    //     f: F,
+    // ) -> TsdbResult<R>
+    // where
+    //     F: FnMut(&mut State, &[i64], &[f64]) -> TsdbResult<R>,
+    // {
+    //     use TimeSeriesChunk::*;
+    //     match self {
+    //         Uncompressed(chunk) => chunk.process_range(start, end, state, f),
+    //         Gorilla(chunk) => chunk.process_range(start, end, state, f),
+    //         Pco(chunk) => chunk.process_range(start, end, state, f),
+    //     }
+    // }
 
     // todo: make this a trait method
     pub fn iter(&self) -> Box<dyn Iterator<Item = Sample> + '_> {
@@ -281,12 +263,12 @@ impl TimeSeriesChunk {
         }
     }
 
-    pub fn set_data(&mut self, timestamps: &[i64], values: &[f64]) -> TsdbResult<()> {
+    pub fn set_data(&mut self, samples: &[Sample]) -> TsdbResult<()> {
         use TimeSeriesChunk::*;
         match self {
-            Uncompressed(chunk) => chunk.set_data(timestamps, values),
-            Gorilla(chunk) => chunk.set_data(timestamps, values),
-            Pco(chunk) => chunk.set_data(timestamps, values),
+            Uncompressed(chunk) => chunk.set_data(samples),
+            Gorilla(chunk) => chunk.set_data(samples),
+            Pco(chunk) => chunk.set_data(samples),
         }
     }
 
@@ -323,79 +305,33 @@ impl TimeSeriesChunk {
             return Ok(0);
         }
 
-        let min_timestamp = retention_threshold;
-        let mut timestamps = get_pooled_vec_i64(other.num_samples());
-        let mut values = get_pooled_vec_f64(self.num_samples());
-        other.get_range(min_timestamp.max(start_ts), end_ts, &mut timestamps, &mut values)?;
-
+        let min_timestamp = retention_threshold.max(start_ts);
+        let samples = other.get_samples(min_timestamp, end_ts)?;
         let mut duplicates = AHashSet::new();
-        let slice = SeriesSlice::new(timestamps.as_slice(), values.as_slice());
 
-        self.merge_slice(slice, retention_threshold, duplicate_policy,  &mut duplicates)
+        self.merge_samples(&samples, duplicate_policy, &mut duplicates)
+
     }
 
-    pub fn merge_slice(
+    // todo: move to trait method
+    pub fn merge_samples(
         &mut self,
-        samples: SeriesSlice,
-        min_timestamp: Timestamp,
-        duplicate_policy: DuplicatePolicy,
-        duplicates: &mut AHashSet<Timestamp>,
+        samples: &[Sample],
+        dp_policy: DuplicatePolicy,
+        blocked: &mut AHashSet<Timestamp>
     ) -> TsdbResult<usize> {
-        if samples.is_empty() {
-            return Ok(0);
+        use TimeSeriesChunk::*;
+        match self {
+            Uncompressed(chunk) => {
+                chunk.merge_samples(samples, dp_policy, blocked)
+            }
+            Gorilla(chunk) => {
+                chunk.merge_samples(samples, dp_policy, blocked)
+            }
+            Pco(chunk) => {
+                chunk.merge_samples(samples, dp_policy, blocked)
+            }
         }
-        let (res, timestamps, values) =
-            self.merge_slice_internal(samples, min_timestamp, duplicate_policy, duplicates)?;
-
-        self.set_data(timestamps.as_slice(), values.as_slice())?;
-
-        Ok(res)
-    }
-
-    fn merge_slice_internal(
-        &self,
-        samples: SeriesSlice,
-        min_timestamp: Timestamp,
-        duplicate_policy: DuplicatePolicy,
-        duplicates: &mut AHashSet<Timestamp>,
-    ) -> TsdbResult<(usize, PooledTimestampVec, PooledValuesVec)> {
-        struct State<'a> {
-            timestamps: PooledTimestampVec,
-            values: PooledValuesVec,
-            other: &'a SeriesSlice<'a>,
-            duplicates: &'a mut AHashSet<Timestamp>,
-        }
-
-        let resolve_len = samples.len() + self.num_samples();
-
-        let mut state = State {
-            timestamps: get_pooled_vec_i64(resolve_len),
-            values: get_pooled_vec_f64(resolve_len),
-            other: &samples,
-            duplicates,
-        };
-
-        let res = self.process_range(
-            &mut state,
-            min_timestamp,
-            self.last_timestamp(),
-            |state, timestamps, values| {
-                let slice = SeriesSlice::new(timestamps, values);
-                let other = state.other.clone();
-                let res = merge(
-                    &mut state.timestamps,
-                    &mut state.values,
-                    slice,
-                    other,
-                    min_timestamp,
-                    duplicate_policy,
-                    state.duplicates,
-                );
-                Ok(res)
-            },
-        )?;
-
-        Ok((res, state.timestamps, state.values))
     }
 
     pub fn memory_usage(&self) -> usize {
@@ -469,18 +405,12 @@ impl Chunk for TimeSeriesChunk {
         }
     }
 
-    fn get_range(
-        &self,
-        start: Timestamp,
-        end: Timestamp,
-        timestamps: &mut Vec<i64>,
-        values: &mut Vec<f64>,
-    ) -> TsdbResult<()> {
+    fn get_range(&self, start: Timestamp, end: Timestamp) -> TsdbResult<Vec<Sample>> {
         use TimeSeriesChunk::*;
         match self {
-            Uncompressed(chunk) => chunk.get_range(start, end, timestamps, values),
-            Gorilla(chunk) => chunk.get_range(start, end, timestamps, values),
-            Pco(chunk) => chunk.get_range(start, end, timestamps, values),
+            Uncompressed(chunk) => chunk.get_range(start, end),
+            Gorilla(chunk) => chunk.get_range(start, end),
+            Pco(chunk) => chunk.get_range(start, end),
         }
     }
 
@@ -683,24 +613,16 @@ pub fn merge_by_capacity(
         return Ok(Some(res));
     } else if remaining_capacity > count / 4 {
         // do a partial merge
-        let mut timestamps = get_pooled_vec_i64(count);
-        let mut values = get_pooled_vec_f64(count);
-        src.get_range(
-            src.first_timestamp(),
-            src.last_timestamp(),
-            &mut timestamps,
-            &mut values,
-        )?;
-        let slice = SeriesSlice::new(&timestamps, &values);
-        let (left, right) = slice.split_at(remaining_capacity);
+        let samples = src.get_range(src.first_timestamp(), src.last_timestamp())?;
+        let (left, right) = samples.split_at(remaining_capacity);
         let mut duplicates = AHashSet::new();
-        let res = dest.merge_slice(
+        let res = dest.merge_samples(
             left,
-            min_timestamp,
             duplicate_policy,
             &mut duplicates,
         )?;
-        src.set_data(right.timestamps, right.values)?;
+        src.clear();
+        src.merge_samples(right, duplicate_policy, &mut duplicates)?;
         return Ok(Some(res));
     }
     Ok(None)

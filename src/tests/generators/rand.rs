@@ -1,6 +1,6 @@
-use crate::series::series_data::SeriesData;
 use crate::common::current_time_millis;
-use crate::common::types::Timestamp;
+use crate::common::decimal::{round_to_significant_digits, RoundDirection};
+use crate::common::types::{Sample, Timestamp};
 use crate::tests::generators::generators::{
     DerivativeGenerator,
     MackeyGlassGenerator,
@@ -10,7 +10,6 @@ use crate::tests::generators::generators::{
 };
 use std::ops::Range;
 use std::time::Duration;
-use crate::common::decimal::{round_to_significant_digits, RoundDirection};
 
 #[derive(Debug, Copy, Clone, Default)]
 pub enum RandAlgo {
@@ -103,8 +102,7 @@ fn get_generator_impl(
 }
 
 // Generates time series data from the given type.
-pub fn generate_series_data(options: &GeneratorOptions) -> Result<SeriesData, String> {
-    let mut ts = SeriesData::new(options.samples);
+pub fn generate_series_data(options: &GeneratorOptions) -> Result<Vec<Sample>, String> {
 
     let interval = if let Some(interval) = options.interval {
         interval.as_millis() as i64
@@ -129,10 +127,14 @@ pub fn generate_series_data(options: &GeneratorOptions) -> Result<SeriesData, St
             *v = rounded;
         }
     }
-    ts.timestamps = timestamps;
-    ts.values = values;
 
-    Ok(ts)
+    let samples = timestamps.iter()
+        .zip(values.iter_mut())
+        .map(|(timestamp, value)| {
+            Sample { timestamp: *timestamp, value: *value }
+        }).collect::<Vec<Sample>>();
+
+    Ok(samples)
 }
 
 pub fn generate_timestamps_in_range(start: Timestamp, end: Timestamp, interval: Duration) -> Vec<Timestamp> {

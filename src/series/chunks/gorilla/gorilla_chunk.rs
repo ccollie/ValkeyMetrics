@@ -4,6 +4,7 @@ use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::series::chunks::chunk::Chunk;
 use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES};
+use ahash::AHashSet;
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use std::cmp::Ordering;
@@ -39,13 +40,15 @@ impl GorillaChunk {
 
     pub fn with_values(
         max_size: usize,
-        timestamps: &[Timestamp],
-        values: &[f64],
+        samples: &[Sample],
     ) -> TsdbResult<Self> {
-        debug_assert_eq!(timestamps.len(), values.len());
         let mut res = Self::default();
         res.max_size = max_size;
-        res.compress(timestamps, values)?;
+
+        let count = samples.len();
+        if count > 0 {
+            res.set_data(samples)?;
+        }
         Ok(res)
     }
 
@@ -67,40 +70,32 @@ impl GorillaChunk {
         self.first_timestamp = 0;
     }
 
-    pub fn set_data(&mut self, timestamps: &[i64], values: &[f64]) -> TsdbResult<()> {
-        debug_assert_eq!(timestamps.len(), values.len());
-        self.compress(timestamps, values)?;
+    pub fn set_data(&mut self, samples: &[Sample]) -> TsdbResult<()> {
+        debug_assert!(!samples.is_empty());
+        self.compress(samples)
         // todo: complain if size > max_size
-        Ok(())
     }
 
-    pub(in crate::series) fn compress(&mut self, timestamps: &[Timestamp], values: &[f64]) -> TsdbResult<()> {
-        debug_assert_eq!(timestamps.len(), values.len());
+    fn compress(&mut self, samples: &[Sample]) -> TsdbResult<()> {
         let mut encoder = XOREncoder::new();
-        for (ts, value) in timestamps.iter().zip(values.iter()) {
-            let sample = Sample::new(*ts, *value);
-            push_sample(&mut encoder, &sample)?;
+        for sample in samples {
+            push_sample(&mut encoder, sample)?;
         }
         self.xor_encoder = encoder;
         Ok(())
     }
 
-    pub(in crate::series) fn decompress(
-        &self,
-        timestamps: &mut Vec<Timestamp>,
-        values: &mut Vec<f64>,
-    ) -> TsdbResult<()> {
+    fn decompress(&self) -> TsdbResult<Vec<Sample>> {
         if self.is_empty() {
-            return Ok(());
+            return Ok(vec![]);
         }
-        timestamps.reserve(self.num_samples());
-        values.reserve(self.num_samples());
+
+        let mut values: Vec<Sample> = Vec::with_capacity(self.num_samples());
         for item in self.xor_encoder.iter() {
-            let sample = item?;
-            timestamps.push(sample.timestamp);
-            values.push(sample.value);
+            values.push(item?);
         }
-        Ok(())
+
+        Ok(values)
     }
 
     pub fn compression_ratio(&self) -> f64 {
@@ -267,6 +262,96 @@ impl GorillaChunk {
         }
         Ok(())
     }
+
+    pub fn merge_samples(
+        &mut self,
+        samples: &[Sample],
+        dp_policy: DuplicatePolicy,
+        blocked: &mut AHashSet<Timestamp>
+    ) -> TsdbResult<usize> {
+
+        if samples.len() == 1 {
+            let mut first = samples[0];
+            if self.is_empty() {
+                self.add_sample(&first)?;
+                return Ok(1)
+            }
+            self.upsert_sample(&mut first, dp_policy)?;
+        }
+
+        let mut count = self.num_samples();
+        let mut xor_encoder = XOREncoder::new();
+
+        let mut iter = self.xor_encoder.iter();
+
+        let mut iter_done = true;
+
+        if self.is_empty() {
+            for sample in samples.iter() {
+                push_sample(&mut xor_encoder, sample)?;
+                count += 1;
+            }
+            self.xor_encoder = xor_encoder;
+            return Ok(count)
+        }
+
+        let mut binding = samples.iter();
+        let sample_iter = binding.by_ref();
+
+        for sample in &mut *sample_iter {
+            let ts = sample.timestamp;
+
+            iter_done = true;
+
+            for item in iter.by_ref() {
+                let mut current = item?;
+                iter_done = false;
+                match current.timestamp.cmp(&ts) {
+                    Ordering::Less => {
+                        push_sample(&mut xor_encoder, &current)?;
+                    },
+                    Ordering::Greater => {
+                        push_sample(&mut xor_encoder, sample)?;
+                        push_sample(&mut xor_encoder, &current)?;
+                        count += 1;
+                        break;
+                    }
+                    Ordering::Equal => {
+                        if let Ok(val) = dp_policy.duplicate_value(ts, current.value, sample.value) {
+                            current.value = val;
+                        } else {
+                            blocked.insert(ts);
+                        }
+                        push_sample(&mut xor_encoder, &current)?;
+                        break;
+                    },
+                }
+            }
+
+            if iter_done {
+                // push the rest
+                break
+            }
+        }
+
+        // this means that there were more samples to insert than the current chunk.
+        // add the remaining input samples
+        if iter_done {
+            for sample in sample_iter {
+                push_sample(&mut xor_encoder, sample)?;
+                count += 1;
+            }
+        }
+
+        for item in iter {
+            let current = item?;
+            push_sample(&mut xor_encoder, &current)?;
+        }
+
+        // todo: do a self.encoder.buf.take()
+        self.xor_encoder = xor_encoder;
+        Ok(count)
+    }
 }
 
 impl Chunk for GorillaChunk {
@@ -321,25 +406,23 @@ impl Chunk for GorillaChunk {
         &self,
         start: Timestamp,
         end: Timestamp,
-        timestamps: &mut Vec<Timestamp>,
-        values: &mut Vec<f64>,
-    ) -> TsdbResult<()> {
+    ) -> TsdbResult<Vec<Sample>> {
         if self.is_empty() {
-            return Ok(());
+            return Ok(vec![]);
         }
 
+        let mut samples = Vec::new();
         for sample in self.xor_encoder.iter() {
             let sample = sample?;
             if sample.timestamp >= start {
-                timestamps.push(sample.timestamp);
-                values.push(sample.value);
+                samples.push(sample);
             }
             if sample.timestamp > end {
                 break;
             }
         }
 
-        Ok(())
+        Ok(samples)
     }
 
     fn upsert_sample(
@@ -373,7 +456,8 @@ impl Chunk for GorillaChunk {
 
         if current.timestamp == ts {
             duplicate_found = true;
-            current.value = dp_policy.value_on_duplicate(ts, current.value, sample.value)?;
+            current.value = dp_policy.duplicate_value(ts, current.value, sample.value)?;
+            push_sample(&mut xor_encoder, &current)?;
             iter.next();
         } else {
             push_sample(&mut xor_encoder, sample)?;
@@ -521,14 +605,12 @@ impl<'a> Iterator for RangeChunkIter<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use crate::error::TsdbError;
     use crate::series::chunks::chunk::Chunk;
     use crate::series::chunks::gorilla::gorilla_chunk::GorillaChunk;
     use crate::series::test_utils::generate_random_samples;
     use crate::series::{DuplicatePolicy, Sample};
-    use crate::tests::generators::{generate_timestamps, GeneratorOptions};
+    use crate::tests::generators::GeneratorOptions;
 
     fn decompress(chunk: &GorillaChunk) -> Vec<Sample> {
         chunk.iter().collect()
@@ -558,15 +640,11 @@ mod tests {
     #[test]
     fn test_compress_decompress() {
         let mut chunk = GorillaChunk::default();
-        let timestamps = generate_timestamps(500, 1000, Duration::from_secs(5));
-        let values = timestamps.iter().map(|x| *x as f64).collect::<Vec<f64>>();
+        let expected = generate_random_samples(0, 1000);
 
-        chunk.set_data(&timestamps, &values).unwrap();
-        let mut timestamps2 = vec![];
-        let mut values2 = vec![];
-        chunk.decompress(&mut timestamps2, &mut values2).unwrap();
-        assert_eq!(timestamps, timestamps2);
-        assert_eq!(values, values2);
+        chunk.set_data(&expected).unwrap();
+        let actual = chunk.decompress().unwrap();
+        assert_eq!(actual, expected);
     }
 
     #[test]

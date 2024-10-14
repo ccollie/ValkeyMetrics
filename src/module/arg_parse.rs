@@ -19,6 +19,7 @@ const MAX_TS_VALUES_FILTER: usize = 16;
 pub const CMD_ARG_COUNT: &str = "COUNT";
 pub const CMD_PARAM_REDUCER: &str = "REDUCE";
 const CMD_PARAM_ALIGN: &str = "ALIGN";
+pub const CMD_ARG_ENCODING: &str = "ENCODING";
 pub const CMD_ARG_FILTER_BY_VALUE: &str = "FILTER_BY_VALUE";
 pub const CMD_ARG_FILTER_BY_TS: &str = "FILTER_BY_TS";
 pub const CMD_ARG_AGGREGATION: &str = "AGGREGATION";
@@ -291,13 +292,6 @@ pub(crate) fn advance_if_next_token(args: &mut CommandArgIterator, token: &str) 
     } else {
         false
     }
-}
-
-pub(crate) fn expect_token(args: &mut CommandArgIterator, token: &str) -> ValkeyResult<()> {
-    if !advance_if_next_token(args, token) {
-        return Err(ValkeyError::Str("ERR: unexpected token"));
-    }
-    Ok(())
 }
 
 pub(crate) fn advance_if_next_token_one_of<'a>(args: &mut CommandArgIterator, token: &'a [&str]) -> Option<&'a str> {

@@ -14,7 +14,7 @@ pub fn read_varint(input: &[u8]) -> IResult<&[u8], i64> {
 }
 
 
-/// Write a i64 as a Golang varint.
+/// Write an i64 as a Golang varint.
 pub fn write_varint<W: std::io::Write>(value: i64, writer: &mut W) -> std::io::Result<()> {
     let x = value;
     let mut ux = (x as u64) << 1;

@@ -1,5 +1,5 @@
 use enquote::enquote;
-use crate::common::types::{Label, Timestamp};
+use crate::common::types::{Label, Sample, Timestamp};
 
 trait ModuloSignedExt {
     fn modulo(&self, n: Self) -> Self;
@@ -66,6 +66,36 @@ pub(crate) fn get_timestamp_index_bounds(timestamps: &[i64], start_ts: Timestamp
     } else {
         // todo: optimize by searching only stamps[start_idx..]
         stamps.binary_search(&end_ts).unwrap_or_else(|i| i)
+    };
+
+
+    Some((start_idx, end_idx))
+}
+
+pub(crate) fn get_sample_index_bounds(samples: &[Sample], start_ts: Timestamp, end_ts: Timestamp) -> Option<(usize, usize)> {
+    if samples.is_empty() {
+        return None;
+    }
+
+    let first = &samples[0];
+    let min_timestamp = first.timestamp;
+    let max_timestamp = samples[samples.len() - 1].timestamp;
+    if min_timestamp > end_ts || max_timestamp < start_ts {
+        // Out of range.
+        return None
+    }
+
+    let start_idx = if start_ts <= min_timestamp {
+        0
+    } else {
+        samples.binary_search_by(|x| x.timestamp.cmp(&start_ts)).unwrap_or_else(|i| i)
+    };
+
+    let end_idx = if end_ts >= max_timestamp {
+        samples.len()
+    } else {
+        // todo: optimize by searching only stamps[start_idx..]
+        samples.binary_search_by(|x| x.timestamp.cmp(&end_ts)).unwrap_or_else(|i| i)
     };
 
 

@@ -4,14 +4,8 @@ use crate::common::types::Sample;
 #[derive(Debug, Error, Eq, PartialEq)]
 /// Enum for various errors in Tsdb.
 pub enum TsdbError {
-  #[error("Invalid size. Expected {0}, Received {1}.")]
-  InvalidSize(usize, usize),
-
   #[error("Chunk at full capacity. Max capacity {0}.")]
   CapacityFull(usize),
-
-  #[error("Time series block is empty - cannot be compressed.")]
-  EmptyTimeSeriesBlock(),
 
   #[error("Invalid configuration. {0}")]
   InvalidConfiguration(String),

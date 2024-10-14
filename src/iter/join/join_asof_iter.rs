@@ -1,5 +1,5 @@
 use crate::common::types::Sample;
-use crate::module::commands::asof::{merge_apply_asof, MergeAsOfMode};
+use super::asof::{merge_apply_asof, MergeAsOfMode};
 use joinkit::EitherOrBoth;
 use std::time::Duration;
 use crate::module::types::{JoinAsOfDirection, JoinValue};

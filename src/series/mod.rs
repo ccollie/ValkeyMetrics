@@ -8,13 +8,10 @@ use std::time::Duration;
 use valkey_module::ValkeyError;
 
 mod constants;
-mod merge;
 mod slice;
 pub mod time_series;
 pub(crate) mod utils;
-pub(crate) mod series_data;
 mod defrag;
-mod slice_iter;
 pub mod index;
 mod chunks;
 mod test_utils;
@@ -32,42 +29,35 @@ pub const SAMPLE_SIZE: usize = size_of::<Sample>();
 #[non_exhaustive]
 #[derive(Clone, Debug, Default, Hash, PartialEq, Serialize, Deserialize)]
 #[derive(GetSize)]
-pub enum Encoding {
+pub enum ChunkEncoding {
     #[default]
     Compressed,
     Uncompressed,
 }
 
-impl Encoding {
-    pub fn is_compressed(&self) -> bool {
-        match self {
-            Encoding::Compressed => true,
-            Encoding::Uncompressed => false,
-        }
-    }
-
+impl ChunkEncoding {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Encoding::Compressed => "COMPRESSED",
-            Encoding::Uncompressed => "UNCOMPRESSED",
+            ChunkEncoding::Compressed => "COMPRESSED",
+            ChunkEncoding::Uncompressed => "UNCOMPRESSED",
         }
     }
 }
 
-impl Display for Encoding {
+impl Display for ChunkEncoding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
-impl FromStr for Encoding {
-    type Err = String;
+impl TryFrom<&str> for ChunkEncoding {
+    type Error = String;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            s if s.eq_ignore_ascii_case("compressed") => Ok(Encoding::Compressed),
-            s if s.eq_ignore_ascii_case("uncompressed") => Ok(Encoding::Uncompressed),
-            _ => Err(format!("invalid encoding: {}", s)),
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            s if s.eq_ignore_ascii_case("compressed") => Ok(ChunkEncoding::Compressed),
+            s if s.eq_ignore_ascii_case("uncompressed") => Ok(ChunkEncoding::Uncompressed),
+            _ => Err(format!("invalid encoding: {}", value)),
         }
     }
 }
@@ -119,7 +109,7 @@ impl DuplicatePolicy {
         }
     }
 
-    pub fn value_on_duplicate(self, ts: Timestamp, old: f64, new: f64) -> TsdbResult<f64> {
+    pub fn duplicate_value(self, ts: Timestamp, old: f64, new: f64) -> TsdbResult<f64> {
         use DuplicatePolicy::*;
         let has_nan = old.is_nan() || new.is_nan();
         if has_nan && self != Block {
@@ -187,8 +177,7 @@ impl TryFrom<u8> for DuplicatePolicy {
 
 #[derive(Debug, Default, Clone)]
 pub struct TimeSeriesOptions {
-    pub metric_name: Option<String>,
-    pub encoding: Option<Encoding>,
+    pub encoding: Option<ChunkEncoding>,
     pub chunk_size: Option<usize>,
     pub retention: Option<Duration>,
     pub duplicate_policy: Option<DuplicatePolicy>,
@@ -198,10 +187,6 @@ pub struct TimeSeriesOptions {
 }
 
 impl TimeSeriesOptions {
-    pub fn encoding(&mut self, encoding: Encoding) {
-        self.encoding = Some(encoding);
-    }
-
     pub fn chunk_size(&mut self, chunk_size: usize) {
         self.chunk_size = Some(chunk_size);
     }
@@ -240,37 +225,37 @@ mod tests {
         let ts = 0;
         let old = 1.0;
         let new = 2.0;
-        assert!(matches!(dp.value_on_duplicate(ts, old, new), Err(TsdbError::DuplicateSample(_))));
+        assert!(matches!(dp.duplicate_value(ts, old, new), Err(TsdbError::DuplicateSample(_))));
 
         let dp = DuplicatePolicy::KeepFirst;
         let ts = 0;
         let old = 1.0;
         let new = 2.0;
-        assert_eq!(dp.value_on_duplicate(ts, old, new).unwrap(), old);
+        assert_eq!(dp.duplicate_value(ts, old, new).unwrap(), old);
 
         let dp = DuplicatePolicy::KeepLast;
         let ts = 0;
         let old = 1.0;
         let new = 2.0;
-        assert_eq!(dp.value_on_duplicate(ts, old, new).unwrap(), new);
+        assert_eq!(dp.duplicate_value(ts, old, new).unwrap(), new);
 
         let dp = DuplicatePolicy::Min;
         let ts = 0;
         let old = 1.0;
         let new = 2.0;
-        assert_eq!(dp.value_on_duplicate(ts, old, new).unwrap(), old);
+        assert_eq!(dp.duplicate_value(ts, old, new).unwrap(), old);
 
         let dp = DuplicatePolicy::Max;
         let ts = 0;
         let old = 1.0;
         let new = 2.0;
-        assert_eq!(dp.value_on_duplicate(ts, old, new).unwrap(), new);
+        assert_eq!(dp.duplicate_value(ts, old, new).unwrap(), new);
 
         let dp = DuplicatePolicy::Sum;
         let ts = 0;
         let old = 1.0;
         let new = 2.0;
-        assert_eq!(dp.value_on_duplicate(ts, old, new).unwrap(), old + new);
+        assert_eq!(dp.duplicate_value(ts, old, new).unwrap(), old + new);
     }
 
     #[test]
@@ -281,12 +266,12 @@ mod tests {
         let ts = 0;
         let old = 1.0;
         let new = f64::NAN;
-        assert!(matches!(dp.value_on_duplicate(ts, old, new), Err(TsdbError::DuplicateSample(_))));
+        assert!(matches!(dp.duplicate_value(ts, old, new), Err(TsdbError::DuplicateSample(_))));
 
         let policies = [KeepFirst, KeepLast, Min, Max, Sum];
         for policy in policies {
-            assert_eq!(policy.value_on_duplicate(ts, 10.0, f64::NAN).unwrap(), 10.0);
-            assert_eq!(policy.value_on_duplicate(ts, f64::NAN, 8.0).unwrap(), 8.0);
+            assert_eq!(policy.duplicate_value(ts, 10.0, f64::NAN).unwrap(), 10.0);
+            assert_eq!(policy.duplicate_value(ts, f64::NAN, 8.0).unwrap(), 8.0);
         }
     }
 }

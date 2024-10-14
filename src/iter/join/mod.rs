@@ -10,6 +10,7 @@ mod join_left_iter;
 mod join_right_iter;
 mod join_asof_iter;
 mod join_iter;
+mod asof;
 
 pub use join_iter::*;
 

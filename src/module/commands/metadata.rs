@@ -126,7 +126,6 @@ fn parse_metadata_command_args(
     ];
 
     let mut args = args.into_iter().skip(1).peekable();
-    let label_name = None;
     let mut matchers = Vec::with_capacity(4);
     let mut start_value: Option<TimestampRangeValue> = None;
     let mut end_value: Option<TimestampRangeValue> = None;
@@ -173,7 +172,6 @@ fn parse_metadata_command_args(
     }
 
     Ok(MetadataFunctionArgs {
-        label_name,
         start,
         end,
         matchers,

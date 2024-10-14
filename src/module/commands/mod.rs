@@ -20,7 +20,6 @@ mod join;
 mod collate;
 mod info;
 mod mget;
-pub mod asof;
 
 pub use crate::iter::aggregator::*;
 pub use alter::*;

@@ -25,12 +25,12 @@ const CMD_ARG_REDUCE: &str = "REDUCE";
 
 
 /// VM.JOIN key1 key2 fromTimestamp toTimestamp
-/// [[INNER] | [FULL] | [LEFT [EXCLUSIVE]] | [RIGHT [EXCLUSIVE]] | [ASOF [PRIOR | NEXT] tolerance]]
-/// [FILTER_BY_TS ts...]
-/// [FILTER_BY_VALUE min max]
-/// [COUNT count]
-/// [REDUCE op]
-/// [AGGREGATION aggregator bucketDuration [ALIGN align] [BUCKETTIMESTAMP timestamp] [EMPTY]]
+///   [[INNER] | [FULL] | [LEFT [EXCLUSIVE]] | [RIGHT [EXCLUSIVE]] | [ASOF [PRIOR | NEXT] tolerance]]
+///   [FILTER_BY_TS ts...]
+///   [FILTER_BY_VALUE min max]
+///   [COUNT count]
+///   [REDUCE op]
+///   [AGGREGATION aggregator bucketDuration [ALIGN align] [BUCKETTIMESTAMP timestamp] [EMPTY]]
 pub fn join(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1).peekable();
 
@@ -177,13 +177,13 @@ fn parse_join_args(args: &mut CommandArgIterator, options: &mut JoinOptions) -> 
             CMD_ARG_AGGREGATION => {
                 options.aggregation = Some(parse_aggregation_options(args)?)
             }
-            _ => return Err(ValkeyError::Str("TSDB: invalid JOIN command argument")),
+            _ => return Err(ValkeyError::Str("ERR: invalid JOIN command argument")),
         }
     }
 
     // aggregations are only valid when there is a transform
     if options.aggregation.is_some() && options.transform_op.is_none() {
-        return Err(ValkeyError::Str("TSDB: join aggregation requires a transform"));
+        return Err(ValkeyError::Str("ERR: join aggregation requires a reducer"));
     }
 
     Ok(())
@@ -233,7 +233,7 @@ fn join_internal(left: &[Sample], right: &[Sample], options: &JoinOptions) -> Va
 
     let result = join_iter
         .take(count)
-        .map(|jv| join_value_to_value(jv, false))
+        .map(|jv| join_value_to_valkey_value(jv, false))
         .collect();
 
     ValkeyValue::Array(result)
@@ -248,7 +248,7 @@ fn get_sample_ts_range(samples: &[Sample]) -> (Timestamp, Timestamp) {
     (first.timestamp, last.timestamp)
 }
 
-fn join_value_to_value(row: JoinValue, is_transform: bool) -> ValkeyValue {
+fn join_value_to_valkey_value(row: JoinValue, is_transform: bool) -> ValkeyValue {
     let timestamp = ValkeyValue::from(row.timestamp);
 
     match row.value {
