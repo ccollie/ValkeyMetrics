@@ -3,14 +3,14 @@
 #### Syntax
 
 ```
-VM.LABEL-VALUES label [START fromTimestamp|rfc3339|+|*] [END toTimestamp|rfc3339|+|*]
+VM.LABEL-VALUES label [START fromTimestamp] [END toTimestamp]
 ```
-returns a list of label values for a provided label name.
+returns a list of label mut values for a provided label name.
 
 ### Required Arguments
 
 <details open><summary><code>label</code></summary>
-The label name for which to retrieve values.
+The label name for which to retrieve mut values.
 </details>
 
 ### Optional Arguments
@@ -27,7 +27,7 @@ have data in the date range [`fromTimestamp` .. `toTimestamp`]
 
 #### Return
 
-The data section of the JSON response is a list of string label values.
+The data section of the JSON response is a list of string label mut values.
 
 #### Error
 
@@ -38,7 +38,7 @@ Return an error reply in the following cases:
 
 #### Examples
 
-This example queries for all label values for the job label:
+This example queries for all label mut values for the job label:
 ```
 // Create a chat application with LLM model and vector store.
 VKM.LABEL-VALUES job

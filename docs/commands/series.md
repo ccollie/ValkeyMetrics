@@ -3,10 +3,9 @@
 #### Syntax
 
 ```
-VM.SERIES FILTER filterExpr... [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
+VM.SERIES FILTER filter... [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
 ```
-
-**VM.SERIES** returns the list of time series that match a certain label set.
+returns the list of time series that match a certain label set.
 
 #### Options
 

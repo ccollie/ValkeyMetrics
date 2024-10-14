@@ -1,5 +1,5 @@
 ```
-VM.COLLATE fromTimestamp toTimestamp FILTER series_selector...
+VM.COLLATE fromTimestamp toTimestamp FILTER filter...
     [COUNT count]
     [WITHLABELS]
     [SELECTED_LABELS label...]
@@ -18,6 +18,9 @@ the start of the range to query from (inclusive)
 the end of the range to query from (inclusive)
 </details>
 
+<details open><summary><code>filter</code></summary>
+one or more series selectors to specify the series being fetched
+</details>
 
 ### Details
 
@@ -76,7 +79,7 @@ This would result in
 | 3000      | 30                             | 15                             |
 | 4000      | NULL                           | 40                             |
 
-Now suppose that instead of raw values, we want to get the average latencies per timestamp. We can use the `aggregation` argument.
+Now suppose that instead of raw mut values, we want to get the average latencies per timestamp. We can use the `aggregation` argument.
 
 ```aiignore
 VM.COLLATE -6hr * FILTER latencies{service="auth", region~="us-east-*" code="200"} WITHLABELS AGGREGATION avg

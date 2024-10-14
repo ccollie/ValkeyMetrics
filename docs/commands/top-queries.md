@@ -43,7 +43,7 @@ Return an error reply in the following cases:
 
 #### Examples
 
-This example queries for all label values for the job label:
+This example queries for all label mut values for the job label:
 ```
 127.0.0.1:6379> VM.TOP-QUERIES TOP_K 5 MAX_LIFETIME 30s
 ```

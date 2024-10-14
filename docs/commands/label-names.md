@@ -1,18 +1,24 @@
 ### VM.LABEL-NAMES
-
-#### Syntax
-
 ```
 VM.LABEL-NAMES FILTER selector... [START fromTimestamp] [END toTimestamp]
 ```
+returns a list of label names for select series.
 
-**VM.LABELS** returns a list of label names.
+### Required Arguments
+<details open><summary><code>fromTimestamp</code></summary>
+Repeated series selector argument that selects the series to return. At least one selector argument must be provided..
+</details>
 
-#### Options
+### Optional Arguments
+<details open><summary><code>fromTimestamp</code></summary>
+If specified along with `toTimestamp`, this limits the result to only labels from series which
+have data in the date range [`fromTimestamp` .. `toTimestamp`]
+</details>
 
-- **selector**: Repeated series selector argument that selects the series to return. At least one match[] argument must be provided..
-- **START**: Start timestamp, inclusive. Optional.
-- **END**: End timestamp, inclusive. Optional.
+<details open><summary><code>toTimestamp</code></summary>
+If specified along with `fromTimestamp`, this limits the result to only labels from series which
+have data in the date range [`fromTimestamp` .. `toTimestamp`]
+</details>
 
 #### Return
 

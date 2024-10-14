@@ -18,7 +18,7 @@ $ redis-cli
 
 #### Return
 
-The data section of the JSON response is a list of string label values.
+The data section of the JSON response is a list of string label mut values.
 
 #### Error
 
@@ -29,7 +29,7 @@ Return an error reply in the following cases:
 
 #### Examples
 
-This example queries for all label values for the job label:
+This example queries for all label mut values for the job label:
 ```
 127.0.0.1:6379> VM.ACTIVE-QUERIES
 ```

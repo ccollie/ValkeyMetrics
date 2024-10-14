@@ -3,18 +3,34 @@
 #### Syntax
 
 ```
-VM.QUERY-RANGE query [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*] [STEP duration|number] [ROUNDING number]
+VM.QUERY-RANGE fromTimestamp toTimestamp query [STEP step] [ROUNDING decimals]
 ```
+evaluates an expression query over a range of time.
 
-**VM.QUERY-RANGE** evaluates an expression query over a range of time.
+### Required Arguments
+<details open><summary><code>fromTimestamp</code></summary>
 
-#### Options
+`fromTimestamp` is the first timestamp or relative delta from the current time of the request range.
 
-- **query**: Prometheus expression query string.
-- **START**: Start timestamp, inclusive. Optional.
-- **END**: End timestamp, inclusive. Optional.
-- **STEP**: Query resolution step width in duration format or float number of seconds.
-- **ROUNDING**: Optional number of decimal places to round values.
+</details>
+
+<details open><summary><code>toTimestamp</code></summary>
+
+`toTimestamp` is the last timestamp of the requested range, or a relative delta from `fromTimestamp`
+
+</details>
+
+<details open><summary><code>query</code></summary>
+Prometheus expression query string.
+</details>
+
+### Optional Arguments
+<details open><summary><code>step</code></summary>
+Query resolution step width in duration format or float number of seconds.
+</details>
+<details open><summary><code>decimals</code></summary>
+number of decimal places to round result mut values.
+</details>
 
 #### Return
 

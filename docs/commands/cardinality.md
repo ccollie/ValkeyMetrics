@@ -3,16 +3,23 @@
 #### Syntax
 
 ```
-VM.CARDINALITY FILTER selector... [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
+VM.CARDINALITY FILTER filter... [START fromTimestamp] [END toTimestamp]
 ```
+returns the number of unique time series that match a certain label set.
 
-**VM.CARDINALITY** returns the number of unique time series that match a certain label set.
+### Required arguments
 
-#### Options
+<details open><summary><code>filter</code></summary>
+Repeated series selector argument that selects the series to return. At least one filter argument must be provided.
+</details>
 
-- **MATCH**: Repeated series selector argument that selects the series to return. At least one match[] argument must be provided..
-- **START**: Start timestamp, inclusive. Optional.
-- **END**: End timestamp, inclusive. Optional.
+### Optional Arguments
+<details open><summary><code>fromTimestamp</code></summary>
+Start timestamp, inclusive. Results will only be returned for series which have samples in the range `[fromTimestamp, toTimestamp]`
+</details>
+<details open><summary><code>toTimestamp</code></summary>
+End timestamp, inclusive.
+</details>
 
 #### Return
 

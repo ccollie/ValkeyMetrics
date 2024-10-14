@@ -44,7 +44,7 @@ Both keys must have been created before `VM.JOIN` is called.
 <details open><summary><code>LEFT [EXCLUSIVE]</code></summary>
 
 A `LEFT` join outputs the matching samples between both tables. In case, no samples match from the left series, it shows 
-those items with null values.
+those items with null mut values.
 
 A `LEFT EXCLUSIVE` join returns samples for which no corresponding timestamp exists in the `right` series.
 
@@ -53,7 +53,7 @@ A `LEFT EXCLUSIVE` join returns samples for which no corresponding timestamp exi
 <details open><summary><code>RIGHT [EXCLUSIVE]</code></summary>
 
 A `RIGHT` join outputs all samples in the right series. In case, no samples match from the left  series, it shows
-those items with null values.
+those items with null mut values.
 
 `RIGHT EXCLUSIVE` join returns samples for which no corresponding timestamp exists in the `left` series.
 
@@ -135,7 +135,7 @@ performs an operation on the value in each returned row.
   | `absdiff`     | abs(`left` - `right`)                                                  |
   | `add` or `+`  | `left` + `right`                                                       |
   | `and`         | Returns `left` if either value is NAN/NULL, `right` otherwise          |
-  | `avg`         | Arithmetic mean of both values                                         |
+  | `avg`         | Arithmetic mean of both mut values                                         |
   | `default`     | If left is is NaN/NULL, return right, else left                        | 
   | `div` or `/`  | `left` / `right`                                                       |
   | `eq` or `=`   | Returns 1 if left == right, 0 otherwise                                |

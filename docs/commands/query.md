@@ -2,14 +2,14 @@
 **VM.QUERY** evaluates an instant query at a single point in time.
 
 ```
-VM.QUERY query [TIME timestamp|rfc3339|+|*] [ROUNDING number]
+VM.QUERY timestamp query [ROUNDING decimals]
 ```
 
 #### Options
 
 - **query**: Prometheus expression query string.
-- **TIME**: evaluation timestamp. Optional. If not specified, use current server time.
-- **ROUNDING**: Optional number of decimal places to round values.
+- **timestamp**: evaluation timestamp. Optional. If not specified, use current server time.
+- **decimals**: Optional number of decimal places to round mut values.
 
 #### Return
 
@@ -26,5 +26,5 @@ Return an error reply in the following cases:
 #### Examples
 
 ```
-VM.QUERY "sum(rate(process_io_storage_written_bytes_total)) by (job)" TIME 1587396550
+VM.QUERY 1587396550 "sum(rate(process_io_storage_written_bytes_total)) by (job)"
 ```
