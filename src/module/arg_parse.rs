@@ -72,27 +72,6 @@ pub fn parse_integer_arg(arg: &ValkeyString, name: &str, allow_negative: bool) -
     Ok(value)
 }
 
-pub fn parse_timestamp_arg(arg: &ValkeyString) -> ValkeyResult<Timestamp> {
-    if arg.len() == 1 {
-        let arg = arg.as_slice();
-        if arg[0] == b'*' {
-            return Ok(current_time_millis());
-        }
-    }
-    let value = if let Ok(value) = arg.parse_integer() {
-        value
-    } else {
-        let arg_str = arg.to_string_lossy();
-        let value = DateTime::parse_from_rfc3339(&arg_str)
-            .map_err(|_| ValkeyError::Str("TSDB: invalid timestamp"))?;
-        value.timestamp_millis()
-    };
-    if value < 0 {
-        return Err(ValkeyError::Str("TSDB: invalid timestamp, must be a non-negative value"));
-    }
-    Ok(value as Timestamp)
-}
-
 pub fn parse_timestamp(arg: &str) -> ValkeyResult<Timestamp> {
     // todo: handle +,
     if arg == "*" {

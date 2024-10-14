@@ -45,5 +45,5 @@ TODO
 #### Examples
 
 ```
-VM.QUERY-RANGE "sum(rate(rows_inserted_total[5m])) by (type,accountID) > 0" START 1587396550 END 1587396550 STEP 1m
+VM.QUERY-RANGE 1587396550 1587396550 "sum(rate(rows_inserted_total[5m])) by (type,accountID) > 0" STEP 1m
 ```

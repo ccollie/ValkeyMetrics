@@ -10,9 +10,6 @@ pub enum TsdbError {
   #[error("Invalid configuration. {0}")]
   InvalidConfiguration(String),
 
-  #[error("Encoding error. {0}")]
-  EncodingError(String),
-
   #[error("Decoding error. {0}")]
   DecodingError(String),
 
@@ -27,9 +24,6 @@ pub enum TsdbError {
 
   #[error("Duplicate sample. {0}")] // need better error
   DuplicateSample(String),
-
-  #[error("Duplicate metric: {0}")]
-  DuplicateMetric(String),
 
   #[error("Invalid metric: {0}")]
   InvalidMetric(String),

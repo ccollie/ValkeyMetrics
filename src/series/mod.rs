@@ -8,7 +8,6 @@ use std::time::Duration;
 use valkey_module::ValkeyError;
 
 mod constants;
-mod slice;
 pub mod time_series;
 pub(crate) mod utils;
 mod defrag;
@@ -21,7 +20,6 @@ use crate::error::{TsdbError, TsdbResult};
 pub(super) use chunks::*;
 pub(crate) use constants::*;
 pub(crate) use defrag::*;
-pub(crate) use slice::*;
 pub(crate) use time_series::*;
 
 pub const SAMPLE_SIZE: usize = size_of::<Sample>();

@@ -1,15 +1,15 @@
-use get_size::GetSize;
-use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
-use serde::{Deserialize, Serialize};
-use std::mem::size_of;
-use ahash::AHashSet;
 use super::pco_utils::{encode_with_options, pco_decode, pco_encode, CompressorConfig};
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::series::chunks::Chunk;
 use crate::series::utils::{get_timestamp_index_bounds, trim_vec_data};
-use crate::series::{DuplicatePolicy, Sample, SeriesSlice, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
+use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
+use ahash::AHashSet;
+use get_size::GetSize;
+use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use pco::DEFAULT_COMPRESSION_LEVEL;
+use serde::{Deserialize, Serialize};
+use std::mem::size_of;
 use valkey_module::raw;
 
 /// items above this count will cause value and timestamp encoding/decoding to happen in parallel
@@ -62,8 +62,12 @@ impl PcoChunk {
         if count > 0 {
             let mut timestamps = get_pooled_vec_i64(count);
             let mut values = get_pooled_vec_f64(count);
+            for sample in samples {
+                timestamps.push(sample.timestamp);
+                values.push(sample.value);
+            }
 
-            res.compress(&mut timestamps, &mut values)?;
+            res.compress(&timestamps, &values)?;
         }
 
         Ok(res)
@@ -99,7 +103,7 @@ impl PcoChunk {
             values.push(sample.value);
         }
 
-        self.compress(&mut timestamps, &mut values)?;
+        self.compress(&timestamps, &values)?;
         // todo: complain if size > max_size
         Ok(())
     }
@@ -167,6 +171,7 @@ impl PcoChunk {
         Ok(())
     }
 
+    #[cfg(test)]
     fn decompress_samples(&self) -> TsdbResult<Vec<Sample>> {
         if self.is_empty() {
             return Ok(vec![]);
@@ -499,11 +504,12 @@ impl Chunk for PcoChunk {
         let mut values = get_pooled_vec_f64(self.count);
         self.decompress(&mut timestamps, &mut values)?;
 
-        let slice = SeriesSlice::new(&timestamps, &values);
-        let (left, right) = slice.split_at(mid);
-        self.compress(left.timestamps, left.values)?;
+        let (left_timestamps, right_timestamps)  = timestamps.split_at(mid);
+        let (left_values, right_values) = values.split_at_mut(mid);
 
-        result.compress(right.timestamps, right.values)?;
+        self.compress(left_timestamps, left_values)?;
+
+        result.compress(right_timestamps, right_values)?;
 
         Ok(result)
     }
@@ -660,13 +666,11 @@ impl<'a> Iterator for PcoChunkIterator<'a> {
 #[cfg(test)]
 mod tests {
     use crate::series::test_utils::generate_random_samples;
-    use std::time::Duration;
 
     use crate::error::TsdbError;
     use crate::series::chunks::Chunk;
     use crate::series::chunks::PcoChunk;
     use crate::series::{DuplicatePolicy, Sample};
-    use crate::tests::generators::generate_timestamps;
 
     fn decompress(chunk: &PcoChunk) -> Vec<Sample> {
         chunk.iter().collect()

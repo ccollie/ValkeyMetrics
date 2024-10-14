@@ -114,7 +114,7 @@ impl TimeSeries {
             .find(|x| x.name == METRIC_NAME_LABEL); // better error
 
         if let Some(label) = label {
-            res.metric_name = label.value.clone();
+            res.metric_name.clone_from(&label.value);
         } else {
             return Err(TsdbError::InvalidMetric("ERR expected METRIC name label".to_string()));
         }
@@ -295,13 +295,6 @@ impl TimeSeries {
             self.append_uncompressed_chunk();
         }
         self.chunks.last_mut().unwrap()
-    }
-
-    fn get_first_chunk(&mut self) -> &mut TimeSeriesChunk {
-        if self.chunks.is_empty() {
-            self.append_uncompressed_chunk();
-        }
-        self.chunks.first_mut().unwrap()
     }
 
     pub fn upsert_sample(

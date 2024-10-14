@@ -103,9 +103,3 @@ pub static mut GLOBAL_SETTINGS: OnceLock<Settings> = OnceLock::new();
 pub fn get_global_settings() -> &'static Settings {
     unsafe { GLOBAL_SETTINGS.get_or_init(Settings::default) }
 }
-
-fn get_setting_from_env<T: std::str::FromStr>(name: &str) -> Option<T> {
-    std::env::var(name)
-        .ok()
-        .and_then(|v| v.parse::<T>().ok())
-}

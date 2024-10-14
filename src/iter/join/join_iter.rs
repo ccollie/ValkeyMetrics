@@ -6,7 +6,7 @@ use crate::iter::join::join_left_exclusive_iter::JoinLeftExclusiveIter;
 use crate::iter::join::join_left_iter::JoinLeftIter;
 use crate::iter::join::join_right_exclusive_iter::JoinRightExclusiveIter;
 use crate::iter::join::join_right_iter::JoinRightIter;
-use crate::module::types::{JoinOptions, JoinType, JoinValue};
+use crate::module::types::{JoinType, JoinValue};
 use joinkit::EitherOrBoth;
 use metricsql_parser::prelude::BinopFunc;
 
@@ -40,10 +40,6 @@ impl<'a> JoinIterator<'a> {
             JoinType::Inner => Self::Inner(JoinInnerIter::new(left, right)),
             JoinType::Full => Self::Full(JoinFullIter::new(left, right)),
         }
-    }
-
-    pub(crate) fn new_from_options(left: &'a [Sample], right: &'a [Sample], options: &JoinOptions) -> Self {
-        Self::new(left, right, options.join_type)
     }
 }
 
