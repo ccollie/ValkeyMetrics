@@ -247,21 +247,6 @@ impl GorillaChunk {
         start_ts <= self.first_timestamp() && end_ts >= self.last_timestamp()
     }
 
-    fn populate_encoder_range(
-        &self,
-        encoder: &mut XOREncoder,
-        start_ts: Timestamp,
-        end_ts: Timestamp,
-    ) -> TsdbResult<()> {
-        for value in self.xor_encoder.iter() {
-            let sample = value?;
-            if sample.timestamp < start_ts || sample.timestamp >= end_ts {
-                push_sample(encoder, &sample)?;
-            }
-        }
-        Ok(())
-    }
-
     pub fn merge_samples(
         &mut self,
         samples: &[Sample],
@@ -382,11 +367,17 @@ impl Chunk for GorillaChunk {
         let old_sample_count = self.xor_encoder.num_samples;
         let mut new_encoder = XOREncoder::new();
 
-        self.populate_encoder_range(&mut new_encoder, start_ts, end_ts)?;
+        for value in self.xor_encoder.iter() {
+            let sample = value?;
+            if sample.timestamp < start_ts || sample.timestamp > end_ts {
+                push_sample(&mut new_encoder, &sample)?;
+            }
+        }
 
         self.xor_encoder = new_encoder;
+        let new_count = self.num_samples();
 
-        Ok(self.num_samples() - old_sample_count)
+        Ok(old_sample_count - new_count)
     }
 
     fn add_sample(&mut self, sample: &Sample) -> TsdbResult<()> {
@@ -401,11 +392,7 @@ impl Chunk for GorillaChunk {
         Ok(())
     }
 
-    fn get_range(
-        &self,
-        start: Timestamp,
-        end: Timestamp,
-    ) -> TsdbResult<Vec<Sample>> {
+    fn get_range(&self, start: Timestamp, end: Timestamp) -> TsdbResult<Vec<Sample>> {
         if self.is_empty() {
             return Ok(vec![]);
         }
@@ -424,11 +411,7 @@ impl Chunk for GorillaChunk {
         Ok(samples)
     }
 
-    fn upsert_sample(
-        &mut self,
-        sample: &mut Sample,
-        dp_policy: DuplicatePolicy,
-    ) -> TsdbResult<usize> {
+    fn upsert_sample(&mut self, sample: &mut Sample, dp_policy: DuplicatePolicy) -> TsdbResult<usize> {
         let ts = sample.timestamp;
         let mut duplicate_found = false;
 

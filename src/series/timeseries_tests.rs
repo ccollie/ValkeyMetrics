@@ -1,10 +1,12 @@
 #[cfg(test)]
 mod tests {
     use crate::common::types::{Label, Sample, Timestamp};
-    use crate::error::TsdbError;
+    use crate::error_consts;
+    use crate::series::test_utils::generate_random_samples;
     use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, TimeSeries, TimeSeriesChunk};
     use std::time::Duration;
-    use crate::series::test_utils::generate_random_samples;
+    use metricsql_runtime::prelude::TimestampTrait;
+    use valkey_module::ValkeyError;
 
     fn create_test_timeseries() -> TimeSeries {
         TimeSeries {
@@ -41,12 +43,17 @@ mod tests {
         (chunk.first_timestamp(), chunk.last_timestamp())
     }
 
+
     #[test]
     fn test_add_sample_older_than_retention() {
         let mut ts = create_test_timeseries();
-        let old_timestamp = 0; // Very old timestamp
-        let result = ts.add(old_timestamp, 1.0, None);
-        assert_eq!(result, Err(TsdbError::SampleTooOld));
+        let retention_period = ts.retention.as_millis() as i64;
+        let old_timestamp = ts.last_timestamp - retention_period - 1;
+
+        let result = ts.add(old_timestamp, 42.0, None);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), error_consts::SAMPLE_TOO_OLD);
     }
 
     #[test]
@@ -75,7 +82,10 @@ mod tests {
         let current_timestamp = 1000;
         ts.last_timestamp = current_timestamp;
         let result = ts.add(current_timestamp + 30, 1.0, None); // Within dedupe interval
-        assert_eq!(result, Err(TsdbError::DuplicateSample("New sample encountered in less than dedupe interval".to_string())));
+        match result {
+            Ok(_) => assert!(false), // Should have failed due to dedupe interval
+            Err(e) => assert_eq!(e.to_string(), error_consts::DUPLICATE_SAMPLE),
+        }
     }
 
     #[test]
@@ -182,10 +192,327 @@ mod tests {
         assert_eq!(ts.last_value, 2.0);
     }
 
+    /// ----- ADD
+
+    #[test]
+    fn test_add_sample_updates_last_timestamp_and_value() {
+        let mut ts = create_test_timeseries();
+        let initial_last_timestamp = ts.last_timestamp;
+        let initial_last_value = ts.last_value;
+
+        // Add a sample with a timestamp greater than the last timestamp
+        let new_timestamp = initial_last_timestamp + 1000;
+        let new_value = 42.0;
+
+        assert!(ts.add(new_timestamp, new_value, None).is_ok());
+
+        // Check if the last timestamp and value are updated correctly
+        assert_eq!(ts.last_timestamp, new_timestamp);
+        assert_eq!(ts.last_value, new_value);
+    }
+    ///
+
+    #[test]
+    fn test_add_sample_at_dedupe_interval_boundary() {
+        let mut ts = create_test_timeseries();
+        ts.dedupe_interval = Some(Duration::from_secs(60));
+
+        // Add initial sample
+        let initial_timestamp = 1000;
+        ts.add(initial_timestamp, 10.0, None).unwrap();
+
+        // Add sample exactly at dedupe interval boundary
+        let boundary_timestamp = initial_timestamp + ts.dedupe_interval.unwrap().as_millis() as i64;
+        ts.add(boundary_timestamp, 20.0, None).unwrap();
+
+        assert_eq!(ts.total_samples, 2);
+        assert_eq!(ts.last_timestamp, boundary_timestamp);
+        assert_eq!(ts.last_value, 20.0);
+    }
+
+    #[test]
+    fn test_add_sample_with_overflow_timestamp() {
+        let mut ts = create_test_timeseries();
+        ts.dedupe_interval = Some(Duration::from_secs(60)); // 1 minute deduplication interval
+
+        // Add a sample with a timestamp close to the maximum value for Timestamp
+        let max_timestamp = Timestamp::MAX - 30; // 30 milliseconds before overflow
+        ts.add(max_timestamp, 1.0, None).unwrap();
+
+        // Try to add another sample with a timestamp that would cause overflow when calculating deduplication interval
+        let overflow_timestamp = Timestamp::MAX - 20; // 20 milliseconds before overflow
+
+        let result = ts.add(overflow_timestamp, 2.0, None);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), error_consts::DUPLICATE_SAMPLE);
+    }
+
+    #[test]
+    fn test_add_sample_with_zero_dedupe_interval_and_equal_timestamp() {
+        let mut ts = create_test_timeseries();
+        ts.dedupe_interval = Some(Duration::from_secs(0)); // Set deduplication interval to zero
+
+        // Add a sample to set the last_timestamp
+        let initial_timestamp = 1000;
+        ts.add(initial_timestamp, 1.0, None).unwrap();
+
+        // Try to add another sample with the same timestamp
+        let result = ts.add(initial_timestamp, 2.0, None);
+
+        // Expect an error due to deduplication policy
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_add_sample_with_equal_timestamp_block() {
+        let mut ts = create_test_timeseries();
+        ts.dedupe_interval = Some(Duration::from_secs(0)); // Set deduplication interval to zero
+
+        // Add a sample to set the last_timestamp
+        let initial_timestamp = 1000;
+        ts.add(initial_timestamp, 1.0, None).unwrap();
+
+        // Try to add another sample with the same timestamp
+        let result = ts.add(initial_timestamp, 2.0, Some(DuplicatePolicy::Block));
+
+        // Expect an error due to deduplication policy
+        assert!(matches!(result, Err(ValkeyError::Str(err)) if err == error_consts::DUPLICATE_SAMPLE));
+    }
+
+    #[test]
+    fn test_add_sample_with_duplicate_timestamp_keep_first() {
+        let mut ts = create_test_timeseries();
+        add_chunk_data(&mut ts, 1);
+        let sample_value = 123.456;
+        let duplicate_timestamp = ts.last_timestamp;
+        let duplicate_sample = Sample {
+            timestamp: duplicate_timestamp,
+            value: sample_value,
+        };
+        let res = ts.add(duplicate_timestamp, sample_value, Some(DuplicatePolicy::KeepFirst));
+        assert!(res.is_err());
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            error_consts::DUPLICATE_SAMPLE.to_string()
+        );
+        assert_eq!(ts.last_value, 0.0);
+    }
+
+    #[test]
+    fn test_add_duplicate_timestamps_keep_last() {
+        let mut ts = create_test_timeseries();
+        ts.duplicate_policy = DuplicatePolicy::KeepLast;
+
+        let samples = vec![
+            Sample { timestamp: 1, value: 10.0 },
+            Sample { timestamp: 2, value: 20.0 },
+            Sample { timestamp: 2, value: 25.0 },
+            Sample { timestamp: 3, value: 30.0 },
+            Sample { timestamp: 3, value: 35.0 },
+        ];
+
+        for sample in samples {
+            ts.add(sample.timestamp, sample.value, None).unwrap();
+        }
+
+        assert_eq!(ts.total_samples, 3);
+        assert_eq!(ts.last_value, 35.0);
+
+        let expected_samples = vec![
+            Sample { timestamp: 2, value: 25.0 },
+            Sample { timestamp: 3, value: 35.0 },
+        ];
+
+        assert_eq!(ts.get_range(1, 3), expected_samples);
+    }
+
+    /***** TRIM ******/
+
     #[test]
     fn test_label_value_nonexistent_label() {
         let ts = create_test_timeseries();
         assert_eq!(ts.label_value("nonexistent_label"), None);
+    }
+
+    #[test]
+    fn test_trim_all_chunks() {
+        let mut ts = create_test_timeseries();
+        add_chunk_data(&mut ts, 3);
+
+        // Set retention to a very small value to ensure all chunks are older
+        ts.retention = Duration::from_millis(1);
+
+        // Store the original sample count
+        let original_samples = ts.total_samples;
+
+        // Advance the last_timestamp to make all chunks older than retention
+        ts.last_timestamp += 1000;
+
+        // Trim the time series
+        ts.trim().unwrap();
+
+        // Check if all chunks are removed
+        assert!(ts.chunks.is_empty());
+
+        // Check if total_samples is zero
+        assert_eq!(ts.total_samples, 0);
+
+        // Check if first_timestamp and last_timestamp are reset
+        assert_eq!(ts.first_timestamp, 0);
+        assert_eq!(ts.last_timestamp, 0);
+
+        // Check if last_value is NaN
+        assert!(ts.last_value.is_nan());
+
+        // Ensure all samples were deleted
+        assert_eq!(original_samples, ts.total_samples + original_samples);
+    }
+
+    #[test]
+    fn test_trim_min_timestamp_equal_to_chunk_last_timestamp() {
+        let mut ts = create_test_timeseries();
+        add_chunk_data(&mut ts, 3);
+
+        let (_, last_timestamp_chunk1) = get_chunk_boundaries(&mut ts, 0);
+        ts.retention = Duration::from_secs((last_timestamp_chunk1 - ts.first_timestamp + 1) as u64);
+
+        let initial_samples = ts.total_samples;
+        let initial_chunks = ts.chunks.len();
+
+        ts.trim().unwrap();
+
+        assert_eq!(ts.chunks.len(), initial_chunks - 1, "First chunk should be removed");
+        assert!(ts.total_samples < initial_samples, "Total samples should decrease");
+        assert_eq!(ts.first_timestamp, last_timestamp_chunk1 + 1, "First timestamp should be updated");
+        assert_eq!(ts.chunks[0].first_timestamp(), last_timestamp_chunk1 + 1, "New first chunk should start after previous chunk's last timestamp");
+    }
+
+    #[test]
+    fn test_trim_partial_chunk() {
+        let mut ts = create_test_timeseries();
+        add_chunk_data(&mut ts, 2);
+
+        // Set retention to remove part of the first chunk
+        let retention = Duration::from_secs(30);
+        ts.retention = retention;
+
+        let original_total_samples = ts.total_samples;
+        let original_first_timestamp = ts.first_timestamp;
+        let (_, original_last_timestamp) = get_chunk_boundaries(&mut ts, 1);
+
+        // Calculate the expected min_timestamp
+        let expected_min_timestamp = original_last_timestamp - retention.as_millis() as i64;
+
+        // Perform trim operation
+        ts.trim().unwrap();
+
+        // Check that only part of the first chunk was removed
+        assert!(ts.chunks.len() == 2);
+        assert!(ts.total_samples < original_total_samples);
+        assert!(ts.first_timestamp > original_first_timestamp);
+        assert!(ts.first_timestamp >= expected_min_timestamp);
+        assert_eq!(ts.last_timestamp, original_last_timestamp);
+
+        // Verify the first chunk's start time
+        let (new_first_timestamp, _) = get_chunk_boundaries(&mut ts, 0);
+        assert!(new_first_timestamp >= expected_min_timestamp);
+    }
+
+    #[test]
+    fn test_trim_single_chunk_partial_removal() {
+        let mut ts = create_test_timeseries();
+        ts.retention = Duration::from_secs(100);
+
+        // Add a single chunk with samples
+        let samples = vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 20, value: 2.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 40, value: 4.0 },
+            Sample { timestamp: 50, value: 5.0 },
+        ];
+        let mut chunk = TimeSeriesChunk::new(ChunkCompression::Uncompressed, 1024);
+        chunk.set_data(&samples).unwrap();
+        ts.chunks.push(chunk);
+        ts.total_samples = samples.len();
+        ts.first_timestamp = 10;
+        ts.last_timestamp = 50;
+
+        // Set last_timestamp to simulate passage of time
+        ts.last_timestamp = 130;
+
+        // Trim the time series
+        ts.trim().unwrap();
+
+        // Check the result
+        assert_eq!(ts.total_samples, 3);
+        assert_eq!(ts.first_timestamp, 30);
+        assert_eq!(ts.last_timestamp, 50);
+
+        let remaining_samples = ts.get_range(0, 1000);
+        assert_eq!(remaining_samples.len(), 3);
+        assert_eq!(remaining_samples[0], Sample { timestamp: 30, value: 3.0 });
+        assert_eq!(remaining_samples[1], Sample { timestamp: 40, value: 4.0 });
+        assert_eq!(remaining_samples[2], Sample { timestamp: 50, value: 5.0 });
+    }
+
+    #[test]
+fn test_trim_updates_timestamps() {
+    let mut ts = create_test_timeseries();
+    add_chunk_data(&mut ts, 3);
+
+    let original_first_timestamp = ts.first_timestamp;
+    let original_last_timestamp = ts.last_timestamp;
+
+    // Set retention to remove the first chunk
+    ts.retention = Duration::from_secs((ts.last_timestamp - ts.first_timestamp) as u64 / 2);
+
+    ts.trim().unwrap();
+
+    assert!(ts.first_timestamp > original_first_timestamp, "first_timestamp should be updated after trimming");
+    assert_eq!(ts.last_timestamp, original_last_timestamp, "last_timestamp should remain unchanged after trimming");
+    assert!(ts.chunks.len() < 3, "Some chunks should be removed after trimming");
+    assert!(!ts.chunks.is_empty(), "TimeSeries should not be empty after trimming");
+}
+
+    #[test]
+    fn test_trim_single_sample() {
+        let mut ts = create_test_timeseries();
+        let now = Timestamp::now();
+        ts.add(now, 42.0, None).unwrap();
+
+        // Set retention to 1 second
+        ts.retention = Duration::from_secs(1);
+
+        // Advance time by 2 seconds
+        let future = now + 2000;
+
+        // Trim the series
+        ts.trim().unwrap();
+
+        // The single sample should be removed
+        assert!(ts.is_empty());
+        assert_eq!(ts.first_timestamp, 0);
+        assert_eq!(ts.last_timestamp, 0);
+        assert!(ts.last_value.is_nan());
+        assert_eq!(ts.total_samples, 0);
+        assert!(ts.chunks.is_empty());
+    }
+
+    #[test]
+    fn test_trim_updates_total_samples() {
+        let mut ts = create_test_timeseries();
+        add_chunk_data(&mut ts, 3);  // Add 3 chunks of data
+        let initial_samples = ts.total_samples;
+
+        // Set retention to remove half of the data
+        ts.retention = Duration::from_secs((ts.last_timestamp - ts.first_timestamp) as u64 / 2);
+
+        ts.trim().unwrap();
+
+        assert!(ts.total_samples < initial_samples, "Total samples should decrease after trimming");
+        assert_eq!(ts.total_samples, ts.chunks.iter().map(|c| c.num_samples()).sum::<usize>(),
+                   "Total samples should match the sum of samples in remaining chunks");
     }
 
     #[test]

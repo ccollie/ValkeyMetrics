@@ -221,8 +221,7 @@ pub(crate) fn merge_by_capacity(
     // check if previous block has capacity, and if so merge into it
     let count = src.num_samples();
     let remaining_capacity = dest.estimate_remaining_sample_capacity();
-    // if there is enough capacity in the previous block, merge the last block into it,
-    // but only if there's sufficient space to justify the overhead of compression
+    // if there is enough capacity in the previous block, merge the last block into it
     if remaining_capacity >= count {
         // copy all from last_chunk
         let res = dest.merge(src, min_timestamp, duplicate_policy)?;

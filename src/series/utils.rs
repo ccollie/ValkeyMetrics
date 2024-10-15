@@ -86,8 +86,6 @@ pub(crate) fn get_sample_index_bounds(samples: &[Sample], start_ts: Timestamp, e
     Some((start_idx, end_idx))
 }
 
-// todo: needs test
-// todo: this looks slow : need to optimize
 pub fn trim_vec_data(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start_ts: Timestamp, end_ts: Timestamp) {
     if timestamps.is_empty() {
         return;
@@ -100,19 +98,10 @@ pub fn trim_vec_data(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start_ts:
     }
 
     if let Some((start_idx, end_idx)) = get_timestamp_index_bounds(timestamps, start_ts, end_ts) {
-        let mut idx = 0;
-        timestamps.retain(|_| {
-            let keep = idx >= start_idx && idx < end_idx;
-            idx += 1;
-            keep
-        });
-
-        let mut idx = 0;
-        values.retain(|_| {
-            let keep = idx >= start_idx && idx < end_idx;
-            idx += 1;
-            keep
-        });
+        timestamps.drain(..start_idx);
+        timestamps.truncate(end_idx - start_idx);
+        values.drain(..start_idx);
+        values.truncate(end_idx - start_idx);
     }
 }
 
@@ -175,4 +164,57 @@ mod tests {
         assert_eq!(super::get_timestamp_index(&timestamps, 6), Some(5));
         assert_eq!(super::get_timestamp_index(&timestamps, 100), None);
     }
+
+    #[test]
+    fn trim_vec_data_all_before_start_ts() {
+        let mut timestamps = vec![1, 2, 3, 4, 5];
+        let mut values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let start_ts = 10;
+        let end_ts = 20;
+
+        super::trim_vec_data(&mut timestamps, &mut values, start_ts, end_ts);
+
+        assert!(timestamps.is_empty());
+        assert!(values.is_empty());
+    }
+
+    #[test]
+    fn trim_vec_data_within_range() {
+        let mut timestamps = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let mut values = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+        let start_ts = 3;
+        let end_ts = 8;
+
+        super::trim_vec_data(&mut timestamps, &mut values, start_ts, end_ts);
+
+        assert_eq!(timestamps, vec![3, 4, 5, 6, 7, 8]);
+        assert_eq!(values, vec![3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+    }
+
+    #[test]
+    fn trim_vec_data_all_within_range() {
+        let mut timestamps = vec![1, 2, 3, 4, 5];
+        let mut values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let start_ts = 0;
+        let end_ts = 6;
+
+        super::trim_vec_data(&mut timestamps, &mut values, start_ts, end_ts);
+
+        assert_eq!(timestamps, vec![1, 2, 3, 4, 5]);
+        assert_eq!(values, vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn trim_vec_data_start_ts_equals_end_ts() {
+        let mut timestamps = vec![1, 2, 3, 4, 5];
+        let mut values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let start_ts = 3;
+        let end_ts = 3;
+
+        super::trim_vec_data(&mut timestamps, &mut values, start_ts, end_ts);
+
+        assert_eq!(timestamps, vec![3]);
+        assert_eq!(values, vec![3.0]);
+    }
+
 }

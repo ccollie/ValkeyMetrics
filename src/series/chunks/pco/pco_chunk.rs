@@ -6,7 +6,7 @@ use crate::series::utils::{get_timestamp_index_bounds, trim_vec_data};
 use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
 use ahash::AHashSet;
 use get_size::GetSize;
-use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
+use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64, PooledVecF64, PooledVecI64};
 use pco::DEFAULT_COMPRESSION_LEVEL;
 use serde::{Deserialize, Serialize};
 use std::mem::size_of;
@@ -93,8 +93,12 @@ impl PcoChunk {
     }
 
     pub fn set_data(&mut self, samples: &[Sample]) -> TsdbResult<()> {
-        let mut timestamps = get_pooled_vec_i64(self.count);
-        let mut values = get_pooled_vec_f64(self.count);
+        if samples.is_empty() {
+            self.clear();
+            return Ok(());
+        }
+        let mut timestamps = get_pooled_vec_i64(samples.len());
+        let mut values = get_pooled_vec_f64(samples.len());
 
         for sample in samples {
             timestamps.push(sample.timestamp);
@@ -106,8 +110,9 @@ impl PcoChunk {
         Ok(())
     }
 
-    pub(in crate::series) fn compress(&mut self, timestamps: &[Timestamp], values: &[f64]) -> TsdbResult<()> {
+    fn compress(&mut self, timestamps: &[Timestamp], values: &[f64]) -> TsdbResult<()> {
         if timestamps.is_empty() {
+            self.clear();
             return Ok(());
         }
         debug_assert_eq!(timestamps.len(), values.len());
@@ -139,20 +144,24 @@ impl PcoChunk {
             compress_timestamps(&mut self.timestamps, timestamps)?;
             compress_values(&mut self.values, values)?;
         }
-
+        self.count = self.timestamps.len();
         self.timestamps.shrink_to_fit();
         self.values.shrink_to_fit();
         Ok(())
     }
 
-    pub(in crate::series) fn decompress(
-        &self,
-        timestamps: &mut Vec<Timestamp>,
-        values: &mut Vec<f64>,
-    ) -> TsdbResult<()> {
+    fn decompress(&self) -> TsdbResult<Option<(PooledVecI64, PooledVecF64)>> {
         if self.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
+        let mut timestamps = get_pooled_vec_i64(self.count);
+        let mut values = get_pooled_vec_f64(self.count);
+
+        self.decompress_internal(&mut timestamps, &mut values)?;
+        Ok(Some((timestamps, values)))
+    }
+
+    fn decompress_internal(&self, timestamps: &mut Vec<Timestamp>, values: &mut Vec<f64>) -> TsdbResult<()> {
         timestamps.reserve(self.count);
         values.reserve(self.count);
         // todo: dynamically calculate cutoff or just use chili
@@ -171,20 +180,14 @@ impl PcoChunk {
 
     #[cfg(test)]
     fn decompress_samples(&self) -> TsdbResult<Vec<Sample>> {
-        if self.is_empty() {
-            return Ok(vec![]);
+        if let Some((timestamps, values)) = self.decompress()? {
+            let samples = timestamps.iter().zip(values.iter())
+                .map(|(ts, value)| Sample { timestamp: *ts, value: *value })
+                .collect();
+            Ok(samples)
+        } else {
+            Ok(vec![])
         }
-
-        let mut timestamps = get_pooled_vec_i64(self.count);
-        let mut values = get_pooled_vec_f64(self.count);
-
-        self.decompress(&mut timestamps, &mut values)?;
-
-        let samples = timestamps.iter().zip(values.iter())
-            .map(|(ts, value)| Sample { timestamp: *ts, value: *value })
-            .collect();
-
-        Ok(samples)
     }
 
     pub fn timestamp_compression_ratio(&self) -> f64 {
@@ -225,26 +228,23 @@ impl PcoChunk {
     where
         F: FnMut(&mut State, &[i64], &[f64]) -> TsdbResult<R>,
     {
-        let mut handle_empty = |state: &mut State| -> TsdbResult<R> {
+        let mut handle_empty_range = |state: &mut State| -> TsdbResult<R> {
             let mut timestamps = vec![];
             let mut values = vec![];
             f(state, &mut timestamps, &mut values)
         };
 
-        if self.is_empty() {
-            return handle_empty(state);
-        }
-
-        let mut timestamps = get_pooled_vec_i64(self.count);
-        let mut values = get_pooled_vec_f64(self.count);
-        self.decompress(&mut timestamps, &mut values)?;
         // special case of range exceeding block range
-        if start <= self.min_time && end >= self.max_time {
-            return f(state, &timestamps, &values);
+        if self.is_empty() || start > self.max_time || end < self.min_time {
+            return handle_empty_range(state);
         }
 
-        trim_vec_data(&mut timestamps, &mut values, start, end);
-        f(state, &timestamps, &values)
+        if let Some((mut timestamps, mut values)) = self.decompress()? {
+            trim_vec_data(&mut timestamps, &mut values, start, end);
+            f(state, &timestamps, &values)
+        } else {
+            handle_empty_range(state)
+        }
     }
 
     pub fn data_size(&self) -> usize {
@@ -323,12 +323,13 @@ impl PcoChunk {
             }
             return Ok(self.count)
         }
-        // we don't do streaming compression, so we have to accumulate all the samples
-        // in a new chunk and then swap it with the old one
-        let mut timestamps = get_pooled_vec_i64(self.count);
-        let mut values = get_pooled_vec_f64(self.count);
 
         if self.is_empty() {
+            // we don't do streaming compression, so we have to accumulate all the samples
+            // in a new chunk and then swap it with the old one
+            let mut timestamps = get_pooled_vec_i64(self.count);
+            let mut values = get_pooled_vec_f64(self.count);
+
             for sample in samples {
                 timestamps.push(sample.timestamp);
                 values.push(sample.value);
@@ -338,28 +339,28 @@ impl PcoChunk {
             return Ok(timestamps.len())
         }
 
-        self.decompress(&mut timestamps, &mut values)?;
-
-        for sample in samples {
-            let ts = sample.timestamp;
-            match timestamps.binary_search(&ts) {
-                Ok(pos) => {
+        if let Some((mut timestamps, mut values)) = self.decompress()? {
+            let mut start_pos = 0;
+            for sample in samples {
+                let ts = sample.timestamp;
+                let (pos, found) = get_timestamp_index(&timestamps, ts, start_pos);
+                start_pos = pos + 1;
+                if found {
                     if let Ok(val) = dp_policy.duplicate_value(ts, values[pos], sample.value) {
                         values[pos] = val;
                     } else {
                         blocked.insert(ts);
                     }
+                } else {
+                    timestamps.insert(pos, sample.timestamp);
+                    values.insert(pos, sample.value);
                 }
-                Err(idx) => {
-                    timestamps.insert(idx, ts);
-                    values.insert(idx, sample.value);
-                }
-            };
+            }
+
+            self.compress(&timestamps, &values)?;
         }
 
-        self.compress(&timestamps, &values)?;
-
-        Ok(timestamps.len())
+        Ok(self.count)
     }
 }
 
@@ -387,63 +388,50 @@ impl Chunk for PcoChunk {
         if start_ts > self.max_time || end_ts < self.min_time {
             return Ok(0);
         }
-        let mut timestamps = get_pooled_vec_i64(self.count);
-        let mut values = get_pooled_vec_f64(self.count);
-        self.decompress(&mut timestamps, &mut values)?;
+        if let Some((mut timestamps, mut values)) = self.decompress()? {
+            let count = timestamps.len();
+            remove_values_in_range(&mut timestamps, &mut values, start_ts, end_ts);
 
-        let count = timestamps.len();
-        remove_values_in_range(&mut timestamps, &mut values, start_ts, end_ts);
-
-        let removed_count = count - timestamps.len();
-        if timestamps.is_empty() {
-            self.count = 0;
-            self.values.clear();
-            self.min_time = 0;
-            self.max_time = 0;
-            Ok(removed_count)
+            let removed_count = count - timestamps.len();
+            if timestamps.is_empty() {
+                self.clear();
+                Ok(removed_count)
+            } else {
+                self.compress(&timestamps, &values)?;
+                Ok(0)
+            }
         } else {
-            self.compress(&timestamps, &values)?;
-            self.count = timestamps.len();
-            self.min_time = timestamps[0];
-            self.max_time = timestamps[self.count - 1];
             Ok(0)
         }
     }
+
     fn add_sample(&mut self, sample: &Sample) -> TsdbResult<()> {
         if self.is_full() {
             return Err(TsdbError::CapacityFull(self.max_size));
         }
-        if self.is_empty() {
+
+        if let Some((mut timestamps, mut values)) = self.decompress()? {
+            timestamps.push(sample.timestamp);
+            values.push(sample.value);
+            self.compress(&timestamps, &values)
+        } else {
             let timestamps = vec![sample.timestamp];
             let values = vec![sample.value];
-            return self.compress(&timestamps, &values);
+            self.compress(&timestamps, &values)
         }
-        let mut timestamps = get_pooled_vec_i64(self.count.min(4));
-        let mut values = get_pooled_vec_f64(self.count.min(4));
-        self.decompress(&mut timestamps, &mut values)?;
-        timestamps.push(sample.timestamp);
-        values.push(sample.value);
-        self.compress(&timestamps, &values)
     }
 
-    fn get_range(
-        &self,
-        start: Timestamp,
-        end: Timestamp,
-    ) -> TsdbResult<Vec<Sample>> {
-        if self.is_empty() {
-            return Ok(vec![]);
+    fn get_range(&self, start: Timestamp, end: Timestamp) -> TsdbResult<Vec<Sample>> {
+        if let Some((mut timestamps, mut values)) = self.decompress()? {
+            trim_vec_data(&mut timestamps, &mut values, start, end);
+
+            Ok(timestamps.iter()
+                .zip(values.iter())
+                .map(|(timestamp, value)| Sample { timestamp: *timestamp, value: *value })
+                .collect())
+        } else {
+            Ok(vec![])
         }
-        let mut timestamps = get_pooled_vec_i64(self.count.min(4));
-        let mut values = get_pooled_vec_f64(self.count.min(4));
-        self.decompress(&mut timestamps, &mut values)?;
-
-        trim_vec_data(&mut timestamps, &mut values, start, end);
-
-        Ok(timestamps.iter()
-            .zip(values.iter())
-            .map(|(timestamp, value)| Sample { timestamp: *timestamp, value: *value })
-            .collect())
     }
 
     fn upsert_sample(
@@ -451,39 +439,32 @@ impl Chunk for PcoChunk {
         sample: &mut Sample,
         dp_policy: DuplicatePolicy,
     ) -> TsdbResult<usize> {
-        let ts = sample.timestamp;
-        let mut duplicate_found = false;
-
-        if self.is_empty() {
-            self.add_sample(sample)?;
-            return Ok(1)
-        }
 
         // we don't do streaming compression, so we have to accumulate all the samples
         // in a new chunk and then swap it with the old one
-        let mut timestamps = get_pooled_vec_i64(self.count);
-        let mut values = get_pooled_vec_f64(self.count);
-        self.decompress(&mut timestamps, &mut values)?;
+        if let Some((mut timestamps, mut values)) = self.decompress()? {
 
-        match timestamps.binary_search(&ts) {
-            Ok(pos) => {
-                duplicate_found = true;
+            let ts = sample.timestamp;
+            let (pos, duplicate_found) = get_timestamp_index(&timestamps, ts, 0);
+
+            if duplicate_found {
                 values[pos] = dp_policy.duplicate_value(ts, values[pos], sample.value)?;
+            } else {
+                if pos == timestamps.len() {
+                    timestamps.push(ts);
+                    values.push(sample.value);
+                } else {
+                    timestamps.insert(pos, ts);
+                    values.insert(pos, sample.value);
+                };
             }
-            Err(idx) => {
-                timestamps.insert(idx, ts);
-                values.insert(idx, sample.value);
-            }
-        };
 
-        let mut size = timestamps.len();
-        if duplicate_found {
-            size -= 1;
+            self.compress(&timestamps, &values)?;
+            Ok(timestamps.len())
+        } else {
+            self.add_sample(sample)?;
+            Ok(1)
         }
-
-        self.compress(&timestamps, &values)?;
-
-        Ok(size)
     }
 
     fn split(&mut self) -> TsdbResult<Self>
@@ -501,16 +482,14 @@ impl Chunk for PcoChunk {
 
         // this compression method does not do streaming compression, so we have to accumulate all the samples
         // in a new chunk and then swap it with the old
-        let mut timestamps = get_pooled_vec_i64(self.count);
-        let mut values = get_pooled_vec_f64(self.count);
-        self.decompress(&mut timestamps, &mut values)?;
+        if let Some((timestamps, mut values)) = self.decompress()? {
+            let (left_timestamps, right_timestamps)  = timestamps.split_at(mid);
+            let (left_values, right_values) = values.split_at_mut(mid);
 
-        let (left_timestamps, right_timestamps)  = timestamps.split_at(mid);
-        let (left_values, right_values) = values.split_at_mut(mid);
+            self.compress(left_timestamps, left_values)?;
 
-        self.compress(left_timestamps, left_values)?;
-
-        result.compress(right_timestamps, right_values)?;
+            result.compress(right_timestamps, right_values)?;
+        }
 
         Ok(result)
     }
@@ -548,13 +527,29 @@ impl Chunk for PcoChunk {
     }
 }
 
+fn get_timestamp_index(timestamps: &[Timestamp], ts: Timestamp, start_ofs: usize) -> (usize, bool) {
+    let stamps = &timestamps[start_ofs..];
+    if stamps.len() <= 32 {
+        // If the vectors are small, perform a linear search.
+        match stamps.iter().position(|x| *x >= ts){
+            Some(pos) => (pos + start_ofs, false),
+            None => (timestamps.len() - 1, true),
+        }
+    } else {
+        match stamps.binary_search(&ts) {
+            Ok(pos) => (pos + start_ofs, true),
+            Err(idx) => (idx + start_ofs, false),
+        }
+    }
+}
+
 fn remove_values_in_range(
     timestamps: &mut Vec<Timestamp>,
-    scores: &mut Vec<f64>,
+    values: &mut Vec<f64>,
     start_ts: Timestamp,
     end_ts: Timestamp,
 ) {
-    debug_assert_eq!(timestamps.len(), scores.len(), "Timestamps and scores vectors must be of the same length");
+    debug_assert_eq!(timestamps.len(), values.len(), "Timestamps and scores vectors must be of the same length");
 
     let (start_index, end_index) = if timestamps.len() <= 32 {
         // If the vectors are small, perform a linear search.
@@ -568,11 +563,13 @@ fn remove_values_in_range(
 
         (start_index, end_index)
     } else {
-        let start_index = timestamps.as_slice()
-            .partition_point(|x| *x < start_ts);
+        let slice = timestamps.as_slice();
 
-        let end_index = timestamps.as_slice()
-            .partition_point(|x| *x >= end_ts);
+        let start_index = slice.partition_point(|x| *x < start_ts);
+        // had issue with partition_point not returning the correct index for end_ts
+        let end_index = slice[start_index..].binary_search_by_key(&end_ts, |x| *x)
+            .map(|index| index + start_index)
+            .unwrap_or(slice.len() - 1);
 
         (start_index, end_index)
     };
@@ -580,12 +577,14 @@ fn remove_values_in_range(
     if start_index == end_index {
         let ts = timestamps.get(start_index).unwrap();
         if *ts >= start_ts  && *ts <= end_ts {
-            timestamps.swap_remove(start_index);
+            timestamps.remove(start_index);
+            values.remove(start_index);
         }
+        return
     }
 
-    timestamps.drain(start_index..end_index);
-    scores.drain(start_index..end_index);
+    timestamps.drain(start_index..=end_index);
+    values.drain(start_index..=end_index);
 }
 
 fn compress_values(compressed: &mut Vec<u8>, values: &[f64]) -> TsdbResult<()> {
@@ -660,28 +659,15 @@ impl<'a> PcoChunkIterator<'a> {
     }
 
     fn init(&mut self) {
-        let capacity = self.chunk.num_samples();
-        let mut timestamps = Vec::with_capacity(capacity);
-        let mut values = Vec::with_capacity(capacity);
         self.is_init = true;
 
-        match self.chunk.decompress(&mut timestamps, &mut values) {
+        match self.chunk.decompress_internal(&mut self.timestamps, &mut self.values) {
             Ok(_) => {
                 if self.has_range() {
-                    if let Some((start_index, end_index)) = get_timestamp_index_bounds(&timestamps, self.start, self.end) {
-                        timestamps.drain(end_index..);
-                        values.drain(end_index..);
-                        self.idx = start_index;
-                    } else {
-                        // dates are out of range
-                        timestamps = vec![];
-                        values = vec![];
-                    }
+                    trim_vec_data(&mut self.timestamps, &mut self.values, self.start, self.end);
                 }
-                self.timestamps = timestamps;
-                self.values = values;
             }
-            Err(_idx) => {
+            Err(e) => {
                 // todo: log
             }
         }
@@ -706,12 +692,14 @@ impl<'a> Iterator for PcoChunkIterator<'a> {
 }
 #[cfg(test)]
 mod tests {
+    use crate::common::types::Timestamp;
     use crate::series::test_utils::generate_random_samples;
 
     use crate::error::TsdbError;
     use crate::series::chunks::Chunk;
     use crate::series::chunks::PcoChunk;
     use crate::series::{DuplicatePolicy, Sample};
+    use crate::series::chunks::pco::pco_chunk::remove_values_in_range;
 
     fn decompress(chunk: &PcoChunk) -> Vec<Sample> {
         chunk.iter().collect()
@@ -820,6 +808,7 @@ mod tests {
     fn test_split() {
         let mut chunk = PcoChunk::default();
         let data = generate_random_samples(0, 500);
+        chunk.set_data(&data).unwrap();
 
         let count = data.len();
         let mid = count / 2;
@@ -862,4 +851,79 @@ mod tests {
         assert_eq!(left_decompressed, left_samples);
     }
 
+    #[test]
+    fn test_remove_values_in_range_single_timestamp() {
+        let mut timestamps = vec![1, 2, 3, 4, 5];
+        let mut values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let start_ts = 3;
+        let end_ts = 3;
+
+        remove_values_in_range(&mut timestamps, &mut values, start_ts, end_ts);
+
+        assert_eq!(timestamps, vec![1, 2, 4, 5]);
+        assert_eq!(values, vec![1.0, 2.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn test_remove_values_in_range_all_encompassing() {
+        let mut timestamps = vec![1, 2, 3, 4, 5];
+        let mut values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let start_ts = 0;
+        let end_ts = 6;
+
+        remove_values_in_range(&mut timestamps, &mut values, start_ts, end_ts);
+
+        assert!(timestamps.is_empty(), "All timestamps should be removed");
+        assert!(values.is_empty(), "All values should be removed");
+    }
+
+    #[test]
+    fn test_remove_values_in_range_33_elements() {
+        let mut timestamps: Vec<Timestamp> = (0..33).collect();
+        let mut values: Vec<f64> = (0..33).map(|x| x as f64).collect();
+
+        let start_ts = 10;
+        let end_ts = 20;
+
+        remove_values_in_range(&mut timestamps, &mut values, start_ts, end_ts);
+
+        assert_eq!(timestamps.len(), 22);
+        assert_eq!(values.len(), 22);
+
+        for i in 0..10 {
+            assert_eq!(timestamps[i], i as Timestamp);
+            assert_eq!(values[i], i as f64);
+        }
+
+        for i in 10..22 {
+            assert_eq!(timestamps[i], (i + 11) as Timestamp);
+            assert_eq!(values[i], (i + 11) as f64);
+        }
+    }
+
+    #[test]
+    fn test_remove_values_in_range_start_equals_end() {
+        let mut timestamps = vec![1, 2, 3, 4, 5];
+        let mut values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let start_ts = 3;
+        let end_ts = 3;
+
+        remove_values_in_range(&mut timestamps, &mut values, start_ts, end_ts);
+
+        assert_eq!(timestamps, vec![1, 2, 4, 5]);
+        assert_eq!(values, vec![1.0, 2.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn test_remove_values_in_range_end_after_last_timestamp() {
+        let mut timestamps = vec![1, 2, 3, 4, 5];
+        let mut values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let start_ts = 3;
+        let end_ts = 10;
+
+        remove_values_in_range(&mut timestamps, &mut values, start_ts, end_ts);
+
+        assert_eq!(timestamps, vec![1, 2]);
+        assert_eq!(values, vec![1.0, 2.0]);
+    }
 }

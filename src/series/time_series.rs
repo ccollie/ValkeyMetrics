@@ -15,6 +15,7 @@ use std::mem::size_of;
 use std::time::Duration;
 use valkey_module::error::GenericError;
 use valkey_module::{raw, ValkeyError, ValkeyResult};
+use crate::error_consts;
 use crate::series::serialization::{rdb_load_duration, rdb_load_optional_duration, rdb_save_duration, rdb_save_optional_duration};
 use crate::series::TimeSeriesChunk;
 
@@ -175,9 +176,9 @@ impl TimeSeries {
         ts: Timestamp,
         value: f64,
         dp_override: Option<DuplicatePolicy>,
-    ) -> TsdbResult<()> {
+    ) -> ValkeyResult<()> {
         if self.is_older_than_retention(ts) {
-            return Err(TsdbError::SampleTooOld);
+            return Err(ValkeyError::Str(error_consts::SAMPLE_TOO_OLD));
         }
 
         if !self.is_empty() {
@@ -187,7 +188,7 @@ impl TimeSeries {
                 if millis > 0 && (ts - last_ts) < millis {
                     // todo: use policy to derive a value to insert
                     let msg = "New sample encountered in less than dedupe interval";
-                    return Err(TsdbError::DuplicateSample(msg.to_string()));
+                    return Err(ValkeyError::Str(error_consts::DUPLICATE_SAMPLE));
                 }
             }
 
@@ -200,7 +201,7 @@ impl TimeSeries {
         self.add_sample(ts, value)
     }
 
-    pub(super) fn add_sample(&mut self, time: Timestamp, value: f64) -> TsdbResult<()> {
+    pub(super) fn add_sample(&mut self, time: Timestamp, value: f64) -> ValkeyResult<()> {
         let value = self.adjust_value(value);
         let sample = Sample {
             timestamp: time,
@@ -213,7 +214,7 @@ impl TimeSeries {
             Err(TsdbError::CapacityFull(_)) => {
                 self.add_chunk_with_sample(&sample)?;
             },
-            Err(e) => return Err(e),
+            Err(e) => return Err(ValkeyError::Str(error_consts::CANNOT_ADD_SAMPLE)),
             _ => {},
         }
         if was_empty {
@@ -224,16 +225,6 @@ impl TimeSeries {
         self.last_timestamp = time;
         self.total_samples += 1;
         Ok(())
-    }
-
-    #[inline]
-    fn append(&mut self, sample: &Sample) -> TsdbResult<bool> {
-        let chunk = self.get_last_chunk();
-        match chunk.add_sample(sample) {
-            Err(TsdbError::CapacityFull(_)) => Ok(false),
-            Err(e) => Err(e),
-            _ => Ok(true),
-        }
     }
 
     /// Add a new chunk and compact the current chunk if necessary.
@@ -284,7 +275,7 @@ impl TimeSeries {
         self.chunks.last_mut().unwrap()
     }
 
-    pub fn upsert_sample(
+    pub(super) fn upsert_sample(
         &mut self,
         timestamp: Timestamp,
         value: f64,
@@ -335,6 +326,20 @@ impl TimeSeries {
     pub fn get_range(&self, start_time: Timestamp, end_time: Timestamp) -> Vec<Sample> {
         self.range_iter(start_time, end_time).collect()
     }
+
+    pub fn get_sample(&self, start_time: Timestamp) -> ValkeyResult<Option<Sample>> {
+        let (index, found) = get_chunk_index(&self.chunks, start_time);
+        if found {
+            let chunk = &self.chunks[index];
+            // todo: better error handling
+            let mut samples = chunk.get_samples(start_time, start_time)
+                .map_err(|e| ValkeyError::Str(error_consts::ERROR_FETCHING_SAMPLE))?;
+            Ok(samples.pop())
+        } else {
+            Ok(None)
+        }
+    }
+
 
     pub fn select_raw(
         &self,
@@ -416,12 +421,12 @@ impl TimeSeries {
         false
     }
 
-    pub fn trim(&mut self) -> TsdbResult<()> {
-        if self.retention.is_zero() || self.is_empty() {
+    pub(super) fn trim(&mut self) -> TsdbResult<()> {
+        let min_timestamp = self.get_min_timestamp();
+        if self.first_timestamp == min_timestamp {
             return Ok(());
         }
 
-        let min_timestamp = self.get_min_timestamp();
         let mut deleted_count = 0;
 
         // Remove entire chunks that are before min_timestamp
@@ -459,11 +464,6 @@ impl TimeSeries {
     }
 
     pub fn remove_range(&mut self, start_ts: Timestamp, end_ts: Timestamp) -> TsdbResult<usize> {
-        let mut deleted_samples = 0;
-
-        if start_ts > self.last_timestamp {
-            return Ok(0);
-        }
 
         if end_ts < self.first_timestamp || start_ts > self.last_timestamp {
             return Ok(0);
@@ -471,11 +471,11 @@ impl TimeSeries {
 
         let (index, _) = get_chunk_index(&self.chunks, start_ts);
 
-        let mut chunks = &mut self.chunks[index..];
+        let chunks = &mut self.chunks[index..];
         let mut deleted_chunks: usize = 0;
+        let mut deleted_samples = 0;
 
         for chunk in chunks.iter_mut() {
-            let chunk_first_ts = chunk.first_timestamp();
             let chunk_last_ts = chunk.last_timestamp();
 
             // Should we delete the entire chunk?
@@ -483,7 +483,7 @@ impl TimeSeries {
                 deleted_samples += chunk.num_samples();
                 chunk.clear();
                 deleted_chunks += 1;
-            } else if chunk_first_ts >= start_ts && chunk_last_ts <= end_ts {
+            } else if chunk_last_ts <= end_ts {
                 deleted_samples += chunk.remove_range(start_ts, end_ts)?;
             } else {
                 break
@@ -531,7 +531,7 @@ impl TimeSeries {
 
     pub(crate) fn get_min_timestamp(&self) -> Timestamp {
         if self.retention.is_zero() {
-            return 0;
+            return self.first_timestamp;
         }
         let retention_millis = self.retention.as_millis() as i64;
         (self.last_timestamp - retention_millis).min(0)
