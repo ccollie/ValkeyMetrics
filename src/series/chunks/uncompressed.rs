@@ -228,10 +228,11 @@ impl Chunk for UncompressedChunk {
     }
 
     fn remove_range(&mut self, start_ts: Timestamp, end_ts: Timestamp) -> TsdbResult<usize> {
+        let count = self.samples.len();
         self.samples.retain(|sample| -> bool {
-            sample.timestamp >= start_ts && sample.timestamp <= end_ts
+            sample.timestamp < start_ts || sample.timestamp > end_ts
         });
-        Ok(self.samples.len())
+        Ok(count - self.samples.len())
     }
 
     fn add_sample(&mut self, sample: &Sample) -> TsdbResult<()> {
@@ -297,7 +298,7 @@ impl Chunk for UncompressedChunk {
         }
     }
 
-    fn rdb_load(rdb: *mut raw::RedisModuleIO) -> Result<Self, valkey_module::error::Error> {
+    fn rdb_load(rdb: *mut raw::RedisModuleIO, _encver: i32) -> Result<Self, valkey_module::error::Error> {
         let max_size = raw::load_unsigned(rdb)? as usize;
         let max_elements = raw::load_unsigned(rdb)? as usize;
         let len = raw::load_unsigned(rdb)? as usize;

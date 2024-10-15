@@ -1,3 +1,4 @@
+use core::mem::size_of;
 use ahash::AHashSet;
 use get_size::GetSize;
 use valkey_module::RedisModuleIO;
@@ -346,19 +347,19 @@ impl Chunk for TimeSeriesChunk {
         }
     }
 
-    fn rdb_load(rdb: *mut RedisModuleIO) -> Result<Self, Error> {
+    fn rdb_load(rdb: *mut RedisModuleIO, _encver: i32) -> Result<Self, Error> {
         let compression = ChunkCompression::try_from(valkey_module::load_unsigned(rdb)? as u8)
             .map_err(|_e| Error::Generic(GenericError::new("Error loading chunk compression marker")))?;
 
         let chunk = match compression {
             ChunkCompression::Uncompressed => {
-                TimeSeriesChunk::Uncompressed(UncompressedChunk::rdb_load(rdb)?)
+                TimeSeriesChunk::Uncompressed(UncompressedChunk::rdb_load(rdb, _encver)?)
             }
             ChunkCompression::Gorilla => {
-                TimeSeriesChunk::Gorilla(GorillaChunk::rdb_load(rdb)?)
+                TimeSeriesChunk::Gorilla(GorillaChunk::rdb_load(rdb, _encver)?)
             }
             ChunkCompression::Pco => {
-                TimeSeriesChunk::Pco(PcoChunk::rdb_load(rdb)?)
+                TimeSeriesChunk::Pco(PcoChunk::rdb_load(rdb, _encver)?)
             }
         };
         Ok(chunk)

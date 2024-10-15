@@ -1,39 +1,9 @@
-pub fn round_to_decimal_digits(f: f64, digits: i32) -> f64 {
-    if digits <= -100 || digits >= 100 {
-        return f;
-    }
-    let m = 10_f64.powi(digits);
-    (f * m).round() / m
-}
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum RoundDirection {
     Up,
     Down,
     Nearest,
-}
-
-pub fn round_to_significant_digits_old(value: f64, digits: i32, dir: RoundDirection) -> f64 {
-    if digits == 0 || digits >= 18 {
-        return value;
-    }
-
-    if value.is_nan() || value.is_infinite() || value == 0.0 {
-        return value;
-    }
-
-    let is_negative = value.is_sign_negative();
-
-    let power = value.abs().log10().floor() - (digits - 1) as f64;
-    let mult = 10.0_f64.powf(power);
-
-    let intermediate = value / mult;
-
-    match dir {
-        RoundDirection::Up => intermediate.ceil(),
-        RoundDirection::Down => intermediate.floor(),
-        RoundDirection::Nearest => intermediate.round(),
-    }
 }
 
 pub fn round_to_significant_digits(value: f64, digits: i32, dir: RoundDirection) -> f64 {
@@ -51,15 +21,13 @@ pub fn round_to_significant_digits(value: f64, digits: i32, dir: RoundDirection)
     let power = f.abs().log10().floor() - (digits - 1) as f64;
     let mult = 10.0_f64.powi(power as i32);
 
-    let mut intermediate = f / mult;
+    let intermediate = f / mult;
 
-    intermediate = intermediate.ceil();
-
-    // let intermediate = match dir {
-    //     RoundDirection::Up => intermediate.ceil(),
-    //     RoundDirection::Down => intermediate.floor(),
-    //     RoundDirection::Nearest => intermediate.round(),
-    // };
+    let intermediate = match dir {
+        RoundDirection::Up => intermediate.ceil(),
+        RoundDirection::Down => intermediate.floor(),
+        RoundDirection::Nearest => intermediate.round(),
+    };
 
     let result = intermediate * mult;
     if is_negative {
@@ -75,7 +43,7 @@ mod tests {
     #[test]
     fn test_sig_dig_rounder() {
         use RoundDirection::*;
-        println!("   -123.456   rounded up   to 2 sig figures is {}", round_to_significant_digits_old(-123.456, 2, Up));
+        println!("   -123.456   rounded up   to 2 sig figures is {}", round_to_significant_digits(-123.456, 2, Up));
         println!("     -0.03394 rounded down to 3 sig figures is {}", round_to_significant_digits(-0.03394, 3, Down));
         println!("    474       rounded up   to 2 sig figures is {}", round_to_significant_digits(474.0, 2, Up));
         println!("3004001       rounded down to 4 sig figures is {}", round_to_significant_digits(3004001.0, 4, Down));

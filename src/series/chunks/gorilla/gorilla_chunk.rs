@@ -12,6 +12,7 @@ use std::mem::size_of;
 use std::ops::ControlFlow;
 use valkey_module::error::Error as ValkeyError;
 use valkey_module::raw;
+use crate::series::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
 
 /// `GorillaChunk` holds information about location and time range of a block of compressed data.
 #[derive(Debug, Clone, PartialEq)]
@@ -499,14 +500,14 @@ impl Chunk for GorillaChunk {
     }
 
     fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
-        raw::save_unsigned(rdb, self.max_size as u64);
-        raw::save_signed(rdb, self.first_timestamp);
+        rdb_save_usize(rdb, self.max_size);
+        rdb_save_timestamp(rdb, self.first_timestamp);
         self.xor_encoder.rdb_save(rdb);
     }
 
-    fn rdb_load(rdb: *mut raw::RedisModuleIO) -> Result<Self, ValkeyError> {
-        let max_size = raw::load_unsigned(rdb)? as usize;
-        let first_timestamp = raw::load_signed(rdb)?;
+    fn rdb_load(rdb: *mut raw::RedisModuleIO, _encver: i32) -> Result<Self, ValkeyError> {
+        let max_size = rdb_load_usize(rdb)?;
+        let first_timestamp = rdb_load_timestamp(rdb)?;
         let xor_encoder = XOREncoder::rdb_load(rdb)?;
         let chunk = GorillaChunk {
             xor_encoder,

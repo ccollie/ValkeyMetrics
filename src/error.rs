@@ -19,9 +19,6 @@ pub enum TsdbError {
   #[error("Cannot deserialize. {0}")]
   CannotDeserialize(String),
 
-  #[error("Cannot decompress. {0}")]
-  DecompressionFailed(String),
-
   #[error("Duplicate sample. {0}")] // need better error
   DuplicateSample(String),
 

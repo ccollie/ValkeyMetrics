@@ -14,13 +14,22 @@ use std::hash::Hash;
 use std::mem::size_of;
 use std::time::Duration;
 use valkey_module::error::GenericError;
-use valkey_module::raw;
-use crate::series::chunks::timeseries_chunk::TimeSeriesChunk;
+use valkey_module::{raw, ValkeyError, ValkeyResult};
+use crate::series::serialization::{rdb_load_duration, rdb_load_optional_duration, rdb_save_duration, rdb_save_optional_duration};
+use crate::series::TimeSeriesChunk;
+
+const TIMESTAMP_TYPE_U64: &str = "u64";
+const TIMESTAMP_TYPE_U32: &str = "u32";
 
 #[cfg(feature = "id64")]
 pub type TimeseriesId = u64;
+#[cfg(feature = "id64")]
+pub const TIMESTAMP_TYPE: &str = TIMESTAMP_TYPE_U64;
+
 #[cfg(not(feature = "id64"))]
 pub type TimeseriesId = u32;
+#[cfg(not(feature = "id64"))]
+pub const TIMESTAMP_TYPE: &str = TIMESTAMP_TYPE_U64;
 
 /// Represents a time series. The time series consists of time series blocks, each containing BLOCK_SIZE_FOR_TIME_SERIES
 /// data points.
@@ -281,27 +290,16 @@ impl TimeSeries {
         value: f64,
         dp_override: Option<DuplicatePolicy>,
     ) -> TsdbResult<usize> {
-        let dp_policy = dp_override.unwrap_or(
-            self.duplicate_policy
-        );
-
+        let dp_policy = dp_override.unwrap_or(self.duplicate_policy);
         let value = self.adjust_value(value);
 
-        let (size, new_chunk) = {
-            let max_size = self.chunk_size_bytes;
-            let (pos, _) = get_chunk_index(&self.chunks, timestamp);
-            let chunk = self.chunks.get_mut(pos).unwrap();
-            Self::handle_upsert(chunk, timestamp, value, max_size, dp_policy)?
-        };
+        let (pos, _) = get_chunk_index(&self.chunks, timestamp);
+        let chunk = self.chunks.get_mut(pos).unwrap();
+        let (size, new_chunk) = Self::handle_upsert(chunk, timestamp, value, self.chunk_size_bytes, dp_policy)?;
 
         if let Some(new_chunk) = new_chunk {
             self.trim()?;
-            // todo: how to avoid this ? Since chunks are currently stored inline this can cause a lot of
-            // moves
-            let ts = new_chunk.first_timestamp();
-            let insert_at = self.chunks.binary_search_by(|chunk| {
-                chunk.first_timestamp().cmp(&ts)
-            }).unwrap_or_else(|i| i);
+            let insert_at = self.chunks.partition_point(|chunk| chunk.first_timestamp() <= new_chunk.first_timestamp());
             self.chunks.insert(insert_at, new_chunk);
         }
 
@@ -331,14 +329,6 @@ impl TimeSeries {
         }
     }
 
-    pub fn chunks_range_indexes(&self, start_timestamp: Timestamp, end_timestamp: Timestamp) -> (usize, usize) {
-        let (first_index, _) = get_chunk_index(&self.chunks, start_timestamp);
-        let (mut last_index, last_found) = get_chunk_index(&self.chunks, end_timestamp);
-        if last_index == self.chunks.len() && !last_found   {
-            last_index = self.chunks.len() - 1;
-        }
-        (first_index, last_index)
-    }
 
     /// Get the time series between given start and end time (both inclusive).
     /// todo: return a SeriesSlice or SeriesData so we don't realloc
@@ -432,28 +422,36 @@ impl TimeSeries {
         }
 
         let min_timestamp = self.get_min_timestamp();
-        let mut count = 0;
         let mut deleted_count = 0;
 
-        for chunk in self
-            .chunks
-            .iter()
-            .take_while(|&block| block.last_timestamp() <= min_timestamp)
-        {
-            count += 1;
-            deleted_count += chunk.num_samples();
-        }
+        // Remove entire chunks that are before min_timestamp
+        self.chunks.retain(|chunk| {
+            if chunk.last_timestamp() <= min_timestamp {
+                deleted_count += chunk.num_samples();
+                false
+            } else {
+                true
+            }
+        });
 
-        if count > 0 {
-            let _ = self.chunks.drain(0..count);
-            self.total_samples -= deleted_count;
-        }
-
-        // now deal with partials (a chunk with only some expired items). There should be at most 1
+        // Handle partial chunk
         if let Some(chunk) = self.chunks.first_mut() {
-            if chunk.first_timestamp() > min_timestamp {
-                let deleted = chunk.remove_range(0, min_timestamp)?;
-                self.total_samples -= deleted;
+            if chunk.first_timestamp() < min_timestamp {
+                deleted_count += chunk.remove_range(0, min_timestamp)?;
+            }
+        }
+
+        self.total_samples -= deleted_count;
+
+        if deleted_count > 0 {
+            // Update first_timestamp and last_timestamp
+            if !self.chunks.is_empty() {
+                self.first_timestamp = self.chunks.first().unwrap().first_timestamp();
+                self.last_timestamp = self.chunks.last().unwrap().last_timestamp();
+            } else {
+                self.first_timestamp = 0;
+                self.last_timestamp = 0;
+                self.last_value = f64::NAN;
             }
         }
 
@@ -467,59 +465,56 @@ impl TimeSeries {
             return Ok(0);
         }
 
-        if end_ts < self.first_timestamp {
+        if end_ts < self.first_timestamp || start_ts > self.last_timestamp {
             return Ok(0);
         }
 
-        let mut indexes_to_delete: SmallVec<usize, 4> = SmallVec::new();
-
         let (index, _) = get_chunk_index(&self.chunks, start_ts);
-        let chunks = &mut self.chunks[index..];
 
-        // Todo: although many chunks may be deleted, only a max of 2 will be modified, so
-        // we can try to merge it with the next chunk
+        let mut chunks = &mut self.chunks[index..];
+        let mut deleted_chunks: usize = 0;
 
-        for (idx, chunk) in chunks.iter_mut().enumerate() {
+        for chunk in chunks.iter_mut() {
             let chunk_first_ts = chunk.first_timestamp();
-
-            // We deleted the latest samples, no more chunks/samples to delete or cur chunk start_ts is
-            // larger than end_ts
-            if chunk.is_empty() || chunk_first_ts > end_ts {
-                // Having empty chunk means the series is empty
-                break;
-            }
-
-            let is_only_chunk =
-                (chunk.num_samples() + deleted_samples) == self.total_samples;
+            let chunk_last_ts = chunk.last_timestamp();
 
             // Should we delete the entire chunk?
-            // We assume at least one allocated chunk in the series
-            if chunk.is_contained_by_range(start_ts, end_ts) && !is_only_chunk {
+            if chunk.is_contained_by_range(start_ts, end_ts) {
                 deleted_samples += chunk.num_samples();
-                indexes_to_delete.push(index + idx);
-            } else {
+                chunk.clear();
+                deleted_chunks += 1;
+            } else if chunk_first_ts >= start_ts && chunk_last_ts <= end_ts {
                 deleted_samples += chunk.remove_range(start_ts, end_ts)?;
+            } else {
+                break
             }
         }
 
         self.total_samples -= deleted_samples;
 
-        for idx in indexes_to_delete.iter().rev() {
-            let _ = self.chunks.remove(*idx);
+        // if all chunks were deleted,
+        if deleted_chunks == self.chunks.len() {
+            // todo: have a flag to determine whether to have an empty root chunk
         }
 
-        // Check if last timestamp deleted
-        if end_ts >= self.last_timestamp && start_ts <= self.last_timestamp {
-            match self.chunks.iter().last() {
-                Some(chunk) => {
-                    self.last_timestamp = chunk.last_timestamp();
-                    self.last_value = chunk.last_value();
-                }
-                None => {
-                    self.last_timestamp = 0;
-                    self.last_value = f64::NAN;
-                }
+        // Remove empty chunks
+        self.chunks.retain(|chunk| !chunk.is_empty());
+
+        // Update last timestamp and last value if necessary
+        if !self.is_empty() {
+            if start_ts <= self.first_timestamp {
+                let first_chunk = self.chunks.first_mut().unwrap();
+                self.first_timestamp = first_chunk.first_timestamp();
             }
+            if end_ts >= self.last_timestamp {
+                let last_chunk = self.chunks.last_mut().unwrap();
+                self.last_timestamp = last_chunk.last_timestamp();
+                self.last_value = last_chunk.last_value();
+            }
+        } else {
+            self.first_timestamp = 0;
+            self.last_timestamp = 0;
+            self.last_value = f64::NAN;
         }
 
         Ok(deleted_samples)
@@ -543,6 +538,7 @@ impl TimeSeries {
     }
 
     pub fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
+        raw::save_string(rdb, TIMESTAMP_TYPE);
         raw::save_unsigned(rdb, self.id as u64);
         raw::save_string(rdb, &self.metric_name);
         raw::save_unsigned(rdb, self.labels.len() as u64);
@@ -550,14 +546,8 @@ impl TimeSeries {
             raw::save_string(rdb, &label.name);
             raw::save_string(rdb, &label.value);
         }
-        raw::save_unsigned(rdb, self.retention.as_secs());
-        // todo: how to mark as optional ???
-        if let Some(interval) = self.dedupe_interval {
-            raw::save_unsigned(rdb, interval.as_secs());
-        } else {
-            raw::save_unsigned(rdb, 0);
-        }
-        raw::save_unsigned(rdb, self.dedupe_interval.map(|x| x.as_secs()).unwrap_or(0));
+        rdb_save_duration(rdb, &self.retention);
+        rdb_save_optional_duration(rdb, &self.dedupe_interval);
         raw::save_unsigned(rdb, self.duplicate_policy.as_u8() as u64);
         raw::save_unsigned(rdb, self.chunk_compression as u64);
         raw::save_unsigned(rdb, self.significant_digits.unwrap_or(255) as u64);
@@ -576,7 +566,17 @@ impl TimeSeries {
         }
     }
 
-     fn load_internal(rdb: *mut raw::RedisModuleIO, _encver: i32) -> Result<Self, valkey_module::error::Error> {
+     fn load_internal(rdb: *mut raw::RedisModuleIO, _encver: i32) -> ValkeyResult<Self> {
+        let id_type: String = raw::load_string(rdb)?.into();
+        if id_type != TIMESTAMP_TYPE {
+            let other_type = if id_type == TIMESTAMP_TYPE_U32 {
+                TIMESTAMP_TYPE_U64
+            } else {
+                TIMESTAMP_TYPE_U32
+            };
+            let msg = format!("ERR module compiled with {other_type} timestamp support, found {id_type}. See the \"id64\" feature");
+            return Err(ValkeyError::String(msg))
+        }
         let id = raw::load_unsigned(rdb)? as TimeseriesId;
         let metric_name = raw::load_string(rdb)?.into();
         let labels_len = raw::load_unsigned(rdb)? as usize;
@@ -586,16 +586,8 @@ impl TimeSeries {
             let value = raw::load_string(rdb)?;
             labels.push(Label { name: name.into(), value: value.into() });
         }
-        let retention = Duration::from_secs(raw::load_unsigned(rdb)?);
-        let dedupe_interval = if let Ok(interval) = raw::load_unsigned(rdb) {
-            if interval == 0 {
-                None
-            } else {
-                Some(Duration::from_secs(interval))
-            }
-        } else {
-            None
-        };
+        let retention = rdb_load_duration(rdb)?;
+        let dedupe_interval = rdb_load_optional_duration(rdb)?;
         let duplicate_policy = DuplicatePolicy::try_from(raw::load_unsigned(rdb)? as u8)
             .map_err(|_| valkey_module::error::Error::Generic(
                 GenericError::new("Invalid duplicate policy")
@@ -617,7 +609,7 @@ impl TimeSeries {
         let mut last_timestamp = 0;
 
         for _ in 0..chunks_len {
-            let chunk = TimeSeriesChunk::rdb_load(rdb)?;
+            let chunk = TimeSeriesChunk::rdb_load(rdb, _encver)?;
             last_value = chunk.last_value();
             total_samples += chunk.num_samples();
             if first_timestamp == 0 {
@@ -673,15 +665,16 @@ impl Default for TimeSeries {
 
 /// Return the index of the chunk in which the timestamp belongs. Assumes !chunks.is_empty()
 fn get_chunk_index(chunks: &[TimeSeriesChunk], timestamp: Timestamp) -> (usize, bool) {
-    let len = chunks.len();
-    let first = chunks[0].first_timestamp();
-    let last = chunks[len - 1].last_timestamp();
-    if timestamp <= first {
-        return (0, false);
+    if chunks.len() <= 16 {
+        // don't use binary search for small arrays
+        for (i, chunk) in chunks.iter().enumerate() {
+            if chunk.first_timestamp() <= timestamp && timestamp <= chunk.last_timestamp() {
+                return (i, true);
+            }
+        }
+        return (chunks.len(), false);
     }
-    if timestamp > last {
-        return (len, false);
-    }
+
     match chunks.binary_search_by(|probe| {
         if timestamp < probe.first_timestamp() {
             std::cmp::Ordering::Greater

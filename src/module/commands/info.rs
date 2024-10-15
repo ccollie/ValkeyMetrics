@@ -1,12 +1,11 @@
 use crate::common::types::Label;
 use crate::module::result::META_KEY_LABEL;
 use crate::module::with_timeseries;
-use crate::series::{Chunk, TimeSeries};
+use crate::series::{Chunk, TimeSeries, TimeSeriesChunk};
 use metricsql_runtime::prelude::METRIC_NAME_LABEL;
 use std::collections::HashMap;
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::{Context, NextArg, ValkeyResult, ValkeyString, ValkeyValue};
-use crate::series::chunks::timeseries_chunk::TimeSeriesChunk;
 
 pub fn info(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1);

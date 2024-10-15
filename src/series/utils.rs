@@ -147,6 +147,7 @@ pub fn format_prometheus_metric_name(name: &str, labels: &[Label]) -> String {
     full_name
 }
 
+
 #[cfg(test)]
 mod tests {
     #[test]

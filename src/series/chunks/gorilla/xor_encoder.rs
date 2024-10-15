@@ -9,6 +9,7 @@ use smallvec::SmallVec;
 use std::io::Write;
 use valkey_module::error::Error as ValkeyError;
 use valkey_module::raw;
+use crate::series::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
 use super::varbit_ts::write_varbit_ts;
 use super::varbit_xor::write_varbit_xor;
 
@@ -178,8 +179,8 @@ impl XOREncoder {
 
     pub fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
         save_bitwriter_to_rdb(rdb, &self.writer);
-        raw::save_unsigned(rdb, self.num_samples as u64);
-        raw::save_signed(rdb, self.timestamp);
+        rdb_save_usize(rdb, self.num_samples);
+        rdb_save_timestamp(rdb, self.timestamp);
         raw::save_double(rdb, self.value);
         raw::save_unsigned(rdb, self.leading_bits_count as u64);
         raw::save_unsigned(rdb, self.trailing_bits_count as u64);
@@ -188,8 +189,8 @@ impl XOREncoder {
 
     pub fn rdb_load(rdb: *mut raw::RedisModuleIO) -> Result<XOREncoder, ValkeyError> {
         let writer = load_bitwriter_from_rdb(rdb)?;
-        let num_samples = raw::load_unsigned(rdb)? as usize;
-        let timestamp = raw::load_signed(rdb)?;
+        let num_samples = rdb_load_usize(rdb)?;
+        let timestamp = rdb_load_timestamp(rdb)?;
         let value = raw::load_double(rdb)?;
         let leading_bits_count = raw::load_unsigned(rdb)? as u8;
         let trailing_bits_count = raw::load_unsigned(rdb)? as u8;

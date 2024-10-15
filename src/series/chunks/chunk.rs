@@ -91,7 +91,7 @@ pub trait Chunk: Sized {
         self.first_timestamp() <= end_ts && self.last_timestamp() >= start_ts
     }
     fn rdb_save(&self, rdb: *mut RedisModuleIO);
-    fn rdb_load(rdb: *mut RedisModuleIO) -> Result<Self, Error>;
+    fn rdb_load(rdb: *mut RedisModuleIO, _encver: i32) -> Result<Self, Error>;
 }
 
 pub(crate) struct ChunkSampleIterator<'a> {
@@ -208,7 +208,7 @@ pub(crate) fn validate_chunk_size(chunk_size_bytes: usize) -> TsdbResult<()> {
     Ok(())
 }
 
-pub(super) fn merge_by_capacity(
+pub(crate) fn merge_by_capacity(
     dest: &mut TimeSeriesChunk,
     src: &mut TimeSeriesChunk,
     min_timestamp: Timestamp,

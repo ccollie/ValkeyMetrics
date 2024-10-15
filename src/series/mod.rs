@@ -12,8 +12,11 @@ pub mod time_series;
 pub(crate) mod utils;
 mod defrag;
 pub mod index;
-mod chunks;
+pub mod chunks;
 mod test_utils;
+mod serialization;
+#[cfg(test)]
+mod timeseries_tests;
 
 use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};

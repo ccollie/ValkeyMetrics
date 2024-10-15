@@ -11,6 +11,7 @@ use pco::DEFAULT_COMPRESSION_LEVEL;
 use serde::{Deserialize, Serialize};
 use std::mem::size_of;
 use valkey_module::raw;
+use crate::series::serialization::{rdb_load_usize, rdb_save_usize};
 
 /// items above this count will cause value and timestamp encoding/decoding to happen in parallel
 pub(in crate::series) const COMPRESSION_PARALLELIZATION_THRESHOLD: usize = 1024;
@@ -390,18 +391,21 @@ impl Chunk for PcoChunk {
         let mut values = get_pooled_vec_f64(self.count);
         self.decompress(&mut timestamps, &mut values)?;
 
-        if let Some((start_idx, end_idx)) = get_timestamp_index_bounds(&timestamps, start_ts, end_ts) {
-            let save_count = self.count;
-            let timestamp_slice = &timestamps[start_idx..end_idx];
-            let value_slice = &values[start_idx..end_idx];
-            self.compress(timestamp_slice, value_slice)?;
-            Ok(save_count - self.count)
-        } else {
+        let count = timestamps.len();
+        remove_values_in_range(&mut timestamps, &mut values, start_ts, end_ts);
+
+        let removed_count = count - timestamps.len();
+        if timestamps.is_empty() {
             self.count = 0;
-            self.timestamps.clear();
             self.values.clear();
             self.min_time = 0;
             self.max_time = 0;
+            Ok(removed_count)
+        } else {
+            self.compress(&timestamps, &values)?;
+            self.count = timestamps.len();
+            self.min_time = timestamps[0];
+            self.max_time = timestamps[self.count - 1];
             Ok(0)
         }
     }
@@ -514,19 +518,19 @@ impl Chunk for PcoChunk {
     fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
         raw::save_signed(rdb, self.min_time);
         raw::save_signed(rdb, self.max_time);
-        raw::save_unsigned(rdb, self.max_size as u64);
+        rdb_save_usize(rdb, self.max_size);
         raw::save_double(rdb, self.last_value);
-        raw::save_unsigned(rdb, self.count as u64);
+        rdb_save_usize(rdb, self.count);
         raw::save_slice(rdb, &self.timestamps);
         raw::save_slice(rdb, &self.values);
     }
 
-    fn rdb_load(rdb: *mut raw::RedisModuleIO) -> Result<Self, valkey_module::error::Error> {
+    fn rdb_load(rdb: *mut raw::RedisModuleIO, _encver: i32) -> Result<Self, valkey_module::error::Error> {
         let min_time = raw::load_signed(rdb)?;
         let max_time = raw::load_signed(rdb)?;
-        let max_size = raw::load_unsigned(rdb)? as usize;
+        let max_size = rdb_load_usize(rdb)?;
         let last_value = raw::load_double(rdb)?;
-        let count = raw::load_unsigned(rdb)? as usize;
+        let count = rdb_load_usize(rdb)?;
         let ts = raw::load_string_buffer(rdb)?;
         let vals = raw::load_string_buffer(rdb)?;
         let timestamps: Vec<u8> = Vec::from(ts.as_ref());
@@ -542,6 +546,46 @@ impl Chunk for PcoChunk {
             values,
         })
     }
+}
+
+fn remove_values_in_range(
+    timestamps: &mut Vec<Timestamp>,
+    scores: &mut Vec<f64>,
+    start_ts: Timestamp,
+    end_ts: Timestamp,
+) {
+    debug_assert_eq!(timestamps.len(), scores.len(), "Timestamps and scores vectors must be of the same length");
+
+    let (start_index, end_index) = if timestamps.len() <= 32 {
+        // If the vectors are small, perform a linear search.
+        let start_index = timestamps.iter()
+            .position(|x| *x >= start_ts)
+            .unwrap_or(0);
+
+        let end_index = timestamps.iter()
+            .rposition(|x| *x <= end_ts)
+            .unwrap_or(timestamps.len());
+
+        (start_index, end_index)
+    } else {
+        let start_index = timestamps.as_slice()
+            .partition_point(|x| *x < start_ts);
+
+        let end_index = timestamps.as_slice()
+            .partition_point(|x| *x >= end_ts);
+
+        (start_index, end_index)
+    };
+
+    if start_index == end_index {
+        let ts = timestamps.get(start_index).unwrap();
+        if *ts >= start_ts  && *ts <= end_ts {
+            timestamps.swap_remove(start_index);
+        }
+    }
+
+    timestamps.drain(start_index..end_index);
+    scores.drain(start_index..end_index);
 }
 
 fn compress_values(compressed: &mut Vec<u8>, values: &[f64]) -> TsdbResult<()> {

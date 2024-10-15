@@ -58,11 +58,3 @@ impl<'a> Iterator for JoinIterator<'a> {
         }
     }
 }
-
-fn transform_join_value(item: &JoinValue, f: BinopFunc) -> JoinValue {
-    match item.value {
-        EitherOrBoth::Both(l, r) => JoinValue::left(item.timestamp, f(l, r)),
-        EitherOrBoth::Left(l) => JoinValue::left(item.timestamp, f(l, f64::NAN)),
-        EitherOrBoth::Right(r) => JoinValue::left(item.timestamp, f(f64::NAN, r)),
-    }
-}

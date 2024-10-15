@@ -3,6 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+pub const MODULE_NAME: &str = "valkey_metrics";
+
 /// Ensure child process is killed both on normal exit and when panicking due to a failed test.
 pub struct ChildGuard {
     pub name: &'static str,
@@ -20,7 +22,7 @@ impl Drop for ChildGuard {
     }
 }
 
-pub fn start_redis_server_with_module(module_name: &str, port: u16) -> Result<ChildGuard> {
+pub fn start_redis_server_with_module(port: u16) -> Result<ChildGuard> {
     let extension = if cfg!(target_os = "macos") {
         "dylib"
     } else {
@@ -34,10 +36,7 @@ pub fn start_redis_server_with_module(module_name: &str, port: u16) -> Result<Ch
     };
     let module_path: PathBuf = [
         std::env::current_dir()?,
-        PathBuf::from(format!(
-            "target/{}/lib{}.{}",
-            profile, module_name, extension
-        )),
+        PathBuf::from(format!("target/{profile}/lib{MODULE_NAME}.{extension}")),
     ]
         .iter()
         .collect();

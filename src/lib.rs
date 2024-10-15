@@ -11,7 +11,6 @@ extern crate valkey_module_macros;
 use valkey_module::server_events::{FlushSubevent, LoadingSubevent};
 use valkey_module::{valkey_module, Context as ValkeyContext, Context, NotifyEvent, Status, ValkeyString};
 use valkey_module_macros::{config_changed_event_handler, flush_event_handler, loading_event_handler};
-
 mod aggregators;
 mod common;
 mod config;
