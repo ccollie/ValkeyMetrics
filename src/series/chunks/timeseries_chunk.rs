@@ -205,27 +205,6 @@ impl TimeSeriesChunk {
 
     }
 
-    // todo: move to trait method
-    pub fn merge_samples(
-        &mut self,
-        samples: &[Sample],
-        dp_policy: DuplicatePolicy,
-        blocked: &mut AHashSet<Timestamp>
-    ) -> TsdbResult<usize> {
-        use TimeSeriesChunk::*;
-        match self {
-            Uncompressed(chunk) => {
-                chunk.merge_samples(samples, dp_policy, blocked)
-            }
-            Gorilla(chunk) => {
-                chunk.merge_samples(samples, dp_policy, blocked)
-            }
-            Pco(chunk) => {
-                chunk.merge_samples(samples, dp_policy, blocked)
-            }
-        }
-    }
-
     pub fn memory_usage(&self) -> usize {
         size_of::<Self>() +
             self.get_heap_size()
@@ -332,6 +311,26 @@ impl Chunk for TimeSeriesChunk {
             Uncompressed(chunk) => chunk.upsert_sample(sample, dp_policy),
             Gorilla(chunk) => chunk.upsert_sample(sample, dp_policy),
             Pco(chunk) => chunk.upsert_sample(sample, dp_policy),
+        }
+    }
+
+     fn merge_samples(
+        &mut self,
+        samples: &[Sample],
+        dp_policy: DuplicatePolicy,
+        blocked: &mut AHashSet<Timestamp>
+    ) -> TsdbResult<usize> {
+        use TimeSeriesChunk::*;
+        match self {
+            Uncompressed(chunk) => {
+                chunk.merge_samples(samples, dp_policy, blocked)
+            }
+            Gorilla(chunk) => {
+                chunk.merge_samples(samples, dp_policy, blocked)
+            }
+            Pco(chunk) => {
+                chunk.merge_samples(samples, dp_policy, blocked)
+            }
         }
     }
 

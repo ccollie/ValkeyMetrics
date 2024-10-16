@@ -144,7 +144,7 @@ impl PcoChunk {
             compress_timestamps(&mut self.timestamps, timestamps)?;
             compress_values(&mut self.values, values)?;
         }
-        self.count = self.timestamps.len();
+        self.count = timestamps.len();
         self.timestamps.shrink_to_fit();
         self.values.shrink_to_fit();
         Ok(())
@@ -307,60 +307,7 @@ impl PcoChunk {
         })
     }
 
-    pub fn merge_samples(
-        &mut self,
-        samples: &[Sample],
-        dp_policy: DuplicatePolicy,
-        blocked: &mut AHashSet<Timestamp>
-    ) -> TsdbResult<usize> {
-        if samples.len() == 1 {
-            let first = samples[0];
-            if self.is_empty() {
-                self.add_sample(&first)?;
-            } else {
-                self.upsert_sample(first, dp_policy)?;
-            }
-            return Ok(self.count)
-        }
 
-        if self.is_empty() {
-            // we don't do streaming compression, so we have to accumulate all the samples
-            // in a new chunk and then swap it with the old one
-            let mut timestamps = get_pooled_vec_i64(self.count);
-            let mut values = get_pooled_vec_f64(self.count);
-
-            for sample in samples {
-                timestamps.push(sample.timestamp);
-                values.push(sample.value);
-            }
-
-            self.compress(&timestamps, &values)?;
-            return Ok(timestamps.len())
-        }
-
-        if let Some((mut timestamps, mut values)) = self.decompress()? {
-            let mut start_pos = 0;
-            for sample in samples {
-                let ts = sample.timestamp;
-                let (pos, found) = get_timestamp_index(&timestamps, ts, start_pos);
-                start_pos = pos + 1;
-                if found {
-                    if let Ok(val) = dp_policy.duplicate_value(ts, values[pos], sample.value) {
-                        values[pos] = val;
-                    } else {
-                        blocked.insert(ts);
-                    }
-                } else {
-                    timestamps.insert(pos, sample.timestamp);
-                    values.insert(pos, sample.value);
-                }
-            }
-
-            self.compress(&timestamps, &values)?;
-        }
-
-        Ok(self.count)
-    }
 }
 
 
@@ -464,6 +411,61 @@ impl Chunk for PcoChunk {
             self.add_sample(&sample)?;
             Ok(1)
         }
+    }
+
+     fn merge_samples(
+        &mut self,
+        samples: &[Sample],
+        dp_policy: DuplicatePolicy,
+        blocked: &mut AHashSet<Timestamp>
+    ) -> TsdbResult<usize> {
+        if samples.len() == 1 {
+            let first = samples[0];
+            if self.is_empty() {
+                self.add_sample(&first)?;
+            } else {
+                self.upsert_sample(first, dp_policy)?;
+            }
+            return Ok(self.count)
+        }
+
+        if self.is_empty() {
+            // we don't do streaming compression, so we have to accumulate all the samples
+            // in a new chunk and then swap it with the old one
+            let mut timestamps = get_pooled_vec_i64(self.count);
+            let mut values = get_pooled_vec_f64(self.count);
+
+            for sample in samples {
+                timestamps.push(sample.timestamp);
+                values.push(sample.value);
+            }
+
+            self.compress(&timestamps, &values)?;
+            return Ok(timestamps.len())
+        }
+
+        if let Some((mut timestamps, mut values)) = self.decompress()? {
+            let mut start_pos = 0;
+            for sample in samples {
+                let ts = sample.timestamp;
+                let (pos, found) = get_timestamp_index(&timestamps, ts, start_pos);
+                start_pos = pos + 1;
+                if found {
+                    if let Ok(val) = dp_policy.duplicate_value(ts, values[pos], sample.value) {
+                        values[pos] = val;
+                    } else {
+                        blocked.insert(ts);
+                    }
+                } else {
+                    timestamps.insert(pos, sample.timestamp);
+                    values.insert(pos, sample.value);
+                }
+            }
+
+            self.compress(&timestamps, &values)?;
+        }
+
+        Ok(self.count)
     }
 
     fn split(&mut self) -> TsdbResult<Self>
@@ -677,7 +679,7 @@ impl<'a> Iterator for PcoChunkIterator<'a> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.is_init {
+        if !self.is_init {
             self.init();
         }
         if self.idx >= self.timestamps.len() {
@@ -774,10 +776,11 @@ mod tests {
             let mut data = generate_random_samples(0, 500);
             let mut chunk = PcoChunk::with_max_size(chunk_size);
 
+            let data_len = data.len();
             for sample in data.into_iter() {
                 chunk.upsert_sample(sample, DuplicatePolicy::KeepLast).unwrap();
             }
-            assert_eq!(chunk.num_samples(), data.len());
+            assert_eq!(chunk.num_samples(), data_len);
         }
     }
 
@@ -924,5 +927,72 @@ mod tests {
 
         assert_eq!(timestamps, vec![1, 2]);
         assert_eq!(values, vec![1.0, 2.0]);
+    }
+
+    #[test]
+fn test_range_iter_partial_overlap() {
+    let samples = vec![
+        Sample { timestamp: 100, value: 1.0 },
+        Sample { timestamp: 200, value: 2.0 },
+        Sample { timestamp: 300, value: 3.0 },
+        Sample { timestamp: 400, value: 4.0 },
+        Sample { timestamp: 500, value: 5.0 },
+    ];
+    let chunk = PcoChunk::with_values(1000, &samples).unwrap();
+
+    let result: Vec<Sample> = chunk.range_iter(150, 450).collect();
+
+    assert_eq!(result.len(), 3);
+    assert_eq!(result[0], Sample { timestamp: 200, value: 2.0 });
+    assert_eq!(result[1], Sample { timestamp: 300, value: 3.0 });
+    assert_eq!(result[2], Sample { timestamp: 400, value: 4.0 });
+}
+
+    #[test]
+    fn test_range_iter_exact_boundaries() {
+        let mut chunk = PcoChunk::default();
+        let samples = vec![
+            Sample { timestamp: 100, value: 1.0 },
+            Sample { timestamp: 200, value: 2.0 },
+            Sample { timestamp: 300, value: 3.0 },
+            Sample { timestamp: 400, value: 4.0 },
+            Sample { timestamp: 500, value: 5.0 },
+        ];
+        chunk.set_data(&samples).unwrap();
+
+        let result: Vec<Sample> = chunk.range_iter(200, 400).collect();
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], Sample { timestamp: 200, value: 2.0 });
+        assert_eq!(result[1], Sample { timestamp: 300, value: 3.0 });
+        assert_eq!(result[2], Sample { timestamp: 400, value: 4.0 });
+    }
+
+    #[test]
+    fn test_range_iter_performance_on_large_chunks() {
+        let mut chunk = PcoChunk::default();
+        let num_samples = 1_000_000;
+        let samples: Vec<Sample> = (0..num_samples)
+            .map(|i| Sample { timestamp: i as i64, value: i as f64 })
+            .collect();
+        chunk.set_data(&samples).unwrap();
+
+        let start_time = std::time::Instant::now();
+        let range_samples: Vec<Sample> = chunk.range_iter(250_000, 750_000).collect();
+        let duration = start_time.elapsed();
+
+        assert_eq!(range_samples.len(), 500_001);
+        assert!(duration.as_millis() < 1000, "Range iteration took too long: {:?}", duration);
+    }
+
+    #[test]
+    fn test_range_iter_empty_chunk() {
+        let chunk = PcoChunk::default();
+        let start_ts = 0;
+        let end_ts = 100;
+
+        let samples: Vec<Sample> = chunk.range_iter(start_ts, end_ts).collect();
+
+        assert!(samples.is_empty(), "Range iterator should return no samples for an empty chunk");
     }
 }

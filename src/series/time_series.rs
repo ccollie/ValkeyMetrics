@@ -318,10 +318,10 @@ impl TimeSeries {
         let mut sample = Sample { timestamp, value };
         if chunk.size() as f64 > max_size as f64 * SPLIT_FACTOR {
             let mut new_chunk = chunk.split()?;
-            let size = new_chunk.upsert_sample(&mut sample, dp_policy)?;
+            let size = new_chunk.upsert_sample(sample, dp_policy)?;
             Ok((size, Some(new_chunk)))
         } else {
-            let size = chunk.upsert_sample(&mut sample, dp_policy)?;
+            let size = chunk.upsert_sample(sample, dp_policy)?;
             Ok((size, None))
         }
     }

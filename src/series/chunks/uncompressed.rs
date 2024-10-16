@@ -132,47 +132,6 @@ impl UncompressedChunk {
         Ok(samples)
     }
 
-    pub fn merge_samples(
-        &mut self,
-        samples: &[Sample],
-        dp_policy: DuplicatePolicy,
-        blocked: &mut AHashSet<Timestamp>
-    ) -> TsdbResult<usize> {
-
-        if samples.len() == 1 {
-            let first = samples[0];
-            if self.is_empty() {
-                self.add_sample(&first)?;
-            } else {
-                self.upsert_sample(first, dp_policy)?;
-            }
-            return Ok(self.num_samples());
-        }
-
-        if self.is_empty() {
-            self.samples.resize(samples.len(), Sample::default());
-            self.samples.extend_from_slice(&samples);
-            return Ok(samples.len())
-        }
-
-        for sample in samples {
-            let ts = sample.timestamp;
-            let (pos, found) = self.get_sample_index(ts);
-            if found {
-                let current = self.samples.get_mut(pos).unwrap(); // todo: get_mut_unchecked
-                if let Ok(val) = dp_policy.duplicate_value(ts, current.value, sample.value) {
-                    current.value = val;
-                } else {
-                    blocked.insert(ts);
-                }
-            } else {
-                self.samples.insert(pos, *sample);
-            }
-        }
-
-        Ok(self.samples.len())
-    }
-
     fn get_sample_index(&self, ts: Timestamp) -> (usize, bool) {
         get_sample_index(&self.samples, ts)
     }
@@ -258,7 +217,7 @@ impl Chunk for UncompressedChunk {
             let last_sample = self.samples[count - 1];
             let last_ts = last_sample.timestamp;
             if ts > last_ts {
-                self.samples.push(*sample);
+                self.samples.push(sample);
             } else {
                 self.handle_insert(sample, dp_policy)?;
             }
@@ -266,6 +225,48 @@ impl Chunk for UncompressedChunk {
 
         Ok(self.len() - count)
     }
+
+    fn merge_samples(
+        &mut self,
+        samples: &[Sample],
+        dp_policy: DuplicatePolicy,
+        blocked: &mut AHashSet<Timestamp>
+    ) -> TsdbResult<usize> {
+
+        if samples.len() == 1 {
+            let first = samples[0];
+            if self.is_empty() {
+                self.add_sample(&first)?;
+            } else {
+                self.upsert_sample(first, dp_policy)?;
+            }
+            return Ok(self.num_samples());
+        }
+
+        if self.is_empty() {
+            self.samples.resize(samples.len(), Sample::default());
+            self.samples.extend_from_slice(&samples);
+            return Ok(samples.len())
+        }
+
+        for sample in samples {
+            let ts = sample.timestamp;
+            let (pos, found) = self.get_sample_index(ts);
+            if found {
+                let current = self.samples.get_mut(pos).unwrap(); // todo: get_mut_unchecked
+                if let Ok(val) = dp_policy.duplicate_value(ts, current.value, sample.value) {
+                    current.value = val;
+                } else {
+                    blocked.insert(ts);
+                }
+            } else {
+                self.samples.insert(pos, *sample);
+            }
+        }
+
+        Ok(self.samples.len())
+    }
+
 
     fn split(&mut self) -> TsdbResult<Self>
     where

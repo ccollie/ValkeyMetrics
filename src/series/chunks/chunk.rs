@@ -68,7 +68,6 @@ impl TryFrom<&str> for ChunkCompression {
     }
 }
 
-#[enum_dispatch]
 pub trait Chunk: Sized {
     fn first_timestamp(&self) -> Timestamp;
     fn last_timestamp(&self) -> Timestamp;
@@ -88,6 +87,14 @@ pub trait Chunk: Sized {
         sample: Sample,
         dp_policy: DuplicatePolicy,
     ) -> TsdbResult<usize>;
+
+    fn merge_samples(
+        &mut self,
+        samples: &[Sample],
+        dp_policy: DuplicatePolicy,
+        blocked: &mut AHashSet<Timestamp>
+    ) -> TsdbResult<usize>;
+
     fn split(&mut self) -> TsdbResult<Self>;
     fn overlaps(&self, start_ts: i64, end_ts: i64) -> bool {
         self.first_timestamp() <= end_ts && self.last_timestamp() >= start_ts

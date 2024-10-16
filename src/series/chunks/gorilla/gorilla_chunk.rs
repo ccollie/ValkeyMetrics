@@ -246,96 +246,6 @@ impl GorillaChunk {
     fn is_range_covering_full_period(&self, start_ts: Timestamp, end_ts: Timestamp) -> bool {
         start_ts <= self.first_timestamp() && end_ts >= self.last_timestamp()
     }
-
-    pub fn merge_samples(
-        &mut self,
-        samples: &[Sample],
-        dp_policy: DuplicatePolicy,
-        blocked: &mut AHashSet<Timestamp>
-    ) -> TsdbResult<usize> {
-
-        if samples.len() == 1 {
-            let first = samples[0];
-            if self.is_empty() {
-                self.add_sample(&first)?;
-                return Ok(1)
-            }
-            self.upsert_sample(first, dp_policy)?;
-        }
-
-        let mut count = self.num_samples();
-        let mut xor_encoder = XOREncoder::new();
-
-        let mut iter = self.xor_encoder.iter();
-
-        let mut iter_done = true;
-
-        if self.is_empty() {
-            for sample in samples.iter() {
-                push_sample(&mut xor_encoder, sample)?;
-                count += 1;
-            }
-            self.xor_encoder = xor_encoder;
-            return Ok(count)
-        }
-
-        let mut binding = samples.iter();
-        let sample_iter = binding.by_ref();
-
-        for sample in &mut *sample_iter {
-            let ts = sample.timestamp;
-
-            iter_done = true;
-
-            for item in iter.by_ref() {
-                let mut current = item?;
-                iter_done = false;
-                match current.timestamp.cmp(&ts) {
-                    Ordering::Less => {
-                        push_sample(&mut xor_encoder, &current)?;
-                    },
-                    Ordering::Greater => {
-                        push_sample(&mut xor_encoder, sample)?;
-                        push_sample(&mut xor_encoder, &current)?;
-                        count += 1;
-                        break;
-                    }
-                    Ordering::Equal => {
-                        if let Ok(val) = dp_policy.duplicate_value(ts, current.value, sample.value) {
-                            current.value = val;
-                        } else {
-                            blocked.insert(ts);
-                        }
-                        push_sample(&mut xor_encoder, &current)?;
-                        break;
-                    },
-                }
-            }
-
-            if iter_done {
-                // push the rest
-                break
-            }
-        }
-
-        // this means that there were more samples to insert than the current chunk.
-        // add the remaining input samples
-        if iter_done {
-            for sample in sample_iter {
-                push_sample(&mut xor_encoder, sample)?;
-                count += 1;
-            }
-        }
-
-        for item in iter {
-            let current = item?;
-            push_sample(&mut xor_encoder, &current)?;
-        }
-
-        // todo: do a self.encoder.buf.take()
-        self.xor_encoder = xor_encoder;
-        Ok(count)
-    }
 }
 
 impl Chunk for GorillaChunk {
@@ -455,6 +365,97 @@ impl Chunk for GorillaChunk {
         let size = if duplicate_found { count } else { count + 1 };
         Ok(size)
     }
+
+    fn merge_samples(
+        &mut self,
+        samples: &[Sample],
+        dp_policy: DuplicatePolicy,
+        blocked: &mut AHashSet<Timestamp>
+    ) -> TsdbResult<usize> {
+
+        if samples.len() == 1 {
+            let first = samples[0];
+            if self.is_empty() {
+                self.add_sample(&first)?;
+                return Ok(1)
+            }
+            self.upsert_sample(first, dp_policy)?;
+        }
+
+        let mut count = self.num_samples();
+        let mut xor_encoder = XOREncoder::new();
+
+        let mut iter = self.xor_encoder.iter();
+
+        let mut iter_done = true;
+
+        if self.is_empty() {
+            for sample in samples.iter() {
+                push_sample(&mut xor_encoder, sample)?;
+                count += 1;
+            }
+            self.xor_encoder = xor_encoder;
+            return Ok(count)
+        }
+
+        let mut binding = samples.iter();
+        let sample_iter = binding.by_ref();
+
+        for sample in &mut *sample_iter {
+            let ts = sample.timestamp;
+
+            iter_done = true;
+
+            for item in iter.by_ref() {
+                let mut current = item?;
+                iter_done = false;
+                match current.timestamp.cmp(&ts) {
+                    Ordering::Less => {
+                        push_sample(&mut xor_encoder, &current)?;
+                    },
+                    Ordering::Greater => {
+                        push_sample(&mut xor_encoder, sample)?;
+                        push_sample(&mut xor_encoder, &current)?;
+                        count += 1;
+                        break;
+                    }
+                    Ordering::Equal => {
+                        if let Ok(val) = dp_policy.duplicate_value(ts, current.value, sample.value) {
+                            current.value = val;
+                        } else {
+                            blocked.insert(ts);
+                        }
+                        push_sample(&mut xor_encoder, &current)?;
+                        break;
+                    },
+                }
+            }
+
+            if iter_done {
+                // push the rest
+                break
+            }
+        }
+
+        // this means that there were more samples to insert than the current chunk.
+        // add the remaining input samples
+        if iter_done {
+            for sample in sample_iter {
+                push_sample(&mut xor_encoder, sample)?;
+                count += 1;
+            }
+        }
+
+        for item in iter {
+            let current = item?;
+            push_sample(&mut xor_encoder, &current)?;
+        }
+
+        // todo: do a self.encoder.buf.take()
+        self.xor_encoder = xor_encoder;
+        Ok(count)
+    }
+
 
     fn split(&mut self) -> TsdbResult<Self>
     where
@@ -648,13 +649,15 @@ mod tests {
     #[test]
     fn test_upsert() {
         for chunk_size in (64..8192).step_by(64) {
-            let mut samples = generate_random_samples(0, 200);
+            const SAMPLE_COUNT: usize = 200;
+            let mut samples = generate_random_samples(0, SAMPLE_COUNT);
             let mut chunk = GorillaChunk::with_max_size(chunk_size);
 
+            let sample_count = samples.len();
             for sample in samples.into_iter() {
                 chunk.upsert_sample(sample, DuplicatePolicy::KeepLast).unwrap();
             }
-            assert_eq!(chunk.num_samples(), samples.len());
+            assert_eq!(chunk.num_samples(), sample_count);
         }
     }
 
