@@ -82,11 +82,7 @@ impl UncompressedChunk {
         Ok(())
     }
 
-    fn handle_insert(
-        &mut self,
-        sample: &mut Sample,
-        policy: DuplicatePolicy,
-    ) -> TsdbResult<()> {
+    fn handle_insert(&mut self, sample: Sample, policy: DuplicatePolicy) -> TsdbResult<()> {
         let ts = sample.timestamp;
 
         let (idx, found) = self.get_sample_index(ts);
@@ -95,9 +91,9 @@ impl UncompressedChunk {
             let current = self.samples.get_mut(idx).unwrap(); // todo: get_mut_unchecked
             current.value = policy.duplicate_value(ts, current.value, sample.value)?;
         } else if idx < self.samples.len() {
-            self.samples.insert(idx, *sample);
+            self.samples.insert(idx, sample);
         } else {
-            self.samples.push(*sample);
+            self.samples.push(sample);
         }
         Ok(())
     }
@@ -144,11 +140,11 @@ impl UncompressedChunk {
     ) -> TsdbResult<usize> {
 
         if samples.len() == 1 {
-            let mut first = samples[0];
+            let first = samples[0];
             if self.is_empty() {
                 self.add_sample(&first)?;
             } else {
-                self.upsert_sample(&mut first, dp_policy)?;
+                self.upsert_sample(first, dp_policy)?;
             }
             return Ok(self.num_samples());
         }
@@ -250,14 +246,14 @@ impl Chunk for UncompressedChunk {
 
     fn upsert_sample(
         &mut self,
-        sample: &mut Sample,
+        sample: Sample,
         dp_policy: DuplicatePolicy,
     ) -> TsdbResult<usize> {
         let ts = sample.timestamp;
 
         let count = self.samples.len();
         if self.is_empty() {
-            self.samples.push(*sample);
+            self.samples.push(sample);
         } else {
             let last_sample = self.samples[count - 1];
             let last_ts = last_sample.timestamp;

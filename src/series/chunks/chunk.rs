@@ -6,6 +6,7 @@ use ahash::AHashSet;
 use get_size::GetSize;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
+use enum_dispatch::enum_dispatch;
 use valkey_module::error::Error;
 use valkey_module::RedisModuleIO;
 use crate::series::chunks::timeseries_chunk::TimeSeriesChunk;
@@ -67,6 +68,7 @@ impl TryFrom<&str> for ChunkCompression {
     }
 }
 
+#[enum_dispatch]
 pub trait Chunk: Sized {
     fn first_timestamp(&self) -> Timestamp;
     fn last_timestamp(&self) -> Timestamp;
@@ -83,7 +85,7 @@ pub trait Chunk: Sized {
 
     fn upsert_sample(
         &mut self,
-        sample: &mut Sample,
+        sample: Sample,
         dp_policy: DuplicatePolicy,
     ) -> TsdbResult<usize>;
     fn split(&mut self) -> TsdbResult<Self>;

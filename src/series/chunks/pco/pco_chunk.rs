@@ -2,7 +2,8 @@ use super::pco_utils::{encode_with_options, pco_decode, pco_encode, CompressorCo
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::series::chunks::Chunk;
-use crate::series::utils::{get_timestamp_index_bounds, trim_vec_data};
+use crate::series::serialization::{rdb_load_usize, rdb_save_usize};
+use crate::series::utils::trim_vec_data;
 use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
 use ahash::AHashSet;
 use get_size::GetSize;
@@ -11,7 +12,6 @@ use pco::DEFAULT_COMPRESSION_LEVEL;
 use serde::{Deserialize, Serialize};
 use std::mem::size_of;
 use valkey_module::raw;
-use crate::series::serialization::{rdb_load_usize, rdb_save_usize};
 
 /// items above this count will cause value and timestamp encoding/decoding to happen in parallel
 pub(in crate::series) const COMPRESSION_PARALLELIZATION_THRESHOLD: usize = 1024;
@@ -213,8 +213,7 @@ impl PcoChunk {
             return 0.0;
         }
         let compressed_size = (self.timestamps.len() + self.values.len()) as f64;
-        let sample_size = size_of::<i64>() + size_of::<f64>();
-        let uncompressed_size = (self.count * sample_size) as f64;
+        let uncompressed_size = (self.count * size_of::<Sample>()) as f64;
         uncompressed_size / compressed_size
     }
 
@@ -315,11 +314,11 @@ impl PcoChunk {
         blocked: &mut AHashSet<Timestamp>
     ) -> TsdbResult<usize> {
         if samples.len() == 1 {
-            let mut first = samples[0];
+            let first = samples[0];
             if self.is_empty() {
                 self.add_sample(&first)?;
             } else {
-                self.upsert_sample(&mut first, dp_policy)?;
+                self.upsert_sample(first, dp_policy)?;
             }
             return Ok(self.count)
         }
@@ -436,7 +435,7 @@ impl Chunk for PcoChunk {
 
     fn upsert_sample(
         &mut self,
-        sample: &mut Sample,
+        sample: Sample,
         dp_policy: DuplicatePolicy,
     ) -> TsdbResult<usize> {
 
@@ -462,7 +461,7 @@ impl Chunk for PcoChunk {
             self.compress(&timestamps, &values)?;
             Ok(timestamps.len())
         } else {
-            self.add_sample(sample)?;
+            self.add_sample(&sample)?;
             Ok(1)
         }
     }
@@ -696,10 +695,10 @@ mod tests {
     use crate::series::test_utils::generate_random_samples;
 
     use crate::error::TsdbError;
+    use crate::series::chunks::pco::pco_chunk::remove_values_in_range;
     use crate::series::chunks::Chunk;
     use crate::series::chunks::PcoChunk;
     use crate::series::{DuplicatePolicy, Sample};
-    use crate::series::chunks::pco::pco_chunk::remove_values_in_range;
 
     fn decompress(chunk: &PcoChunk) -> Vec<Sample> {
         chunk.iter().collect()
@@ -775,7 +774,7 @@ mod tests {
             let mut data = generate_random_samples(0, 500);
             let mut chunk = PcoChunk::with_max_size(chunk_size);
 
-            for sample in data.iter_mut() {
+            for sample in data.into_iter() {
                 chunk.upsert_sample(sample, DuplicatePolicy::KeepLast).unwrap();
             }
             assert_eq!(chunk.num_samples(), data.len());
@@ -795,11 +794,11 @@ mod tests {
             value: 1.0,
         };
 
-        assert!(chunk.upsert_sample(&mut sample, DuplicatePolicy::KeepLast).is_err());
+        assert!(chunk.upsert_sample(sample, DuplicatePolicy::KeepLast).is_err());
 
         // should update value for duplicate timestamp
         sample.timestamp = timestamp;
-        let res = chunk.upsert_sample(&mut sample, DuplicatePolicy::KeepLast);
+        let res = chunk.upsert_sample(sample, DuplicatePolicy::KeepLast);
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), 0);
     }

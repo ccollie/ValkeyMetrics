@@ -255,12 +255,12 @@ impl GorillaChunk {
     ) -> TsdbResult<usize> {
 
         if samples.len() == 1 {
-            let mut first = samples[0];
+            let first = samples[0];
             if self.is_empty() {
                 self.add_sample(&first)?;
                 return Ok(1)
             }
-            self.upsert_sample(&mut first, dp_policy)?;
+            self.upsert_sample(first, dp_policy)?;
         }
 
         let mut count = self.num_samples();
@@ -411,12 +411,12 @@ impl Chunk for GorillaChunk {
         Ok(samples)
     }
 
-    fn upsert_sample(&mut self, sample: &mut Sample, dp_policy: DuplicatePolicy) -> TsdbResult<usize> {
+    fn upsert_sample(&mut self, sample: Sample, dp_policy: DuplicatePolicy) -> TsdbResult<usize> {
         let ts = sample.timestamp;
         let mut duplicate_found = false;
 
         if self.is_empty() {
-            self.add_sample(sample)?;
+            self.add_sample(&sample)?;
             return Ok(1)
         }
 
@@ -442,7 +442,7 @@ impl Chunk for GorillaChunk {
             push_sample(&mut xor_encoder, &current)?;
             iter.next();
         } else {
-            push_sample(&mut xor_encoder, sample)?;
+            push_sample(&mut xor_encoder, &sample)?;
         }
 
         for item in iter {
@@ -651,8 +651,8 @@ mod tests {
             let mut samples = generate_random_samples(0, 200);
             let mut chunk = GorillaChunk::with_max_size(chunk_size);
 
-            for mut sample in samples.iter_mut() {
-                chunk.upsert_sample(&mut sample, DuplicatePolicy::KeepLast).unwrap();
+            for sample in samples.into_iter() {
+                chunk.upsert_sample(sample, DuplicatePolicy::KeepLast).unwrap();
             }
             assert_eq!(chunk.num_samples(), samples.len());
         }
@@ -690,11 +690,11 @@ mod tests {
             value: 1.0,
         };
 
-        assert!(chunk.upsert_sample(&mut sample, DuplicatePolicy::KeepLast).is_err());
+        assert!(chunk.upsert_sample(sample, DuplicatePolicy::KeepLast).is_err());
 
         // should update value for duplicate timestamp
         sample.timestamp = timestamp;
-        let res = chunk.upsert_sample(&mut sample, DuplicatePolicy::KeepLast);
+        let res = chunk.upsert_sample(sample, DuplicatePolicy::KeepLast);
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), 0);
     }

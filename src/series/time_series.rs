@@ -280,26 +280,32 @@ impl TimeSeries {
         timestamp: Timestamp,
         value: f64,
         dp_override: Option<DuplicatePolicy>,
-    ) -> TsdbResult<usize> {
+    ) -> ValkeyResult<usize> {
         let dp_policy = dp_override.unwrap_or(self.duplicate_policy);
         let value = self.adjust_value(value);
 
         let (pos, _) = get_chunk_index(&self.chunks, timestamp);
         let chunk = self.chunks.get_mut(pos).unwrap();
-        let (size, new_chunk) = Self::handle_upsert(chunk, timestamp, value, self.chunk_size_bytes, dp_policy)?;
-
-        if let Some(new_chunk) = new_chunk {
-            self.trim()?;
-            let insert_at = self.chunks.partition_point(|chunk| chunk.first_timestamp() <= new_chunk.first_timestamp());
-            self.chunks.insert(insert_at, new_chunk);
+        match Self::handle_upsert(chunk, timestamp, value, self.chunk_size_bytes, dp_policy) {
+            Ok((size, new_chunk)) => {
+                if let Some(new_chunk) = new_chunk {
+                    self.trim()?;
+                    let insert_at = self.chunks.partition_point(|chunk| chunk.first_timestamp() <= new_chunk.first_timestamp());
+                    self.chunks.insert(insert_at, new_chunk);
+                }
+                self.total_samples += size;
+                if timestamp == self.last_timestamp {
+                    self.last_value = value;
+                }
+                Ok(size)
+            },
+            Err(TsdbError::DuplicateSample(_)) => {
+                Err(ValkeyError::Str(error_consts::DUPLICATE_SAMPLE))
+            }
+            Err(e) => {
+                Err(ValkeyError::Str(error_consts::CANNOT_ADD_SAMPLE))
+            },
         }
-
-        self.total_samples += size;
-        if timestamp == self.last_timestamp {
-            self.last_value = value;
-        }
-
-        Ok(size)
     }
 
     fn handle_upsert(

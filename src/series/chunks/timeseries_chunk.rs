@@ -1,14 +1,16 @@
 use core::mem::size_of;
 use ahash::AHashSet;
+use enum_dispatch::enum_dispatch;
 use get_size::GetSize;
 use valkey_module::RedisModuleIO;
 use valkey_module::error::{Error, GenericError};
 use crate::common::types::{Sample, Timestamp};
 use crate::error::TsdbResult;
-use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, UncompressedChunk};
+use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, UncompressedChunk, SPLIT_FACTOR};
 
 #[derive(Debug, Clone, PartialEq)]
 #[derive(GetSize)]
+#[enum_dispatch(Chunk)]
 pub enum TimeSeriesChunk {
     Uncompressed(UncompressedChunk),
     Gorilla(GorillaChunk),
@@ -229,6 +231,22 @@ impl TimeSeriesChunk {
             self.get_heap_size()
     }
 
+    fn upsert(
+        &mut self,
+        sample: Sample,
+        max_size: usize,
+        dp_policy: DuplicatePolicy,
+    ) -> TsdbResult<(usize, Option<TimeSeriesChunk>)> {
+        if self.size() as f64 > max_size as f64 * SPLIT_FACTOR {
+            let mut new_chunk = self.split()?;
+            let size = new_chunk.upsert_sample(sample, dp_policy)?;
+            Ok((size, Some(new_chunk)))
+        } else {
+            let size = self.upsert_sample(sample, dp_policy)?;
+            Ok((size, None))
+        }
+    }
+
 }
 
 impl Chunk for TimeSeriesChunk {
@@ -306,7 +324,7 @@ impl Chunk for TimeSeriesChunk {
 
     fn upsert_sample(
         &mut self,
-        sample: &mut Sample,
+        sample:  Sample,
         dp_policy: DuplicatePolicy,
     ) -> TsdbResult<usize> {
         use TimeSeriesChunk::*;
