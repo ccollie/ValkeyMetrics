@@ -12,6 +12,7 @@ use std::mem::size_of;
 use std::ops::ControlFlow;
 use valkey_module::error::Error as ValkeyError;
 use valkey_module::raw;
+use crate::iter::SampleIter;
 use crate::series::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
 
 /// `GorillaChunk` holds information about location and time range of a block of compressed data.
@@ -210,8 +211,8 @@ impl GorillaChunk {
         ChunkIter::new(self)
     }
 
-    pub fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> RangeChunkIter {
-        RangeChunkIter::new(self, start_ts, end_ts)
+    pub fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> SampleIter {
+        GorillaChunkIterator::new(self, start_ts, end_ts).into()
     }
 
     pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
@@ -310,11 +311,11 @@ impl Chunk for GorillaChunk {
         let mut samples = Vec::new();
         for sample in self.xor_encoder.iter() {
             let sample = sample?;
-            if sample.timestamp >= start {
-                samples.push(sample);
-            }
             if sample.timestamp > end {
                 break;
+            }
+            if sample.timestamp >= start {
+                samples.push(sample);
             }
         }
 
@@ -538,14 +539,14 @@ impl<'a> Iterator for ChunkIter<'a> {
 }
 
 
-pub(crate) struct RangeChunkIter<'a> {
+pub struct GorillaChunkIterator<'a> {
     inner: XORIterator<'a>,
     start: Timestamp,
     end: Timestamp,
     init: bool
 }
 
-impl<'a> RangeChunkIter<'a> {
+impl<'a> GorillaChunkIterator<'a> {
     pub fn new(chunk: &'a GorillaChunk, start: Timestamp, end: Timestamp) -> Self {
         let inner = XORIterator::new(&chunk.xor_encoder);
         Self { inner, start, end, init: false }
@@ -553,7 +554,12 @@ impl<'a> RangeChunkIter<'a> {
 
     fn next_internal(&mut self) -> Option<Sample> {
         match self.inner.next() {
-            Some(Ok(sample)) => Some(sample),
+            Some(Ok(sample)) => {
+                if sample.timestamp > self.end {
+                    return None;
+                }
+                Some(sample)
+            },
             Some(Err(err)) => {
                 #[cfg(debug_assertions)]
                 eprintln!("Error decoding sample: {:?}", err);
@@ -564,7 +570,7 @@ impl<'a> RangeChunkIter<'a> {
     }
 }
 
-impl<'a> Iterator for RangeChunkIter<'a> {
+impl<'a> Iterator for GorillaChunkIterator<'a> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {

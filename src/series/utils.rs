@@ -1,57 +1,74 @@
 use enquote::enquote;
+use rand_distr::num_traits::Saturating;
 use crate::common::types::{Label, Sample, Timestamp};
+
+/// Find the index of the first element of `arr` that is greater
+/// or equal to `val`.
+/// Assumes that `arr` is sorted.
+pub fn find_first_ge_index<T>(arr: &[T], val: T) -> usize
+where
+    T: Ord,
+{
+    arr.binary_search(&val).unwrap_or_else(|x| x)
+}
+
+/// Find the index of the first element of `arr` that is greater
+/// than `val`.
+/// Assumes that `arr` is sorted.
+pub fn find_first_gt_index<T>(arr: &[T], val: T) -> usize
+where
+    T: Ord,
+{
+    match arr.binary_search(&val) {
+        Ok(x) => x + 1,
+        Err(x) => x,
+    }
+}
+
+pub fn find_last_ge_index<T: Ord>(arr: &[T], val: T) -> usize {
+    arr.binary_search(&val).unwrap_or_else(|x| x.saturating_sub(1))
+}
 
 /// Returns the index of the first timestamp that is greater than or equal to `start_ts`.
 pub(crate) fn get_timestamp_index(timestamps: &[i64], start_ts: Timestamp) -> Option<usize> {
-    if timestamps.is_empty() {
-        return None;
-    }
-
-    let stamps = &timestamps[0..];
-    let min_timestamp = stamps[0];
-    let max_timestamp = stamps[stamps.len() - 1];
-    if max_timestamp < start_ts {
-        // Out of range.
-        return None
-    }
-
-    let idx = if start_ts <= min_timestamp {
-        0
+    let idx= find_first_ge_index(timestamps, start_ts);
+    if idx == timestamps.len() {
+        None
     } else {
-        stamps.binary_search(&start_ts).unwrap_or_else(|i| i)
-    };
-
-    Some(idx)
+        Some(idx)
+    }
 }
 
 
+/// Finds the start and end indices of timestamps within a specified range.
+///
+/// This function searches for the indices of timestamps that fall within the given
+/// start and end timestamps (inclusive).
+///
+/// # Parameters
+///
+/// * `timestamps`: A slice of i64 values representing timestamps, expected to be sorted.
+/// * `start_ts`: The lower bound of the timestamp range to search for (inclusive).
+/// * `end_ts`: The upper bound of the timestamp range to search for (inclusive).
+///
+/// # Returns
+///
+/// Returns `Option<(usize, usize)>`:
+/// * `Some((start_index, end_index))` if valid indices are found within the range.
+/// * `None` if the input `timestamps` slice is empty.
+///
+/// The returned indices can be used to slice the original `timestamps` array
+/// to get the subset of timestamps within the specified range.
 pub(crate) fn get_timestamp_index_bounds(timestamps: &[i64], start_ts: Timestamp, end_ts: Timestamp) -> Option<(usize, usize)> {
     if timestamps.is_empty() {
         return None;
     }
-
-    let stamps = &timestamps[0..];
-
-    let min_timestamp = stamps[0];
-    let max_timestamp = stamps[stamps.len() - 1];
-    if min_timestamp > end_ts || max_timestamp < start_ts {
-        // Out of range.
-        return None
+    let start_idx = find_first_ge_index(timestamps, start_ts);
+    if start_idx > timestamps.len() - 1 {
+        return None;
     }
-
-    let start_idx = if start_ts <= min_timestamp {
-        0
-    } else {
-        stamps.binary_search(&start_ts).unwrap_or_else(|i| i)
-    };
-
-    let end_idx = if end_ts >= max_timestamp {
-        stamps.len()
-    } else {
-        // todo: optimize by searching only stamps[start_idx..]
-        stamps.binary_search(&end_ts).unwrap_or_else(|i| i)
-    };
-
+    let stamps = &timestamps[start_idx..];
+    let end_idx = find_last_ge_index(stamps, end_ts) + start_idx;
 
     Some((start_idx, end_idx))
 }
@@ -61,47 +78,60 @@ pub(crate) fn get_sample_index_bounds(samples: &[Sample], start_ts: Timestamp, e
         return None;
     }
 
-    let first = &samples[0];
-    let min_timestamp = first.timestamp;
-    let max_timestamp = samples[samples.len() - 1].timestamp;
-    if min_timestamp > end_ts || max_timestamp < start_ts {
-        // Out of range.
-        return None
+    let start_idx = samples.binary_search_by_key(&start_ts, |x| x.timestamp).unwrap_or_else(|x| x);
+    if start_idx >= samples.len() {
+        return None;
     }
-
-    let start_idx = if start_ts <= min_timestamp {
-        0
-    } else {
-        samples.binary_search_by(|x| x.timestamp.cmp(&start_ts)).unwrap_or_else(|i| i)
-    };
-
-    let end_idx = if end_ts >= max_timestamp {
-        samples.len()
-    } else {
-        // todo: optimize by searching only stamps[start_idx..]
-        samples.binary_search_by(|x| x.timestamp.cmp(&end_ts)).unwrap_or_else(|i| i)
-    };
-
+    let right = &samples[start_idx..];
+    let idx = right.binary_search_by_key(&end_ts, |x| x.timestamp).unwrap_or_else(|x| x.saturating_sub(1));
+    let end_idx = start_idx + idx;
 
     Some((start_idx, end_idx))
 }
 
-pub fn trim_vec_data(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start_ts: Timestamp, end_ts: Timestamp) {
+pub fn trim_to_range_inclusive(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start_ts: Timestamp, end_ts: Timestamp) {
     if timestamps.is_empty() {
         return;
     }
-    let last = timestamps[timestamps.len() - 1];
-    if last < start_ts {
-        timestamps.clear();
-        values.clear();
+    let orig_len = timestamps.len();
+
+    if start_ts == end_ts {
+        let idx = find_first_ge_index(timestamps, start_ts);
+        if idx < timestamps.len() {
+            let ts = timestamps[idx]; // todo: get_unchecked
+            if idx == 0 {
+                // idx == 0 could mean that the timestamp is not in range exclusive if both start_ts and end_ts
+                // are less the first timestamp.
+                if end_ts < ts {
+                    timestamps.clear();
+                    values.clear();
+                    return;
+                }
+            }
+            let value = values[idx]; // todo: get_unchecked
+            values.clear();
+            values.push(value);
+
+            timestamps.clear();
+            timestamps.push(ts);
+
+        } else {
+            timestamps.clear();
+            values.clear();
+        }
         return;
     }
-
     if let Some((start_idx, end_idx)) = get_timestamp_index_bounds(timestamps, start_ts, end_ts) {
-        timestamps.drain(..start_idx);
-        timestamps.truncate(end_idx - start_idx);
-        values.drain(..start_idx);
-        values.truncate(end_idx - start_idx);
+        if start_idx > 0 {
+            timestamps.drain(..start_idx);
+            values.drain(..start_idx);
+        }
+        let new_len = end_idx - start_idx + 1;
+        timestamps.truncate(new_len);
+        values.truncate(new_len);
+    } else {
+        timestamps.clear();
+        values.clear();
     }
 }
 
@@ -139,79 +169,81 @@ pub fn format_prometheus_metric_name(name: &str, labels: &[Label]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn get_timestamp_index_empty() {
         let timestamps = vec![];
-        assert_eq!(super::get_timestamp_index(&timestamps, 0), None);
-        assert_eq!(super::get_timestamp_index(&timestamps, 1), None);
-        assert_eq!(super::get_timestamp_index(&timestamps, 100), None);
+        assert_eq!(get_timestamp_index(&timestamps, 0), None);
+        assert_eq!(get_timestamp_index(&timestamps, 1), None);
+        assert_eq!(get_timestamp_index(&timestamps, 100), None);
     }
 
     #[test]
     fn get_timestamp_index_found() {
         let timestamps = vec![1, 2, 3, 4, 5];
-        assert_eq!(super::get_timestamp_index(&timestamps, 1), Some(0));
-        assert_eq!(super::get_timestamp_index(&timestamps, 2), Some(1));
-        assert_eq!(super::get_timestamp_index(&timestamps, 3), Some(2));
-        assert_eq!(super::get_timestamp_index(&timestamps, 4), Some(3));
-        assert_eq!(super::get_timestamp_index(&timestamps, 5), Some(4));
+        assert_eq!(get_timestamp_index(&timestamps, 1), Some(0));
+        assert_eq!(get_timestamp_index(&timestamps, 2), Some(1));
+        assert_eq!(get_timestamp_index(&timestamps, 3), Some(2));
+        assert_eq!(get_timestamp_index(&timestamps, 4), Some(3));
+        assert_eq!(get_timestamp_index(&timestamps, 5), Some(4));
     }
 
     #[test]
     fn get_timestamp_index_not_found() {
         let timestamps = vec![1, 2, 3, 4, 5, 10];
-        assert_eq!(super::get_timestamp_index(&timestamps, 0), Some(0));
-        assert_eq!(super::get_timestamp_index(&timestamps, 6), Some(5));
-        assert_eq!(super::get_timestamp_index(&timestamps, 100), None);
+        assert_eq!(get_timestamp_index(&timestamps, 0), Some(0));
+        assert_eq!(get_timestamp_index(&timestamps, 6), Some(5));
+        assert_eq!(get_timestamp_index(&timestamps, 100), None);
     }
 
     #[test]
-    fn trim_vec_data_all_before_start_ts() {
+    fn trim_to_range_inclusive_all_before_start_ts() {
         let mut timestamps = vec![1, 2, 3, 4, 5];
         let mut values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let start_ts = 10;
         let end_ts = 20;
 
-        super::trim_vec_data(&mut timestamps, &mut values, start_ts, end_ts);
+        trim_to_range_inclusive(&mut timestamps, &mut values, start_ts, end_ts);
 
         assert!(timestamps.is_empty());
         assert!(values.is_empty());
     }
 
     #[test]
-    fn trim_vec_data_within_range() {
+    fn trim_to_range_inclusive_within_range() {
         let mut timestamps = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         let mut values = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
         let start_ts = 3;
         let end_ts = 8;
 
-        super::trim_vec_data(&mut timestamps, &mut values, start_ts, end_ts);
+        trim_to_range_inclusive(&mut timestamps, &mut values, start_ts, end_ts);
 
         assert_eq!(timestamps, vec![3, 4, 5, 6, 7, 8]);
         assert_eq!(values, vec![3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
     }
 
     #[test]
-    fn trim_vec_data_all_within_range() {
+    fn trim_to_range_inclusive_all_within_range() {
         let mut timestamps = vec![1, 2, 3, 4, 5];
         let mut values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let start_ts = 0;
         let end_ts = 6;
 
-        super::trim_vec_data(&mut timestamps, &mut values, start_ts, end_ts);
+        trim_to_range_inclusive(&mut timestamps, &mut values, start_ts, end_ts);
 
         assert_eq!(timestamps, vec![1, 2, 3, 4, 5]);
         assert_eq!(values, vec![1.0, 2.0, 3.0, 4.0, 5.0]);
     }
 
     #[test]
-    fn trim_vec_data_start_ts_equals_end_ts() {
+    fn trim_to_range_inclusive_start_ts_equals_end_ts() {
         let mut timestamps = vec![1, 2, 3, 4, 5];
         let mut values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let start_ts = 3;
         let end_ts = 3;
 
-        super::trim_vec_data(&mut timestamps, &mut values, start_ts, end_ts);
+        trim_to_range_inclusive(&mut timestamps, &mut values, start_ts, end_ts);
 
         assert_eq!(timestamps, vec![3]);
         assert_eq!(values, vec![3.0]);

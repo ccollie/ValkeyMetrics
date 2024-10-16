@@ -1,14 +1,14 @@
-use core::mem::size_of;
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
+use crate::iter::SampleIter;
 use crate::series::chunks::Chunk;
+use crate::series::utils::get_sample_index_bounds;
 use crate::series::{DuplicatePolicy, Sample, SAMPLE_SIZE};
 use ahash::AHashSet;
+use core::mem::size_of;
 use get_size::GetSize;
 use std::sync::LazyLock;
 use valkey_module::raw;
-use crate::iter::SampleSliceIter;
-use crate::series::utils::get_sample_index_bounds;
 
 // todo: move to constants
 pub const MAX_UNCOMPRESSED_SAMPLES: usize = 256;
@@ -106,9 +106,9 @@ impl UncompressedChunk {
         self.samples.iter().cloned()
     }
 
-    pub fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> SampleSliceIter<'_> {
+    pub fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> SampleIter {
         let slice = self.get_range_slice(start_ts, end_ts);
-        SampleSliceIter::new(slice)
+        SampleIter::vec(slice)
     }
 
     pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
@@ -136,11 +136,17 @@ impl UncompressedChunk {
         get_sample_index(&self.samples, ts)
     }
 
-    fn get_range_slice(&self, start_ts: Timestamp, end_ts: Timestamp) -> &[Sample] {
+    fn get_range_slice(&self, start_ts: Timestamp, end_ts: Timestamp) -> Vec<Sample> {
         if let Some((start_idx, end_index)) = get_sample_index_bounds(&self.samples, start_ts, end_ts) {
-            &self.samples[start_idx..end_index]
+            self.samples[start_idx..=end_index].iter()
+                .filter_map(|sample| if sample.timestamp >= start_ts && sample.timestamp <= end_ts {
+                    Some(*sample)
+                } else {
+                    None
+                })
+                .collect::<Vec<Sample>>()
         } else {
-            &EMPTY_VEC
+            vec![]
         }
     }
 }
@@ -199,7 +205,7 @@ impl Chunk for UncompressedChunk {
     }
 
     fn get_range(&self, start: Timestamp, end: Timestamp) -> TsdbResult<Vec<Sample>> {
-        let slice = self.get_range_slice(start, end).to_vec();
+        let slice = self.get_range_slice(start, end);
         Ok(slice)
     }
 

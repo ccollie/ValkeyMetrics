@@ -338,7 +338,7 @@ impl TimeSeries {
         if found {
             let chunk = &self.chunks[index];
             // todo: better error handling
-            let mut samples = chunk.get_samples(start_time, start_time)
+            let mut samples = chunk.get_range(start_time, start_time)
                 .map_err(|e| ValkeyError::Str(error_consts::ERROR_FETCHING_SAMPLE))?;
             Ok(samples.pop())
         } else {
@@ -365,7 +365,7 @@ impl TimeSeries {
             if first > end_time {
                 break;
             }
-            let samples = chunk.get_samples(start_time, end_time)?;
+            let samples = chunk.get_range(start_time, end_time)?;
             for Sample { timestamp, value } in samples {
                 timestamps.push(timestamp);
                 values.push(value);
@@ -781,7 +781,7 @@ mod tests {
 
         assert_eq!(ts.get_last_chunk().num_samples(), 1);
         let last_block = ts.get_last_chunk();
-        let samples = last_block.get_samples(0, 1000).unwrap();
+        let samples = last_block.get_range(0, 1000).unwrap();
 
         let data_point = samples.get(0).unwrap();
         assert_eq!(data_point.timestamp, 100);
@@ -828,7 +828,7 @@ mod tests {
 
         for i in 0..BLOCK_SIZE_FOR_TIME_SERIES {
             let last_block = ts.get_last_chunk();
-            let samples = last_block.get_samples(0, 7000).unwrap();
+            let samples = last_block.get_range(0, 7000).unwrap();
             let data_point = samples.get(i).unwrap();
             assert_eq!(data_point.timestamp, i as i64);
             assert_eq!(data_point.value, i as f64);

@@ -3,7 +3,6 @@ use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::series::chunks::Chunk;
 use crate::series::serialization::{rdb_load_usize, rdb_save_usize};
-use crate::series::utils::trim_vec_data;
 use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
 use ahash::AHashSet;
 use get_size::GetSize;
@@ -12,6 +11,8 @@ use pco::DEFAULT_COMPRESSION_LEVEL;
 use serde::{Deserialize, Serialize};
 use std::mem::size_of;
 use valkey_module::raw;
+use crate::iter::SampleIter;
+use crate::series::utils::trim_to_range_inclusive;
 
 /// items above this count will cause value and timestamp encoding/decoding to happen in parallel
 pub(in crate::series) const COMPRESSION_PARALLELIZATION_THRESHOLD: usize = 1024;
@@ -239,7 +240,7 @@ impl PcoChunk {
         }
 
         if let Some((mut timestamps, mut values)) = self.decompress()? {
-            trim_vec_data(&mut timestamps, &mut values, start, end);
+            trim_to_range_inclusive(&mut timestamps, &mut values, start, end);
             f(state, &timestamps, &values)
         } else {
             handle_empty_range(state)
@@ -281,8 +282,8 @@ impl PcoChunk {
         PcoChunkIterator::new(self)
     }
 
-    pub fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> impl Iterator<Item = Sample> + '_ {
-        PcoChunkIterator::new_range(self, start_ts, end_ts)
+    pub fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> SampleIter {
+        PcoChunkIterator::new_range(self, start_ts, end_ts).into()
     }
 
     pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
@@ -369,11 +370,17 @@ impl Chunk for PcoChunk {
 
     fn get_range(&self, start: Timestamp, end: Timestamp) -> TsdbResult<Vec<Sample>> {
         if let Some((mut timestamps, mut values)) = self.decompress()? {
-            trim_vec_data(&mut timestamps, &mut values, start, end);
+            trim_to_range_inclusive(&mut timestamps, &mut values, start, end);
 
             Ok(timestamps.iter()
                 .zip(values.iter())
-                .map(|(timestamp, value)| Sample { timestamp: *timestamp, value: *value })
+                .filter_map(|(timestamp, value)| {
+                    if *timestamp >= start && *timestamp <= end {
+                        Some(Sample { timestamp: *timestamp, value: *value })
+                    } else {
+                        None
+                    }
+                })
                 .collect())
         } else {
             Ok(vec![])
@@ -665,7 +672,10 @@ impl<'a> PcoChunkIterator<'a> {
         match self.chunk.decompress_internal(&mut self.timestamps, &mut self.values) {
             Ok(_) => {
                 if self.has_range() {
-                    trim_vec_data(&mut self.timestamps, &mut self.values, self.start, self.end);
+                    trim_to_range_inclusive(&mut self.timestamps, &mut self.values, self.start, self.end);
+                    // should we do this, or will the allocator cause jitter
+                    self.timestamps.shrink_to_fit();
+                    self.values.shrink_to_fit();
                 }
             }
             Err(e) => {

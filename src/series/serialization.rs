@@ -60,3 +60,8 @@ pub(crate) fn rdb_load_timestamp(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<T
     let value = raw::load_signed(rdb)?;
     Ok(value as Timestamp)
 }
+
+pub(crate) fn rdb_load_u8(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<u8> {
+    let value = raw::load_unsigned(rdb)?;
+    Ok(value as u8)
+}

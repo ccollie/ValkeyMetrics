@@ -6,6 +6,7 @@ use valkey_module::RedisModuleIO;
 use valkey_module::error::{Error, GenericError};
 use crate::common::types::{Sample, Timestamp};
 use crate::error::TsdbResult;
+use crate::iter::SampleIter;
 use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, UncompressedChunk, SPLIT_FACTOR};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -123,25 +124,17 @@ impl TimeSeriesChunk {
         }
     }
 
-    pub fn range_iter<'a>(
-        &'a self,
+    pub fn range_iter(
+        &self,
         start: Timestamp,
         end: Timestamp,
-    ) -> Box<dyn Iterator<Item = Sample> + 'a> {
+    ) -> SampleIter {
         use TimeSeriesChunk::*;
         match self {
-            Uncompressed(chunk) => Box::new(chunk.range_iter(start, end)),
-            Gorilla( chunk) => Box::new(chunk.range_iter(start, end)),
-            Pco(chunk) => Box::new(chunk.range_iter(start, end)),
+            Uncompressed(chunk) => chunk.range_iter(start, end),
+            Gorilla( chunk) => chunk.range_iter(start, end),
+            Pco(chunk) => chunk.range_iter(start, end),
         }
-    }
-
-    pub fn get_samples(&self, start: Timestamp, end: Timestamp) -> TsdbResult<Vec<Sample>> {
-        let mut samples = Vec::with_capacity(16);
-        for sample in self.range_iter(start, end) {
-            samples.push(sample);
-        }
-        Ok(samples)
     }
 
     pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>> {
@@ -198,7 +191,7 @@ impl TimeSeriesChunk {
         }
 
         let min_timestamp = retention_threshold.max(start_ts);
-        let samples = other.get_samples(min_timestamp, end_ts)?;
+        let samples = other.get_range(min_timestamp, end_ts)?;
         let mut duplicates = AHashSet::new();
 
         self.merge_samples(&samples, duplicate_policy, &mut duplicates)
