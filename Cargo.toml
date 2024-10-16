@@ -50,6 +50,7 @@ tracing = "0.1"
 valkey-module = "0.1"
 valkey-module-macros = "0.1"
 async-trait = "0.1"
+num-traits = "0.2.19"
 
 [dev-dependencies]
 anyhow = "1.0"

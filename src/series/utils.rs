@@ -86,6 +86,29 @@ pub(crate) fn get_sample_index_bounds(samples: &[Sample], start_ts: Timestamp, e
     Some((start_idx, end_idx))
 }
 
+/// Find the index of the first element of `arr` that is greater
+/// or equal to `val`.
+/// Assumes that `arr` is sorted.
+pub fn find_first_ge_index<T>(arr: &[T], val: T) -> usize
+where
+    T: Ord,
+{
+    arr.binary_search(&val).unwrap_or_else(|x| x)
+}
+
+/// Find the index of the first element of `arr` that is greater
+/// than `val`.
+/// Assumes that `arr` is sorted.
+pub fn find_first_gt_index<T>(arr: &[T], val: T) -> usize
+where
+    T: Ord,
+{
+    match arr.binary_search(&val) {
+        Ok(x) => x + 1,
+        Err(x) => x,
+    }
+}
+
 pub fn trim_vec_data(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start_ts: Timestamp, end_ts: Timestamp) {
     if timestamps.is_empty() {
         return;
