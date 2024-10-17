@@ -26,7 +26,7 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         args.done()?;
         return match series.add(timestamp, value, None) {
             Ok(_) => Ok(ValkeyValue::Integer(timestamp)),
-            Err(e) => Err(ValkeyError::from(e)),
+            Err(e) => Err(e),
         }
     }
 

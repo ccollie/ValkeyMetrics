@@ -201,13 +201,19 @@ impl TimeSeriesChunk {
             self.get_heap_size()
     }
 
-    fn upsert(
-        &mut self,
-        sample: Sample,
-        max_size: usize,
-        dp_policy: DuplicatePolicy,
-    ) -> TsdbResult<(usize, Option<TimeSeriesChunk>)> {
-        if self.size() as f64 > max_size as f64 * SPLIT_FACTOR {
+    // todo: make this a trait method
+    pub fn max_size(&self) -> usize {
+        use TimeSeriesChunk::*;
+        match self {
+            Uncompressed(chunk) => chunk.max_size,
+            Gorilla(chunk) => chunk.max_size,
+            Pco(chunk) => chunk.max_size,
+        }
+    }
+
+
+    pub(crate) fn upsert(&mut self, sample: Sample, dp_policy: DuplicatePolicy) -> TsdbResult<(usize, Option<TimeSeriesChunk>)> {
+        if self.size() as f64 > self.max_size() as f64 * SPLIT_FACTOR {
             let mut new_chunk = self.split()?;
             let size = new_chunk.upsert_sample(sample, dp_policy)?;
             Ok((size, Some(new_chunk)))

@@ -98,7 +98,7 @@ pub fn parse_timestamp_range_value(arg: &str) -> ValkeyResult<TimestampRangeValu
 pub fn parse_duration_arg(arg: &ValkeyString) -> ValkeyResult<Duration> {
     if let Ok(value) = arg.parse_integer() {
         if value < 0 {
-            return Err(ValkeyError::Str("TSDB: invalid duration, must be a non-negative integer"));
+            return Err(ValkeyError::Str("ERR: invalid duration, must be a non-negative integer"));
         }
         return Ok(Duration::from_millis(value as u64));
     }

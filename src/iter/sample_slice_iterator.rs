@@ -16,6 +16,6 @@ impl<'a> Iterator for SampleSliceIter<'a> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(Clone::clone)
+        self.inner.next().copied()
     }
 }

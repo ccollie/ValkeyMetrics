@@ -107,21 +107,6 @@ impl GorillaChunk {
         (uncompressed_size / compressed_size) as f64
     }
 
-    pub fn process_samples<F, State>(&self, state: &mut State, mut f: F) -> TsdbResult<()>
-    where
-        F: FnMut(&mut State, &Sample) -> ControlFlow<()>,
-    {
-        for value in self.xor_encoder.iter() {
-            let sample = value?;
-            match f(state, &sample) {
-                ControlFlow::Break(_) => break,
-                ControlFlow::Continue(_) => continue,
-            }
-        }
-
-        Ok(())
-    }
-
     pub fn process_samples_in_range<F, State>(
         &self,
         state: &mut State,
@@ -140,37 +125,6 @@ impl GorillaChunk {
         }
 
         Ok(())
-    }
-
-    pub(crate) fn process_range<F, State, R>(
-        &self,
-        start: Timestamp,
-        end: Timestamp,
-        state: &mut State,
-        mut f: F,
-    ) -> TsdbResult<R>
-    where
-        F: FnMut(&mut State, &[i64], &[f64]) -> TsdbResult<R>,
-    {
-        if self.is_empty() {
-            let mut timestamps = vec![];
-            let mut values = vec![];
-            return f(state, &mut timestamps, &mut values)
-        }
-
-        let count = self.num_samples();
-        let mut timestamps = get_pooled_vec_i64(count);
-        let mut values = get_pooled_vec_f64(count);
-
-        let mut inner_state = (&mut timestamps, &mut values);
-
-        self.process_samples_in_range(&mut inner_state, start, end, |state, sample| {
-            state.0.push(sample.timestamp);
-            state.1.push(sample.value);
-            ControlFlow::Continue(())
-        })?;
-
-        f(state, &timestamps, &values)
     }
 
     pub fn data_size(&self) -> usize {
@@ -380,13 +334,11 @@ impl Chunk for GorillaChunk {
                 return Ok(1);
             }
             return self.upsert_sample(first, dp_policy);
-        } else {
-            if self.is_empty() {
-                return match self.set_data(samples) {
-                    Ok(_) => Ok(self.num_samples()),
-                    Err(e) => Err(e),
-                };
-            }
+        } else if self.is_empty() {
+            return match self.set_data(samples) {
+                Ok(_) => Ok(self.num_samples()),
+                Err(e) => Err(e),
+            };
         }
 
         let mut count = self.num_samples();
@@ -416,7 +368,7 @@ impl Chunk for GorillaChunk {
                         left.next();
                         res
                     } else {
-                        let res = r.clone();
+                        let res = *r;
                         right.next();
                         res
                     }

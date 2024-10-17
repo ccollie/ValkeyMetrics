@@ -105,7 +105,6 @@ pub fn trim_to_range_inclusive(timestamps: &mut Vec<i64>, values: &mut Vec<f64>,
     if timestamps.is_empty() {
         return;
     }
-    let orig_len = timestamps.len();
 
     if start_ts == end_ts {
         let idx = find_first_ge_index(timestamps, &start_ts);

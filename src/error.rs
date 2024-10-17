@@ -28,12 +28,6 @@ pub enum TsdbError {
   #[error("Invalid compressed method. {0}")]
   InvalidCompression(String),
 
-  #[error("Invalid timestamp. {0}")]
-  InvalidTimestamp(String),
-
-  #[error("Invalid duration. {0}")]
-  InvalidTDuration(String),
-
   #[error("Invalid number. {0}")]
   InvalidNumber(String),
 

@@ -12,12 +12,7 @@ pub fn info(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let key = args.next_arg()?;
 
     let debugging = if let Ok(val) = args.next_str() {
-        if val.eq_ignore_ascii_case("debug") {
-            true
-        }
-        else {
-            false
-        }
+        val.eq_ignore_ascii_case("debug")
     } else {
         false
     };

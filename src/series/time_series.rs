@@ -3,10 +3,13 @@ use crate::common::decimal::{round_to_significant_digits, RoundDirection};
 use crate::common::types::{Label, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
+use crate::error_consts;
 use crate::module::types::ValueFilter;
-use crate::series::constants::{DEFAULT_CHUNK_SIZE_BYTES, SPLIT_FACTOR};
+use crate::series::constants::DEFAULT_CHUNK_SIZE_BYTES;
+use crate::series::serialization::{rdb_load_duration, rdb_load_optional_duration, rdb_save_duration, rdb_save_optional_duration};
 use crate::series::utils::format_prometheus_metric_name;
 use crate::series::DuplicatePolicy;
+use crate::series::TimeSeriesChunk;
 use get_size::GetSize;
 use metricsql_common::hash::IntMap;
 use smallvec::SmallVec;
@@ -15,9 +18,6 @@ use std::mem::size_of;
 use std::time::Duration;
 use valkey_module::error::GenericError;
 use valkey_module::{raw, ValkeyError, ValkeyResult};
-use crate::error_consts;
-use crate::series::serialization::{rdb_load_duration, rdb_load_optional_duration, rdb_save_duration, rdb_save_optional_duration};
-use crate::series::TimeSeriesChunk;
 
 const TIMESTAMP_TYPE_U64: &str = "u64";
 const TIMESTAMP_TYPE_U32: &str = "u32";
@@ -187,13 +187,12 @@ impl TimeSeries {
                 let millis = dedup_interval.as_millis() as i64;
                 if millis > 0 && (ts - last_ts) < millis {
                     // todo: use policy to derive a value to insert
-                    let msg = "New sample encountered in less than dedupe interval";
                     return Err(ValkeyError::Str(error_consts::DUPLICATE_SAMPLE));
                 }
             }
 
             if ts <= last_ts {
-                let _ = self.upsert_sample(ts, value, dp_override);
+                let _ = self.upsert_sample(ts, value, dp_override)?;
                 return Ok(());
             }
         }
@@ -214,7 +213,7 @@ impl TimeSeries {
             Err(TsdbError::CapacityFull(_)) => {
                 self.add_chunk_with_sample(&sample)?;
             },
-            Err(e) => return Err(ValkeyError::Str(error_consts::CANNOT_ADD_SAMPLE)),
+            Err(_e) => return Err(ValkeyError::Str(error_consts::CANNOT_ADD_SAMPLE)),
             _ => {},
         }
         if was_empty {
@@ -285,8 +284,10 @@ impl TimeSeries {
         let value = self.adjust_value(value);
 
         let (pos, _) = get_chunk_index(&self.chunks, timestamp);
-        let chunk = self.chunks.get_mut(pos).unwrap();
-        match Self::handle_upsert(chunk, timestamp, value, self.chunk_size_bytes, dp_policy) {
+        let chunk = self.chunks.get_mut(pos).unwrap(); // todo: get_unchecked
+        let sample = Sample { timestamp, value };
+
+        match chunk.upsert(sample, dp_policy) {
             Ok((size, new_chunk)) => {
                 if let Some(new_chunk) = new_chunk {
                     self.trim()?;
@@ -302,35 +303,17 @@ impl TimeSeries {
             Err(TsdbError::DuplicateSample(_)) => {
                 Err(ValkeyError::Str(error_consts::DUPLICATE_SAMPLE))
             }
-            Err(e) => {
+            Err(_e) => {
                 Err(ValkeyError::Str(error_consts::CANNOT_ADD_SAMPLE))
             },
         }
     }
 
-    fn handle_upsert(
-        chunk: &mut TimeSeriesChunk,
-        timestamp: Timestamp,
-        value: f64,
-        max_size: usize,
-        dp_policy: DuplicatePolicy,
-    ) -> TsdbResult<(usize, Option<TimeSeriesChunk>)> {
-        let mut sample = Sample { timestamp, value };
-        if chunk.size() as f64 > max_size as f64 * SPLIT_FACTOR {
-            let mut new_chunk = chunk.split()?;
-            let size = new_chunk.upsert_sample(sample, dp_policy)?;
-            Ok((size, Some(new_chunk)))
-        } else {
-            let size = chunk.upsert_sample(sample, dp_policy)?;
-            Ok((size, None))
-        }
-    }
-
 
     /// Get the time series between given start and end time (both inclusive).
-    /// todo: return a SeriesSlice or SeriesData so we don't realloc
     pub fn get_range(&self, start_time: Timestamp, end_time: Timestamp) -> Vec<Sample> {
-        self.range_iter(start_time, end_time).collect()
+        let min_timestamp = self.get_min_timestamp();
+        self.range_iter(start_time.max(min_timestamp), end_time).collect()
     }
 
     pub fn get_sample(&self, start_time: Timestamp) -> ValkeyResult<Option<Sample>> {
@@ -339,41 +322,13 @@ impl TimeSeries {
             let chunk = &self.chunks[index];
             // todo: better error handling
             let mut samples = chunk.get_range(start_time, start_time)
-                .map_err(|e| ValkeyError::Str(error_consts::ERROR_FETCHING_SAMPLE))?;
+                .map_err(|_e| ValkeyError::Str(error_consts::ERROR_FETCHING_SAMPLE))?;
             Ok(samples.pop())
         } else {
             Ok(None)
         }
     }
 
-
-    pub fn select_raw(
-        &self,
-        start_time: Timestamp,
-        end_time: Timestamp,
-        timestamps: &mut Vec<Timestamp>,
-        values: &mut Vec<f64>,
-    ) -> TsdbResult<()> {
-        if self.is_empty() {
-            return Ok(());
-        }
-        let (index, _) = get_chunk_index(&self.chunks, start_time);
-        let chunks = &self.chunks[index..];
-        // Get overlapping data points from the compressed blocks.
-        for chunk in chunks.iter() {
-            let first = chunk.first_timestamp();
-            if first > end_time {
-                break;
-            }
-            let samples = chunk.get_range(start_time, end_time)?;
-            for Sample { timestamp, value } in samples {
-                timestamps.push(timestamp);
-                values.push(value);
-            }
-        }
-
-        Ok(())
-    }
 
     pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>> {
         if self.is_empty() || timestamps.is_empty() {
@@ -437,7 +392,8 @@ impl TimeSeries {
 
         // Remove entire chunks that are before min_timestamp
         self.chunks.retain(|chunk| {
-            if chunk.last_timestamp() <= min_timestamp {
+            let last_ts = chunk.last_timestamp();
+            if last_ts <= min_timestamp {
                 deleted_count += chunk.num_samples();
                 false
             } else {
@@ -749,11 +705,9 @@ impl<'a> Iterator for SeriesSampleIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(ref mut curr_iter) = self.curr_iter {
             match curr_iter.next() {
-                Some(sample) => {
-                    Some(sample)
-                }
+                Some(sample) => Some(sample),
                 None => {
-                    if let Some(mut iter)= self.get_iter(self.start, self.end){
+                    if let Some(mut iter) = self.get_iter(self.start, self.end){
                         let result = iter.next();
                         self.curr_iter = Some(iter);
                         result

@@ -20,7 +20,7 @@ pub fn rdb_save_duration(rdb: *mut raw::RedisModuleIO, duration: &Duration) {
     raw::save_signed(rdb, millis);
 }
 
-pub(crate) fn rdb_save_optional_duration(rdb: *mut raw::RedisModuleIO, duration: &Option<Duration>) {
+pub fn rdb_save_optional_duration(rdb: *mut raw::RedisModuleIO, duration: &Option<Duration>) {
     if let Some(duration) = duration {
         raw::save_unsigned(rdb, OPTIONAL_MARKER_PRESENT);
         rdb_save_duration(rdb, duration);
@@ -29,7 +29,7 @@ pub(crate) fn rdb_save_optional_duration(rdb: *mut raw::RedisModuleIO, duration:
     }
 }
 
-pub(crate) fn rdb_load_duration(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<Duration> {
+pub fn rdb_load_duration(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<Duration> {
     let millis = raw::load_unsigned(rdb)?;
     Ok(Duration::from_millis(millis as u64))
 }

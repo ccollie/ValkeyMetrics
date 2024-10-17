@@ -7,14 +7,10 @@ use crate::series::{DuplicatePolicy, Sample, SAMPLE_SIZE};
 use core::mem::size_of;
 use get_size::GetSize;
 use std::collections::BTreeSet;
-use std::sync::LazyLock;
 use valkey_module::raw;
 
 // todo: move to constants
 pub const MAX_UNCOMPRESSED_SAMPLES: usize = 256;
-
-
-static EMPTY_VEC: LazyLock<Vec<Sample>> = LazyLock::new(||vec![]);
 
 
 #[derive(Clone, Debug, PartialEq)]
@@ -151,7 +147,7 @@ impl UncompressedChunk {
     }
 }
 
-fn get_sample_index(samples: &Vec<Sample>, ts: Timestamp) -> (usize, bool) {
+fn get_sample_index(samples: &[Sample], ts: Timestamp) -> (usize, bool) {
     match samples.binary_search_by(|x| x.timestamp.cmp(&ts)) {
         Ok(pos) => (pos, true),
         Err(idx) => (idx, false)
@@ -200,7 +196,7 @@ impl Chunk for UncompressedChunk {
         if self.is_full() {
             return Err(TsdbError::CapacityFull(MAX_UNCOMPRESSED_SAMPLES));
         }
-        self.samples.push(sample.clone());
+        self.samples.push(*sample);
         Ok(())
     }
 
@@ -251,7 +247,7 @@ impl Chunk for UncompressedChunk {
 
         if self.is_empty() {
             self.samples.resize(samples.len(), Sample::default());
-            self.samples.extend_from_slice(&samples);
+            self.samples.extend_from_slice(samples);
             return Ok(self.samples.len())
         }
 

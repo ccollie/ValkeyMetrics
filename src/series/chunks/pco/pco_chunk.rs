@@ -1,19 +1,18 @@
-use std::collections::BTreeSet;
 use super::pco_utils::{encode_with_options, pco_decode, pco_encode, CompressorConfig};
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
+use crate::iter::SampleIter;
 use crate::series::chunks::Chunk;
 use crate::series::serialization::{rdb_load_usize, rdb_save_usize};
+use crate::series::utils::trim_to_range_inclusive;
 use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
-use ahash::AHashSet;
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64, PooledVecF64, PooledVecI64};
 use pco::DEFAULT_COMPRESSION_LEVEL;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::mem::size_of;
 use valkey_module::raw;
-use crate::iter::SampleIter;
-use crate::series::utils::trim_to_range_inclusive;
 
 /// items above this count will cause value and timestamp encoding/decoding to happen in parallel
 pub(in crate::series) const COMPRESSION_PARALLELIZATION_THRESHOLD: usize = 1024;
@@ -403,14 +402,12 @@ impl Chunk for PcoChunk {
 
             if duplicate_found {
                 values[pos] = dp_policy.duplicate_value(ts, values[pos], sample.value)?;
+            } else if pos == timestamps.len() {
+                timestamps.push(ts);
+                values.push(sample.value);
             } else {
-                if pos == timestamps.len() {
-                    timestamps.push(ts);
-                    values.push(sample.value);
-                } else {
-                    timestamps.insert(pos, ts);
-                    values.insert(pos, sample.value);
-                };
+                timestamps.insert(pos, ts);
+                values.insert(pos, sample.value);
             }
 
             self.compress(&timestamps, &values)?;
@@ -679,7 +676,7 @@ impl<'a> PcoChunkIterator<'a> {
                     self.values.shrink_to_fit();
                 }
             }
-            Err(e) => {
+            Err(_e) => {
                 // todo: log
             }
         }

@@ -1,4 +1,4 @@
-use crate::common::types::{Label, Timestamp};
+use crate::common::types::{Label, Sample, Timestamp};
 use crate::globals::with_timeseries_index;
 use crate::series::index::TimeSeriesIndex;
 use crate::module::VKM_SERIES_TYPE;
@@ -16,32 +16,34 @@ impl TsdbDataProvider {
         let valkey_key = ctx.open_key(key);
         match valkey_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE) {
             Ok(Some(series)) => {
-                if series.overlaps(start_ts, end_ts) {
-                    let mut timestamps: Vec<Timestamp> = Vec::new();
-                    let mut values: Vec<f64> = Vec::new();
-                    return match series.select_raw(
-                        start_ts,
-                        end_ts,
-                        &mut timestamps,
-                        &mut values,
-                    ) {
-                        Ok(_) => {
-                            // what do wee do in case of error ?
-                            let metric = to_metric_name(series);
-                            Ok(Some(QueryResult::new(metric, timestamps, values)))
-                        }
-                        Err(e) => {
-                            ctx.log_warning(&format!("VM: Error: {:?}", e));
-                            // TODO!: we need a specific error for series backends
-                            Err(RuntimeError::General("Error".to_string()))
-                        }
+                let metric = to_metric_name(series);
+                return if series.overlaps(start_ts, end_ts) {
+                    let samples = series.get_range(start_ts, end_ts);
+
+                    let count = samples.len();
+                    let (mut timestamps, mut values) = if count > 0 {
+                        (Vec::with_capacity(count), Vec::with_capacity(count))
+                    } else {
+                        (vec![], vec![])
+                    };
+
+                    for Sample { timestamp, value } in samples {
+                        timestamps.push(timestamp);
+                        values.push(value);
                     }
+
+                    Ok(Some(QueryResult::new(metric, timestamps, values)))
+                } else {
+                    Ok(Some(QueryResult::new(metric, vec![], vec![])))
                 }
+            }
+            Ok(None) => {
+                // todo: better error handling. Create a new error in base library
+                return Err(RuntimeError::General(format!("No series found for key: {}", key)));
             }
             Err(e) => {
                 ctx.log_warning(&format!("PROMQL: Error: {:?}", e));
             }
-            _ => {}
         }
         Ok(None)
     }

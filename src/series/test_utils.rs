@@ -1,6 +1,7 @@
 use crate::common::types::Sample;
 use rand::{Rng, SeedableRng};
 
+#[cfg(test)]
 pub fn generate_random_samples(seed: u64, vec_size: usize) -> Vec<Sample> {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
@@ -27,6 +28,7 @@ pub fn generate_random_samples(seed: u64, vec_size: usize) -> Vec<Sample> {
     vec
 }
 
+#[cfg(test)]
 pub fn generate_random_test_data_ex(seed: u64, cases: usize) -> Vec<Vec<Sample>> {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
@@ -40,6 +42,7 @@ pub fn generate_random_test_data_ex(seed: u64, cases: usize) -> Vec<Vec<Sample>>
     test_cases
 }
 
+#[cfg(test)]
 pub fn generate_random_test_data(seed: u64) -> Vec<Sample> {
     let mut cases = generate_random_test_data_ex(seed, 1);
     cases.remove(0)

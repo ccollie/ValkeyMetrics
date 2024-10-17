@@ -2,7 +2,7 @@ use crate::common::types::Sample;
 use crate::iter::sample_slice_iterator::SampleSliceIter;
 use crate::iter::vec_sample_iterator::VecSampleIterator;
 use crate::series::time_series::SeriesSampleIterator;
-use crate::series::{ChunkSampleIterator, GorillaChunk, GorillaChunkIterator, PcoChunkIterator};
+use crate::series::{ChunkSampleIterator, GorillaChunkIterator, PcoChunkIterator};
 
 pub enum SampleIter<'a> {
     Series(SeriesSampleIterator<'a>),

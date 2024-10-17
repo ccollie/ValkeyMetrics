@@ -45,11 +45,7 @@ impl<'a> SampleMergeIterator<'a>
             (None, None) => None,
         };
 
-        if let Some(sample) = sample {
-            Some((sample, blocked))
-        } else {
-            None
-        }
+        sample.map(|sample| (sample, blocked))
     }
 }
 

@@ -1,4 +1,5 @@
 pub const NO_SERIES_FOUND: &str = "ERR no series found";
+pub const SERIES_NOT_FOUND: &str = "ERR series not found";
 pub const CAPACITY_FULL: &str = "ERR capacity full";
 pub const INTERNAL_ERROR: &str = "ERR internal error";
 pub const INVALID_CONFIGURATION: &str = "ERR invalid configuration";
