@@ -32,7 +32,7 @@ use xxhash_rust::xxh32::Xxh32 as IdHasher;
 /// Type for the key of the index. Use instead of `String` because Valkey keys are binary safe not utf8 safe.
 pub type KeyType = Box<[u8]>;
 
-/// Map from db to TimeseriesIndex
+/// Map from valkey db to TimeseriesIndex
 pub type TimeSeriesIndexMap = HashMap<u32, TimeSeriesIndex>;
 
 // label
