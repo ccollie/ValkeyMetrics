@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use super::pco_utils::{encode_with_options, pco_decode, pco_encode, CompressorConfig};
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
@@ -424,7 +425,7 @@ impl Chunk for PcoChunk {
         &mut self,
         samples: &[Sample],
         dp_policy: DuplicatePolicy,
-        blocked: &mut AHashSet<Timestamp>
+        blocked: &mut BTreeSet<Timestamp>
     ) -> TsdbResult<usize> {
         if samples.len() == 1 {
             let first = samples[0];
@@ -537,7 +538,7 @@ impl Chunk for PcoChunk {
 
 fn get_timestamp_index(timestamps: &[Timestamp], ts: Timestamp, start_ofs: usize) -> (usize, bool) {
     let stamps = &timestamps[start_ofs..];
-    if stamps.len() <= 32 {
+    if stamps.len() <= 16 {
         // If the vectors are small, perform a linear search.
         match stamps.iter().position(|x| *x >= ts){
             Some(pos) => (pos + start_ofs, false),

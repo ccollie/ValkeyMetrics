@@ -1,15 +1,15 @@
+use std::collections::BTreeSet;
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::module::types::ValueFilter;
+use crate::series::chunks::timeseries_chunk::TimeSeriesChunk;
 use crate::series::{DuplicatePolicy, Sample};
 use ahash::AHashSet;
 use get_size::GetSize;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
-use enum_dispatch::enum_dispatch;
 use valkey_module::error::Error;
 use valkey_module::RedisModuleIO;
-use crate::series::chunks::timeseries_chunk::TimeSeriesChunk;
 
 pub const MIN_CHUNK_SIZE: usize = 48;
 pub const MAX_CHUNK_SIZE: usize = 1048576;
@@ -92,7 +92,7 @@ pub trait Chunk: Sized {
         &mut self,
         samples: &[Sample],
         dp_policy: DuplicatePolicy,
-        blocked: &mut AHashSet<Timestamp>
+        blocked: &mut BTreeSet<Timestamp>
     ) -> TsdbResult<usize>;
 
     fn split(&mut self) -> TsdbResult<Self>;
@@ -241,7 +241,7 @@ pub(crate) fn merge_by_capacity(
         // do a partial merge
         let samples = src.get_range(src.first_timestamp(), src.last_timestamp())?;
         let (left, right) = samples.split_at(remaining_capacity);
-        let mut duplicates = AHashSet::new();
+        let mut duplicates = BTreeSet::new();
         let res = dest.merge_samples(
             left,
             duplicate_policy,

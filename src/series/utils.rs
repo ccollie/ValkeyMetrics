@@ -1,15 +1,18 @@
 use enquote::enquote;
-use rand_distr::num_traits::Saturating;
 use crate::common::types::{Label, Sample, Timestamp};
 
 /// Find the index of the first element of `arr` that is greater
 /// or equal to `val`.
 /// Assumes that `arr` is sorted.
-pub fn find_first_ge_index<T>(arr: &[T], val: T) -> usize
+pub fn find_first_ge_index<T>(arr: &[T], val: &T) -> usize
 where
     T: Ord,
 {
-    arr.binary_search(&val).unwrap_or_else(|x| x)
+    if arr.len() <= 16 {
+        // If the vectors are small, perform a linear search.
+        return arr.iter().position(|x| x >= val).unwrap_or(arr.len());
+    }
+    arr.binary_search(val).unwrap_or_else(|x| x)
 }
 
 /// Find the index of the first element of `arr` that is greater
@@ -25,13 +28,16 @@ where
     }
 }
 
-pub fn find_last_ge_index<T: Ord>(arr: &[T], val: T) -> usize {
-    arr.binary_search(&val).unwrap_or_else(|x| x.saturating_sub(1))
+pub fn find_last_ge_index<T: Ord>(arr: &[T], val: &T) -> usize {
+    if arr.len() <= 16 {
+        return arr.iter().rposition(|x| val >= x).unwrap_or(0);
+    }
+    arr.binary_search(val).unwrap_or_else(|x| x.saturating_sub(1))
 }
 
 /// Returns the index of the first timestamp that is greater than or equal to `start_ts`.
 pub(crate) fn get_timestamp_index(timestamps: &[i64], start_ts: Timestamp) -> Option<usize> {
-    let idx= find_first_ge_index(timestamps, start_ts);
+    let idx= find_first_ge_index(timestamps, &start_ts);
     if idx == timestamps.len() {
         None
     } else {
@@ -63,12 +69,12 @@ pub(crate) fn get_timestamp_index_bounds(timestamps: &[i64], start_ts: Timestamp
     if timestamps.is_empty() {
         return None;
     }
-    let start_idx = find_first_ge_index(timestamps, start_ts);
+    let start_idx = find_first_ge_index(timestamps, &start_ts);
     if start_idx > timestamps.len() - 1 {
         return None;
     }
     let stamps = &timestamps[start_idx..];
-    let end_idx = find_last_ge_index(stamps, end_ts) + start_idx;
+    let end_idx = find_last_ge_index(stamps, &end_ts) + start_idx;
 
     Some((start_idx, end_idx))
 }
@@ -78,12 +84,18 @@ pub(crate) fn get_sample_index_bounds(samples: &[Sample], start_ts: Timestamp, e
         return None;
     }
 
-    let start_idx = samples.binary_search_by_key(&start_ts, |x| x.timestamp).unwrap_or_else(|x| x);
-    if start_idx >= samples.len() {
+    let len = samples.len();
+
+    let mut search = Sample { timestamp: start_ts, value: 0.0 };
+    let start_idx = find_first_ge_index(samples, &search);
+
+    if start_idx >= len {
         return None;
     }
+
+    search.timestamp = end_ts;
     let right = &samples[start_idx..];
-    let idx = right.binary_search_by_key(&end_ts, |x| x.timestamp).unwrap_or_else(|x| x.saturating_sub(1));
+    let idx = find_last_ge_index(right, &search);
     let end_idx = start_idx + idx;
 
     Some((start_idx, end_idx))
@@ -96,7 +108,7 @@ pub fn trim_to_range_inclusive(timestamps: &mut Vec<i64>, values: &mut Vec<f64>,
     let orig_len = timestamps.len();
 
     if start_ts == end_ts {
-        let idx = find_first_ge_index(timestamps, start_ts);
+        let idx = find_first_ge_index(timestamps, &start_ts);
         if idx < timestamps.len() {
             let ts = timestamps[idx]; // todo: get_unchecked
             if idx == 0 {

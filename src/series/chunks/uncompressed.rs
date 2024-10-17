@@ -4,9 +4,9 @@ use crate::iter::SampleIter;
 use crate::series::chunks::Chunk;
 use crate::series::utils::get_sample_index_bounds;
 use crate::series::{DuplicatePolicy, Sample, SAMPLE_SIZE};
-use ahash::AHashSet;
 use core::mem::size_of;
 use get_size::GetSize;
+use std::collections::BTreeSet;
 use std::sync::LazyLock;
 use valkey_module::raw;
 
@@ -236,7 +236,7 @@ impl Chunk for UncompressedChunk {
         &mut self,
         samples: &[Sample],
         dp_policy: DuplicatePolicy,
-        blocked: &mut AHashSet<Timestamp>
+        blocked: &mut BTreeSet<Timestamp>
     ) -> TsdbResult<usize> {
 
         if samples.len() == 1 {
@@ -252,24 +252,45 @@ impl Chunk for UncompressedChunk {
         if self.is_empty() {
             self.samples.resize(samples.len(), Sample::default());
             self.samples.extend_from_slice(&samples);
-            return Ok(samples.len())
+            return Ok(self.samples.len())
         }
 
-        for sample in samples {
-            let ts = sample.timestamp;
-            let (pos, found) = self.get_sample_index(ts);
-            if found {
-                let current = self.samples.get_mut(pos).unwrap(); // todo: get_mut_unchecked
-                if let Ok(val) = dp_policy.duplicate_value(ts, current.value, sample.value) {
-                    current.value = val;
-                } else {
-                    blocked.insert(ts);
+        let mut dest: Vec<Sample> = Vec::with_capacity(self.samples.len() + samples.len());
+        let mut left_iter = samples.iter().peekable();
+        let mut right_iter = self.samples.iter().peekable();
+
+        let mut current = Sample::default();
+        loop {
+            let merged = match (left_iter.peek(), right_iter.peek()) {
+                (Some(&l), Some(&r)) => {
+                    if l.timestamp == r.timestamp {
+                        let ts = l.timestamp;
+                        if let Ok(val) = dp_policy.duplicate_value(ts, r.value, l.value) {
+                            current = Sample { timestamp: ts, value: val };
+                            left_iter.next();
+                            Some(&current)
+                        } else {
+                            blocked.insert(ts);
+                            left_iter.next()
+                        }
+                    } else if l < r {
+                        left_iter.next()
+                    } else {
+                        right_iter.next()
+                    }
                 }
+                (Some(_), None) => left_iter.next(),
+                (None, Some(_)) => right_iter.next(),
+                (None, None) => None,
+            };
+            if let Some(merged) = merged {
+                dest.push(*merged);
             } else {
-                self.samples.insert(pos, *sample);
+                break;
             }
         }
 
+        self.samples = dest;
         Ok(self.samples.len())
     }
 

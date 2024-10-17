@@ -5,6 +5,7 @@ mod pco;
 mod timeseries_chunk;
 #[cfg(test)]
 mod timeseries_chunk_tests;
+mod merge;
 
 pub use chunk::*;
 pub use gorilla::{

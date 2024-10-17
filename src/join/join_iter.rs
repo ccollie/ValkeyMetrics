@@ -1,14 +1,12 @@
 use crate::common::types::Sample;
-use crate::iter::join::join_asof_iter::JoinAsOfIter;
-use crate::iter::join::join_full_iter::JoinFullIter;
-use crate::iter::join::join_inner_iter::JoinInnerIter;
-use crate::iter::join::join_left_exclusive_iter::JoinLeftExclusiveIter;
-use crate::iter::join::join_left_iter::JoinLeftIter;
-use crate::iter::join::join_right_exclusive_iter::JoinRightExclusiveIter;
-use crate::iter::join::join_right_iter::JoinRightIter;
+use crate::join::join_asof_iter::JoinAsOfIter;
+use crate::join::join_full_iter::JoinFullIter;
+use crate::join::join_inner_iter::JoinInnerIter;
+use crate::join::join_left_exclusive_iter::JoinLeftExclusiveIter;
+use crate::join::join_left_iter::JoinLeftIter;
+use crate::join::join_right_exclusive_iter::JoinRightExclusiveIter;
+use crate::join::join_right_iter::JoinRightIter;
 use crate::module::types::{JoinType, JoinValue};
-use joinkit::EitherOrBoth;
-use metricsql_parser::prelude::BinopFunc;
 
 
 pub enum JoinIterator<'a> {

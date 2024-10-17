@@ -1,17 +1,15 @@
-use core::mem::size_of;
-use ahash::AHashSet;
-use enum_dispatch::enum_dispatch;
-use get_size::GetSize;
-use valkey_module::RedisModuleIO;
-use valkey_module::error::{Error, GenericError};
 use crate::common::types::{Sample, Timestamp};
 use crate::error::TsdbResult;
 use crate::iter::SampleIter;
 use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, UncompressedChunk, SPLIT_FACTOR};
+use core::mem::size_of;
+use get_size::GetSize;
+use std::collections::BTreeSet;
+use valkey_module::error::{Error, GenericError};
+use valkey_module::RedisModuleIO;
 
 #[derive(Debug, Clone, PartialEq)]
 #[derive(GetSize)]
-#[enum_dispatch(Chunk)]
 pub enum TimeSeriesChunk {
     Uncompressed(UncompressedChunk),
     Gorilla(GorillaChunk),
@@ -192,7 +190,7 @@ impl TimeSeriesChunk {
 
         let min_timestamp = retention_threshold.max(start_ts);
         let samples = other.get_range(min_timestamp, end_ts)?;
-        let mut duplicates = AHashSet::new();
+        let mut duplicates = BTreeSet::new();
 
         self.merge_samples(&samples, duplicate_policy, &mut duplicates)
 
@@ -311,9 +309,12 @@ impl Chunk for TimeSeriesChunk {
         &mut self,
         samples: &[Sample],
         dp_policy: DuplicatePolicy,
-        blocked: &mut AHashSet<Timestamp>
+        blocked: &mut BTreeSet<Timestamp>
     ) -> TsdbResult<usize> {
         use TimeSeriesChunk::*;
+
+        debug_assert!(!samples.is_empty());
+
         match self {
             Uncompressed(chunk) => {
                 chunk.merge_samples(samples, dp_policy, blocked)

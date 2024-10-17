@@ -2,18 +2,18 @@ use super::{XOREncoder, XORIterator};
 use crate::common::current_time_millis;
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
+use crate::iter::SampleIter;
 use crate::series::chunks::chunk::Chunk;
+use crate::series::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
 use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES};
-use ahash::AHashSet;
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
 use std::mem::size_of;
 use std::ops::ControlFlow;
 use valkey_module::error::Error as ValkeyError;
 use valkey_module::raw;
-use crate::iter::SampleIter;
-use crate::series::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
 
 /// `GorillaChunk` holds information about location and time range of a block of compressed data.
 #[derive(Debug, Clone, PartialEq)]
@@ -371,88 +371,76 @@ impl Chunk for GorillaChunk {
         &mut self,
         samples: &[Sample],
         dp_policy: DuplicatePolicy,
-        blocked: &mut AHashSet<Timestamp>
+        blocked: &mut BTreeSet<Timestamp>,
     ) -> TsdbResult<usize> {
-
         if samples.len() == 1 {
             let first = samples[0];
             if self.is_empty() {
                 self.add_sample(&first)?;
-                return Ok(1)
+                return Ok(1);
             }
-            self.upsert_sample(first, dp_policy)?;
+            return self.upsert_sample(first, dp_policy);
+        } else {
+            if self.is_empty() {
+                return match self.set_data(samples) {
+                    Ok(_) => Ok(self.num_samples()),
+                    Err(e) => Err(e),
+                };
+            }
         }
 
         let mut count = self.num_samples();
         let mut xor_encoder = XOREncoder::new();
 
-        let mut iter = self.xor_encoder.iter();
+        let mut left = samples.iter().peekable();
+        let mut right = self.iter().peekable();
 
-        let mut iter_done = true;
-
-        if self.is_empty() {
-            for sample in samples.iter() {
-                push_sample(&mut xor_encoder, sample)?;
-                count += 1;
-            }
-            self.xor_encoder = xor_encoder;
-            return Ok(count)
-        }
-
-        let mut binding = samples.iter();
-        let sample_iter = binding.by_ref();
-
-        for sample in &mut *sample_iter {
-            let ts = sample.timestamp;
-
-            iter_done = true;
-
-            for item in iter.by_ref() {
-                let mut current = item?;
-                iter_done = false;
-                match current.timestamp.cmp(&ts) {
-                    Ordering::Less => {
-                        push_sample(&mut xor_encoder, &current)?;
-                    },
-                    Ordering::Greater => {
-                        push_sample(&mut xor_encoder, sample)?;
-                        push_sample(&mut xor_encoder, &current)?;
-                        count += 1;
-                        break;
-                    }
-                    Ordering::Equal => {
-                        if let Ok(val) = dp_policy.duplicate_value(ts, current.value, sample.value) {
-                            current.value = val;
+        loop {
+            let merged = match (left.peek(), right.peek()) {
+                (Some(l), Some(r)) => {
+                    if l.timestamp == r.timestamp {
+                        let ts = l.timestamp;
+                        if let Ok(value) = dp_policy.duplicate_value(ts, r.value, l.value) {
+                            left.next();
+                            Sample {
+                                timestamp: ts,
+                                value,
+                            }
                         } else {
                             blocked.insert(ts);
+                            left.next();
+                            continue;
                         }
-                        push_sample(&mut xor_encoder, &current)?;
-                        break;
-                    },
+                    } else if l.timestamp < r.timestamp {
+                        let res = *(*l);
+                        left.next();
+                        res
+                    } else {
+                        let res = r.clone();
+                        right.next();
+                        res
+                    }
                 }
-            }
-
-            if iter_done {
-                // push the rest
-                break
-            }
+                (Some(l), None) => {
+                    let res = **l;
+                    left.next();
+                    res
+                }
+                (None, Some(r)) => {
+                    let res = *r;
+                    right.next();
+                    res
+                }
+                (None, None) => break,
+            };
+            count += 1;
+            push_sample(&mut xor_encoder, &merged)?;
         }
 
-        // this means that there were more samples to insert than the current chunk.
-        // add the remaining input samples
-        if iter_done {
-            for sample in sample_iter {
-                push_sample(&mut xor_encoder, sample)?;
-                count += 1;
-            }
-        }
+        // the right iterator holds a reference to self, so manually drop it to prevent an issue
+        // below with the borrow checker
+        drop(right);
 
-        for item in iter {
-            let current = item?;
-            push_sample(&mut xor_encoder, &current)?;
-        }
-
-        // todo: do a self.encoder.buf.take()
         self.xor_encoder = xor_encoder;
         Ok(count)
     }

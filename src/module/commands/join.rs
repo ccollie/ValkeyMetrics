@@ -1,7 +1,7 @@
 use super::range_utils::get_range_internal;
 use crate::common::types::{Sample, Timestamp};
 use crate::iter::aggregator::aggregate;
-use crate::iter::join::JoinIterator;
+use crate::join::JoinIterator;
 use crate::module::arg_parse::*;
 use crate::module::result::sample_to_value;
 use crate::module::types::{JoinAsOfDirection, JoinOptions, JoinType, JoinValue};
