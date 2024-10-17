@@ -1,19 +1,41 @@
 use crate::aggregators::Aggregator;
 use crate::common::current_time_millis;
-use crate::common::types::{Sample, Timestamp};
+use crate::common::rounding::{round_to_decimal_digits, round_to_sig_figs};
+use crate::common::types::{Matchers, Timestamp};
 use crate::module::arg_parse::{parse_duration_ms, parse_timestamp};
-use crate::module::transform_op::TransformOperator;
 use crate::series::time_series::TimeSeries;
 use crate::series::MAX_TIMESTAMP;
-use joinkit::EitherOrBoth;
-use metricsql_common::humanize::{humanize_duration, humanize_duration_ms};
-use metricsql_parser::prelude::Matchers;
-use metricsql_runtime::types::TimestampTrait;
+use get_size::GetSize;
+use metricsql_common::humanize::humanize_duration_ms;
 use std::cmp::Ordering;
 use std::fmt::Display;
-use std::str::FromStr;
 use std::time::Duration;
 use valkey_module::{ValkeyError, ValkeyResult, ValkeyString};
+
+#[derive(Clone, Debug, PartialEq, Copy)]
+#[derive(GetSize)]
+pub enum RoundingStrategy {
+    SignificantDigits(i32),
+    DecimalDigits(i32),
+}
+
+impl RoundingStrategy {
+    pub fn round(&self, value: f64) -> f64 {
+        match self {
+            RoundingStrategy::SignificantDigits(digits) => round_to_sig_figs(value, *digits),
+            RoundingStrategy::DecimalDigits(digits) => round_to_decimal_digits(value, *digits),
+        }
+    }
+}
+
+impl Display for RoundingStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RoundingStrategy::SignificantDigits(digits) => write!(f, "significant_digits({})", digits),
+            RoundingStrategy::DecimalDigits(digits) => write!(f, "decimal_digits({})", digits),
+        }
+    }
+}
 
 #[derive(Clone, Default, Debug, PartialEq, Copy)]
 pub enum TimestampRangeValue {
@@ -148,11 +170,11 @@ impl PartialOrd for TimestampRangeValue {
             (Relative(x), Relative(y)) => x.partial_cmp(y),
             (Value(a), Value(b)) => a.partial_cmp(b),
             (Now, Value(v)) => {
-                let now = Timestamp::now();
+                let now = current_time_millis();
                 now.partial_cmp(v)
             }
             (Value(v), Now) => {
-                let now = Timestamp::now();
+                let now = current_time_millis();
                 v.partial_cmp(&now)
             }
             (Relative(y), Now) => {
@@ -240,7 +262,6 @@ impl Default for TimestampRange {
         }
     }
 }
-
 
 pub struct MetadataFunctionArgs {
     pub start: Timestamp,
@@ -398,167 +419,5 @@ impl RangeOptions {
 
     pub fn is_aggregation(&self) -> bool {
         self.aggregation.is_some()
-    }
-}
-
-#[derive(Debug, Default, Copy, Clone)]
-pub enum JoinType {
-    Left(bool),
-    Right(bool),
-    #[default]
-    Inner,
-    Full,
-    AsOf(JoinAsOfDirection, Duration),
-}
-
-impl Display for JoinType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            JoinType::Left(exclusive) => {
-                write!(f, "LEFT OUTER JOIN")?;
-                if *exclusive {
-                    write!(f, " EXCLUSIVE")?;
-                }
-            }
-            JoinType::Right(exclusive) => {
-                write!(f, "RIGHT OUTER JOIN")?;
-                if *exclusive {
-                    write!(f, " EXCLUSIVE")?;
-                }
-            }
-            JoinType::Inner => {
-                write!(f, "INNER JOIN")?;
-            }
-            JoinType::Full => {
-                write!(f, "FULL JOIN")?;
-            }
-            JoinType::AsOf(dir, tolerance) => {
-                write!(f, "ASOF JOIN")?;
-                match dir {
-                    JoinAsOfDirection::Next => write!(f, " NEXT")?,
-                    JoinAsOfDirection::Prior => write!(f, " PRIOR")?,
-                }
-                if !tolerance.is_zero() {
-                    write!(f, " TOLERANCE {}", humanize_duration(tolerance))?;
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-pub enum JoinAsOfDirection {
-    #[default]
-    Prior,
-    Next,
-}
-
-impl Display for JoinAsOfDirection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            JoinAsOfDirection::Next => write!(f, "Next"),
-            JoinAsOfDirection::Prior => write!(f, "Prior"),
-        }
-    }
-}
-impl FromStr for JoinAsOfDirection {
-    type Err = ValkeyError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            s if s.eq_ignore_ascii_case("forward") => Ok(JoinAsOfDirection::Next),
-            s if s.eq_ignore_ascii_case("next") => Ok(JoinAsOfDirection::Next),
-            s if s.eq_ignore_ascii_case("prior") => Ok(JoinAsOfDirection::Prior),
-            s if s.eq_ignore_ascii_case("backward") => Ok(JoinAsOfDirection::Prior),
-            _ => Err(ValkeyError::Str("invalid join direction")),
-        }
-    }
-}
-
-impl TryFrom<&str> for JoinAsOfDirection {
-    type Error = ValkeyError;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let direction = value.to_lowercase();
-        match direction.as_str() {
-            "next" => Ok(JoinAsOfDirection::Next),
-            "prior" => Ok(JoinAsOfDirection::Prior),
-            _ => Err(ValkeyError::Str("invalid join direction")),
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct JoinOptions {
-    pub join_type: JoinType,
-    pub date_range: TimestampRange,
-    pub count: Option<usize>,
-    pub timestamp_filter: Option<Vec<Timestamp>>,
-    pub value_filter: Option<ValueFilter>,
-    pub transform_op: Option<TransformOperator>,
-    pub aggregation: Option<AggregationOptions>,
-}
-
-#[derive(Clone, PartialEq, Debug)]
-pub struct JoinValue {
-    pub timestamp: Timestamp,
-    pub other_timestamp: Option<Timestamp>,
-    pub value: EitherOrBoth<f64, f64>,
-}
-
-impl JoinValue {
-    pub fn new(timestamp: Timestamp, left: Option<f64>, right: Option<f64>) -> Self {
-        JoinValue {
-            timestamp,
-            other_timestamp: None,
-            value: match (&left, &right) {
-                (Some(l), Some(r)) => EitherOrBoth::Both(*l, *r),
-                (Some(l), None) => EitherOrBoth::Left(*l),
-                (None, Some(r)) => EitherOrBoth::Right(*r),
-                (None, None) => unreachable!(),
-            }
-        }
-    }
-
-    pub fn left(timestamp: Timestamp, value: f64) -> Self {
-        JoinValue {
-            timestamp,
-            other_timestamp: None,
-            value: EitherOrBoth::Left(value)
-        }
-    }
-    pub fn right(timestamp: Timestamp, value: f64) -> Self {
-        JoinValue {
-            other_timestamp: None,
-            timestamp,
-            value: EitherOrBoth::Right(value)
-        }
-    }
-
-    pub fn both(timestamp: Timestamp, l: f64, r: f64) -> Self {
-        JoinValue {
-            timestamp,
-            other_timestamp: None,
-            value: EitherOrBoth::Both(l, r)
-        }
-    }
-}
-
-impl From<&EitherOrBoth<&Sample, &Sample>> for JoinValue {
-    fn from(value: &EitherOrBoth<&Sample, &Sample>) -> Self {
-        match value {
-            EitherOrBoth::Both(l, r) => {
-                let mut value = Self::both(l.timestamp, l.value, r.value);
-                value.other_timestamp = Some(r.timestamp);
-                value
-            }
-            EitherOrBoth::Left(l) => Self::left(l.timestamp, l.value),
-            EitherOrBoth::Right(r) => Self::right(r.timestamp, r.value)
-        }
-    }
-}
-
-impl From<EitherOrBoth<&Sample, &Sample>> for JoinValue {
-    fn from(value: EitherOrBoth<&Sample, &Sample>) -> Self {
-        (&value).into()
     }
 }

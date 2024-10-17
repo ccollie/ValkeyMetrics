@@ -36,21 +36,7 @@ impl TimeSeriesChunk {
     }
 
     pub fn is_empty(&self) -> bool {
-        use TimeSeriesChunk::*;
-        match self {
-            Uncompressed(chunk) => chunk.is_empty(),
-            Gorilla(chunk) => chunk.is_empty(),
-            Pco(chunk) => chunk.is_empty(),
-        }
-    }
-
-    pub fn max_size_in_bytes(&self) -> usize {
-        use TimeSeriesChunk::*;
-        match self {
-            Uncompressed(chunk) => chunk.max_size,
-            Gorilla(chunk) => chunk.max_size,
-            Pco(chunk) => chunk.max_size,
-        }
+        self.num_samples() == 0
     }
 
     pub fn is_full(&self) -> bool {
@@ -73,14 +59,14 @@ impl TimeSeriesChunk {
 
     pub fn utilization(&self) -> f64 {
         let used = self.size();
-        let total = self.max_size_in_bytes();
+        let total = self.max_size();
         used as f64 / total as f64
     }
 
     /// Get an estimate of the remaining capacity in number of samples
     pub fn estimate_remaining_sample_capacity(&self) -> usize {
         let used = self.size();
-        let total = self.max_size_in_bytes();
+        let total = self.max_size();
         if used >= total {
             return 0;
         }
@@ -201,17 +187,6 @@ impl TimeSeriesChunk {
             self.get_heap_size()
     }
 
-    // todo: make this a trait method
-    pub fn max_size(&self) -> usize {
-        use TimeSeriesChunk::*;
-        match self {
-            Uncompressed(chunk) => chunk.max_size,
-            Gorilla(chunk) => chunk.max_size,
-            Pco(chunk) => chunk.max_size,
-        }
-    }
-
-
     pub(crate) fn upsert(&mut self, sample: Sample, dp_policy: DuplicatePolicy) -> TsdbResult<(usize, Option<TimeSeriesChunk>)> {
         if self.size() as f64 > self.max_size() as f64 * SPLIT_FACTOR {
             let mut new_chunk = self.split()?;
@@ -268,6 +243,15 @@ impl Chunk for TimeSeriesChunk {
             Uncompressed(chunk) => chunk.size(),
             Gorilla(chunk) => chunk.size(),
             Pco(chunk) => chunk.size(),
+        }
+    }
+
+    fn max_size(&self) -> usize {
+        use TimeSeriesChunk::*;
+        match self {
+            Uncompressed(chunk) => chunk.max_size(),
+            Gorilla(chunk) => chunk.max_size(),
+            Pco(chunk) => chunk.max_size(),
         }
     }
 

@@ -1,6 +1,6 @@
 pub mod types;
 mod utils;
-pub mod decimal;
+pub mod rounding;
 mod encoding;
 pub mod bitwriter;
 

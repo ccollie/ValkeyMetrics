@@ -4,15 +4,54 @@
 use crate::common::types::{SampleLike, Timestamp};
 use joinkit::EitherOrBoth;
 use std::cmp;
+use std::fmt::Display;
+use std::str::FromStr;
 use std::time::Duration;
-
-// The code in this module is largely copied from
-// https://github.com/beignetbytes/tsxlib-rs
-// License: Apache-2.0/MIT
+use valkey_module::ValkeyError;
 
 /// MergeAsOfMode describes the roll behavior of the asof merge
 #[derive(Clone, Copy)]
 pub enum MergeAsOfMode{ RollPrior, RollFollowing }
+
+#[derive(Debug, Default, Clone, Copy)]
+pub enum AsOfJoinStrategy {
+    #[default]
+    Prior,
+    Next,
+}
+
+impl Display for AsOfJoinStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AsOfJoinStrategy::Next => write!(f, "Next"),
+            AsOfJoinStrategy::Prior => write!(f, "Prior"),
+        }
+    }
+}
+impl FromStr for AsOfJoinStrategy {
+    type Err = ValkeyError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            s if s.eq_ignore_ascii_case("forward") => Ok(AsOfJoinStrategy::Next),
+            s if s.eq_ignore_ascii_case("next") => Ok(AsOfJoinStrategy::Next),
+            s if s.eq_ignore_ascii_case("prior") => Ok(AsOfJoinStrategy::Prior),
+            s if s.eq_ignore_ascii_case("backward") => Ok(AsOfJoinStrategy::Prior),
+            _ => Err(ValkeyError::Str("invalid join direction")),
+        }
+    }
+}
+
+impl TryFrom<&str> for AsOfJoinStrategy {
+    type Error = ValkeyError;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let direction = value.to_lowercase();
+        match direction.as_str() {
+            "next" => Ok(AsOfJoinStrategy::Next),
+            "prior" => Ok(AsOfJoinStrategy::Prior),
+            _ => Err(ValkeyError::Str("invalid join direction")),
+        }
+    }
+}
 
 pub fn merge_apply_asof<'a, TSample: SampleLike + Clone + Eq + Ord>(
     left_samples: &'a [TSample], // todo: take impl Iterator<Item=Sample>
@@ -165,10 +204,10 @@ fn merge_asof_fwd(look_fwd: i64) -> MergeAsOfCompareFn {
 mod tests {
     use super::{merge_apply_asof, MergeAsOfMode};
     use crate::common::types::Timestamp;
-    use crate::module::types::JoinValue;
     use joinkit::EitherOrBoth;
     use metricsql_runtime::types::Sample;
     use std::time::Duration;
+    use crate::join::JoinValue;
 
     fn create_samples(timestamps: &[Timestamp], values: &[f64]) -> Vec<Sample> {
         timestamps.iter()

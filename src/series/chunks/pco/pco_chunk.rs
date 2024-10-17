@@ -132,6 +132,7 @@ impl PcoChunk {
             v_data.clear();
 
             // then we compress in parallel
+            // TODO: handle errors
             let _ = rayon::join(
                 || compress_timestamps(&mut t_data, timestamps).ok(),
                 || compress_values(&mut v_data, values).ok(),
@@ -307,8 +308,6 @@ impl PcoChunk {
             Ok(samples)
         })
     }
-
-
 }
 
 
@@ -327,6 +326,9 @@ impl Chunk for PcoChunk {
     }
     fn size(&self) -> usize {
         self.data_size()
+    }
+    fn max_size(&self) -> usize {
+        self.max_size
     }
     fn remove_range(&mut self, start_ts: Timestamp, end_ts: Timestamp) -> TsdbResult<usize> {
         if self.is_empty() {
@@ -492,9 +494,13 @@ impl Chunk for PcoChunk {
             let (left_timestamps, right_timestamps)  = timestamps.split_at(mid);
             let (left_values, right_values) = values.split_at_mut(mid);
 
-            self.compress(left_timestamps, left_values)?;
-
-            result.compress(right_timestamps, right_values)?;
+            let (res_a, res_b) = rayon::join(
+                || self.compress(left_timestamps, left_values).ok(),
+                || result.compress(right_timestamps, right_values).ok(),
+            );
+            if res_a.is_none() || res_b.is_none() {
+                return Err(TsdbError::CannotSerialize("ERR splitting node".to_string()));
+            }
         }
 
         Ok(result)
@@ -781,7 +787,7 @@ mod tests {
     #[test]
     fn test_upsert() {
         for chunk_size in (64..8192).step_by(64) {
-            let mut data = generate_random_samples(0, 500);
+            let data = generate_random_samples(0, 500);
             let mut chunk = PcoChunk::with_max_size(chunk_size);
 
             let data_len = data.len();

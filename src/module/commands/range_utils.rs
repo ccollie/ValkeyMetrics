@@ -1,7 +1,7 @@
 use crate::aggregators::AggOp;
 use crate::common::types::{Sample, Timestamp};
 use crate::iter::aggregator::AggrIterator;
-use crate::module::types::{AggregationOptions, RangeGroupingOptions, RangeOptions, ValueFilter};
+use crate::series::types::{AggregationOptions, RangeGroupingOptions, RangeOptions, ValueFilter};
 use crate::series::time_series::{SeriesSampleIterator, TimeSeries};
 use valkey_module::ValkeyValue;
 

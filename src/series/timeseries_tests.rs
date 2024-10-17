@@ -16,7 +16,11 @@ mod tests {
             last_timestamp: 0,
             retention: Duration::from_secs(60 * 60 * 24), // 1 day
             dedupe_interval: Some(Duration::from_secs(60)), // 1 minute
-            significant_digits: None,
+            rounding: None,
+            duplicate_policy: DuplicatePolicy::KeepLast,
+            chunk_size_bytes: 1024,
+            chunks: vec![],
+            total_samples: 0,
             ..Default::default()
         }
     }

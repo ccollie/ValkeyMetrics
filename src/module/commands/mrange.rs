@@ -5,7 +5,7 @@ use crate::iter::{MultiSeriesSampleIter, SampleIter};
 use crate::module::commands::range_arg_parse::parse_range_options;
 use crate::module::commands::range_utils::{aggregate_samples, get_sample_iterator, get_series_labels, group_samples_internal};
 use crate::module::result::sample_to_value;
-use crate::module::types::{AggregationOptions, RangeGroupingOptions, RangeOptions};
+use crate::series::types::{AggregationOptions, RangeGroupingOptions, RangeOptions};
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::{SeriesSampleIterator, TimeSeries};
 use ahash::AHashMap;

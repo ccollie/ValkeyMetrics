@@ -1,5 +1,5 @@
 use crate::module::arg_parse::*;
-use crate::module::types::RangeOptions;
+use crate::series::types::RangeOptions;
 use valkey_module::{NextArg, ValkeyError, ValkeyResult};
 
 pub fn parse_range_options(args: &mut CommandArgIterator) -> ValkeyResult<RangeOptions> {

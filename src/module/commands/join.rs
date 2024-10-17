@@ -1,16 +1,16 @@
 use super::range_utils::get_range_internal;
 use crate::common::types::{Sample, Timestamp};
 use crate::iter::aggregator::aggregate;
-use crate::join::JoinIterator;
 use crate::module::arg_parse::*;
 use crate::module::result::sample_to_value;
-use crate::module::types::{JoinAsOfDirection, JoinOptions, JoinType, JoinValue};
 use crate::module::{invalid_series_key_error, VKM_SERIES_TYPE};
 use crate::series::time_series::TimeSeries;
 use joinkit::EitherOrBoth;
 use metricsql_parser::binaryop::BinopFunc;
 use std::time::Duration;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use crate::join::{JoinIterator, JoinOptions, JoinType, JoinValue};
+use crate::join::asof::AsOfJoinStrategy;
 
 const CMD_ARG_COUNT: &str = "COUNT";
 const CMD_ARG_LEFT: &str = "LEFT";
@@ -75,14 +75,14 @@ pub fn join(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 fn parse_asof(args: &mut CommandArgIterator) -> ValkeyResult<JoinType> {
     // ASOF already seen
     let mut tolerance = Duration::default();
-    let mut direction = JoinAsOfDirection::Prior;
+    let mut direction = AsOfJoinStrategy::Prior;
 
     // ASOF [PRIOR | NEXT] [tolerance]
     if let Some(next) = advance_if_next_token_one_of(args, &[CMD_ARG_PRIOR, CMD_ARG_NEXT]) {
         if next == CMD_ARG_PRIOR {
-            direction = JoinAsOfDirection::Prior;
+            direction = AsOfJoinStrategy::Prior;
         } else if next == CMD_ARG_NEXT {
-            direction = JoinAsOfDirection::Next;
+            direction = AsOfJoinStrategy::Next;
         }
     }
 

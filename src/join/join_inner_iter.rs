@@ -1,6 +1,6 @@
 use crate::common::types::Sample;
 use joinkit::Joinkit;
-use crate::module::types::JoinValue;
+use super::JoinValue;
 
 pub struct JoinInnerIter<'a>
 {

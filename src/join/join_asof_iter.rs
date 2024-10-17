@@ -2,7 +2,8 @@ use crate::common::types::Sample;
 use super::asof::{merge_apply_asof, MergeAsOfMode};
 use joinkit::EitherOrBoth;
 use std::time::Duration;
-use crate::module::types::{JoinAsOfDirection, JoinValue};
+use super::asof::AsOfJoinStrategy;
+use super::{JoinValue};
 
 pub struct JoinAsOfIter<'a> {
     init: bool,
@@ -15,10 +16,10 @@ pub struct JoinAsOfIter<'a> {
 }
 
 impl<'a> JoinAsOfIter<'a> {
-    pub fn new(left: &'a [Sample], right: &'a [Sample], direction: JoinAsOfDirection, tolerance: Duration) -> Self {
+    pub fn new(left: &'a [Sample], right: &'a [Sample], direction: AsOfJoinStrategy, tolerance: Duration) -> Self {
         let merge_mode = match direction {
-            JoinAsOfDirection::Next => MergeAsOfMode::RollFollowing,
-            JoinAsOfDirection::Prior => MergeAsOfMode::RollPrior
+            AsOfJoinStrategy::Next => MergeAsOfMode::RollFollowing,
+            AsOfJoinStrategy::Prior => MergeAsOfMode::RollPrior
         };
         Self {
             init: false,

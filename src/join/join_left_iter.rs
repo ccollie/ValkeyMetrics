@@ -1,7 +1,6 @@
 use crate::common::types::Sample;
 use joinkit::{EitherOrBoth, Joinkit};
-use crate::module::types::JoinValue;
-use super::convert_join_item;
+use super::{JoinValue, convert_join_item};
 
 pub struct JoinLeftIter<'a> {
     inner: Box<dyn Iterator<Item = EitherOrBoth<&'a Sample, &'a Sample>> + 'a>

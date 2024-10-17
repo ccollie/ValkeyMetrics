@@ -8,7 +8,7 @@ use crate::common::types::{Matchers, Timestamp};
 use crate::config::get_global_settings;
 use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::parse_timestamp_range_value;
-use crate::module::types::{TimestampRange, TimestampRangeValue, ValueFilter};
+use crate::series::types::{TimestampRange, TimestampRangeValue, ValueFilter};
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::{SeriesSampleIterator, TimeSeries};
 

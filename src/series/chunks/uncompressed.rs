@@ -184,6 +184,10 @@ impl Chunk for UncompressedChunk {
         self.samples.len() * size_of::<Sample>()
     }
 
+    fn max_size(&self) -> usize {
+        self.max_size
+    }
+
     fn remove_range(&mut self, start_ts: Timestamp, end_ts: Timestamp) -> TsdbResult<usize> {
         let count = self.samples.len();
         self.samples.retain(|sample| -> bool {

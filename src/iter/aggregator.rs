@@ -1,6 +1,6 @@
 use crate::aggregators::{AggOp, Aggregator};
 use crate::common::types::{Sample, Timestamp};
-use crate::module::types::{AggregationOptions, BucketTimestamp};
+use crate::series::types::{AggregationOptions, BucketTimestamp};
 
 #[derive(Debug)]
 pub(crate) struct AggrIterator {

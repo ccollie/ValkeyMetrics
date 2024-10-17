@@ -1,7 +1,7 @@
 use crate::common::types::Sample;
 use joinkit::{EitherOrBoth, Joinkit};
 use std::collections::VecDeque;
-use crate::module::types::JoinValue;
+use crate::join::JoinValue;
 // todo: this seems inefficient
 
 pub struct JoinRightIter<'a> {

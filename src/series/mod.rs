@@ -17,6 +17,8 @@ mod test_utils;
 mod serialization;
 #[cfg(test)]
 mod timeseries_tests;
+pub mod types;
+pub(crate) mod transform_op;
 
 use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
@@ -24,6 +26,7 @@ pub(super) use chunks::*;
 pub(crate) use constants::*;
 pub(crate) use defrag::*;
 pub(crate) use time_series::*;
+use crate::series::types::RoundingStrategy;
 
 pub const SAMPLE_SIZE: usize = size_of::<Sample>();
 
@@ -185,6 +188,7 @@ pub struct TimeSeriesOptions {
     pub dedupe_interval: Option<Duration>,
     pub labels: Vec<Label>,
     pub significant_digits: Option<u8>,
+    pub rounding: Option<RoundingStrategy>
 }
 
 impl TimeSeriesOptions {

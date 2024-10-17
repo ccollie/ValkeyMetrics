@@ -219,6 +219,9 @@ impl Chunk for GorillaChunk {
     fn size(&self) -> usize {
         self.data_size()
     }
+    fn max_size(&self) -> usize {
+        self.max_size
+    }
     fn remove_range(&mut self, start_ts: Timestamp, end_ts: Timestamp) -> TsdbResult<usize> {
         if self.is_empty() {
             return Ok(0);

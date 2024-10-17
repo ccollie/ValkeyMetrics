@@ -1,6 +1,6 @@
 use crate::common::types::Sample;
 use joinkit::Joinkit;
-use crate::module::types::JoinValue;
+use super::JoinValue;
 
 // todo: accept iter instead of slices
 pub struct JoinLeftExclusiveIter<'a> {

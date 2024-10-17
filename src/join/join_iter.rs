@@ -6,7 +6,7 @@ use crate::join::join_left_exclusive_iter::JoinLeftExclusiveIter;
 use crate::join::join_left_iter::JoinLeftIter;
 use crate::join::join_right_exclusive_iter::JoinRightExclusiveIter;
 use crate::join::join_right_iter::JoinRightIter;
-use crate::module::types::{JoinType, JoinValue};
+use super::{JoinType, JoinValue};
 
 
 pub enum JoinIterator<'a> {

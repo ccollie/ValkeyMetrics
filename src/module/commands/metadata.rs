@@ -2,7 +2,7 @@ use crate::common::METRIC_NAME_LABEL;
 use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::parse_series_selector_list;
 use crate::module::result::{format_array_result, get_ts_metric_selector};
-use crate::module::types::{MetadataFunctionArgs, TimestampRangeValue};
+use crate::series::types::{MetadataFunctionArgs, TimestampRangeValue};
 use crate::module::{normalize_range_args, parse_timestamp_arg, VKM_SERIES_TYPE};
 use crate::series::time_series::TimeSeries;
 use std::collections::BTreeSet;

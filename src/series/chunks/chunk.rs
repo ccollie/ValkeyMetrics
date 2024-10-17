@@ -1,6 +1,6 @@
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
-use crate::module::types::ValueFilter;
+use crate::series::types::ValueFilter;
 use crate::series::chunks::timeseries_chunk::TimeSeriesChunk;
 use crate::series::{DuplicatePolicy, Sample};
 use get_size::GetSize;
@@ -73,6 +73,7 @@ pub trait Chunk: Sized {
     fn num_samples(&self) -> usize;
     fn last_value(&self) -> f64;
     fn size(&self) -> usize;
+    fn max_size(&self) -> usize;
     fn remove_range(&mut self, start_ts: Timestamp, end_ts: Timestamp) -> TsdbResult<usize>;
     fn add_sample(&mut self, sample: &Sample) -> TsdbResult<()>;
     fn get_range(

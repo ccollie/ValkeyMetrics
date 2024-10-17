@@ -1,5 +1,5 @@
 use crate::common::current_time_millis;
-use crate::common::decimal::{round_to_significant_digits, RoundDirection};
+use crate::common::rounding::{round_to_sig_figs};
 use crate::common::types::{Sample, Timestamp};
 use crate::tests::generators::generators::{
     DerivativeGenerator,
@@ -123,7 +123,7 @@ pub fn generate_series_data(options: &GeneratorOptions) -> Result<Vec<Sample>, S
 
     if let Some(significant_digits) = options.significant_digits {
         for v in values.iter_mut() {
-            let rounded = round_to_significant_digits(*v, significant_digits as i32, RoundDirection::Up);
+            let rounded = round_to_sig_figs(*v, significant_digits as i32);
             *v = rounded;
         }
     }

@@ -4,7 +4,7 @@ use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::*;
 use crate::module::commands::range_utils::get_series_labels;
 use crate::module::result::sample_to_value;
-use crate::module::types::TimestampRange;
+use crate::series::types::TimestampRange;
 use crate::module::{get_series_iterator, VKM_SERIES_TYPE};
 use crate::series::time_series::{TimeSeries, TimeseriesId};
 use ahash::HashMapExt;

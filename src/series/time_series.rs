@@ -1,12 +1,11 @@
 use super::{merge_by_capacity, validate_chunk_size, Chunk, ChunkCompression, ChunkEncoding, ChunkSampleIterator, Sample, TimeSeriesOptions};
-use crate::common::decimal::{round_to_significant_digits, RoundDirection};
 use crate::common::types::{Label, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
-use crate::module::types::ValueFilter;
+use crate::series::types::{RoundingStrategy, ValueFilter};
 use crate::series::constants::DEFAULT_CHUNK_SIZE_BYTES;
-use crate::series::serialization::{rdb_load_duration, rdb_load_optional_duration, rdb_save_duration, rdb_save_optional_duration};
+use crate::series::serialization::*;
 use crate::series::utils::format_prometheus_metric_name;
 use crate::series::DuplicatePolicy;
 use crate::series::TimeSeriesChunk;
@@ -51,12 +50,14 @@ pub struct TimeSeries {
     pub dedupe_interval: Option<Duration>,
     pub duplicate_policy: DuplicatePolicy,
     pub chunk_compression: ChunkCompression,
-    pub significant_digits: Option<u8>,
+    pub rounding: Option<RoundingStrategy>,
     pub chunk_size_bytes: usize,
     pub chunks: Vec<TimeSeriesChunk>,
 
     // meta
     pub total_samples: usize,
+    // todo:
+    //  last_sample: Option<Sample>,
     pub first_timestamp: Timestamp,
     pub last_timestamp: Timestamp,
     pub last_value: f64,
@@ -87,7 +88,7 @@ impl TimeSeries {
             first_timestamp: 0,
             last_timestamp: 0,
             last_value: f64::NAN,
-            significant_digits: None
+            rounding: None,
         }
     }
 
@@ -133,6 +134,8 @@ impl TimeSeries {
         options.labels.retain(|x| x.name != METRIC_NAME_LABEL);
 
         res.labels = options.labels;
+        res.rounding = options.rounding;
+
         Ok(res)
     }
 
@@ -161,14 +164,8 @@ impl TimeSeries {
         None
     }
 
-    fn adjust_value(&mut self, value: f64) -> f64 {
-        if let Some(significant_digits) = self.significant_digits {
-            // todo: limit digits to a max, for ex.
-            // https://stackoverflow.com/questions/65719216/why-does-rust-only-use-16-significant-digits-for-f64-equality-checks
-            round_to_significant_digits(value, significant_digits as i32, RoundDirection::Up)
-        } else {
-            value
-        }
+    fn adjust_value(&self, value: f64) -> f64 {
+        self.rounding.as_ref().map_or(value, |r| r.round(value))
     }
 
     pub fn add(
@@ -200,10 +197,9 @@ impl TimeSeries {
         self.add_sample(ts, value)
     }
 
-    pub(super) fn add_sample(&mut self, time: Timestamp, value: f64) -> ValkeyResult<()> {
-        let value = self.adjust_value(value);
+    pub(super) fn add_sample(&mut self, timestamp: Timestamp, value: f64) -> ValkeyResult<()> {
         let sample = Sample {
-            timestamp: time,
+            timestamp,
             value,
         };
 
@@ -217,11 +213,11 @@ impl TimeSeries {
             _ => {},
         }
         if was_empty {
-            self.first_timestamp = time;
+            self.first_timestamp = timestamp;
         }
 
         self.last_value = value;
-        self.last_timestamp = time;
+        self.last_timestamp = timestamp;
         self.total_samples += 1;
         Ok(())
     }
@@ -281,7 +277,6 @@ impl TimeSeries {
         dp_override: Option<DuplicatePolicy>,
     ) -> ValkeyResult<usize> {
         let dp_policy = dp_override.unwrap_or(self.duplicate_policy);
-        let value = self.adjust_value(value);
 
         let (pos, _) = get_chunk_index(&self.chunks, timestamp);
         let chunk = self.chunks.get_mut(pos).unwrap(); // todo: get_unchecked
@@ -376,10 +371,7 @@ impl TimeSeries {
 
     pub fn is_older_than_retention(&self, timestamp: Timestamp) -> bool {
         let min_ts = self.get_min_timestamp();
-        if timestamp < min_ts {
-            return true;
-        }
-        false
+        timestamp < min_ts
     }
 
     pub(super) fn trim(&mut self) -> TsdbResult<()> {
@@ -512,7 +504,7 @@ impl TimeSeries {
         rdb_save_optional_duration(rdb, &self.dedupe_interval);
         raw::save_unsigned(rdb, self.duplicate_policy.as_u8() as u64);
         raw::save_unsigned(rdb, self.chunk_compression as u64);
-        raw::save_unsigned(rdb, self.significant_digits.unwrap_or(255) as u64);
+        rdb_save_optional_rounding(rdb, &self.rounding);
         raw::save_unsigned(rdb, self.chunk_size_bytes as u64);
         raw::save_unsigned(rdb, self.chunks.len() as u64);
         for chunk in self.chunks.iter() {
@@ -561,7 +553,7 @@ impl TimeSeries {
             GenericError::new("Invalid chunk compression")
         ))?;
 
-        let significant_digits = raw::load_unsigned(rdb)? as u8;
+        let rounding = rdb_load_optional_rounding(rdb)?;
         let chunk_size_bytes = raw::load_unsigned(rdb)? as usize;
         let chunks_len = raw::load_unsigned(rdb)? as usize;
         let mut chunks = Vec::with_capacity(chunks_len);
@@ -589,7 +581,7 @@ impl TimeSeries {
             dedupe_interval,
             duplicate_policy,
             chunk_compression,
-            significant_digits: if significant_digits == 255 { None } else { Some(significant_digits) },
+            rounding,
             chunk_size_bytes,
             chunks,
             total_samples,
@@ -620,7 +612,7 @@ impl Default for TimeSeries {
             first_timestamp: 0,
             last_timestamp: 0,
             last_value: f64::NAN,
-            significant_digits: None
+            rounding: None
         }
     }
 }
@@ -651,7 +643,7 @@ fn get_chunk_index(chunks: &[TimeSeriesChunk], timestamp: Timestamp) -> (usize, 
     }
 }
 
-pub(crate) struct SeriesSampleIterator<'a> {
+pub struct SeriesSampleIterator<'a> {
     series: &'a TimeSeries,
     curr_iter: Option<ChunkSampleIterator<'a>>,
     chunk_index: usize,
