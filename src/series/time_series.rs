@@ -3,9 +3,9 @@ use crate::common::types::{Label, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
-use crate::series::types::{RoundingStrategy, ValueFilter};
 use crate::series::constants::DEFAULT_CHUNK_SIZE_BYTES;
 use crate::series::serialization::*;
+use crate::series::types::{RoundingStrategy, ValueFilter};
 use crate::series::utils::format_prometheus_metric_name;
 use crate::series::DuplicatePolicy;
 use crate::series::TimeSeriesChunk;
@@ -15,7 +15,6 @@ use smallvec::SmallVec;
 use std::hash::Hash;
 use std::mem::size_of;
 use std::time::Duration;
-use valkey_module::error::GenericError;
 use valkey_module::{raw, ValkeyError, ValkeyResult};
 
 const TIMESTAMP_TYPE_U64: &str = "u64";
@@ -53,7 +52,6 @@ pub struct TimeSeries {
     pub rounding: Option<RoundingStrategy>,
     pub chunk_size_bytes: usize,
     pub chunks: Vec<TimeSeriesChunk>,
-
     // meta
     pub total_samples: usize,
     // todo:
@@ -178,6 +176,11 @@ impl TimeSeries {
             return Err(ValkeyError::Str(error_consts::SAMPLE_TOO_OLD));
         }
 
+        let sample = Sample {
+            value: self.adjust_value(value),
+            timestamp: ts
+        };
+
         if !self.is_empty() {
             let last_ts = self.last_timestamp;
             if let Some(dedup_interval) = self.dedupe_interval {
@@ -189,19 +192,15 @@ impl TimeSeries {
             }
 
             if ts <= last_ts {
-                let _ = self.upsert_sample(ts, value, dp_override)?;
+                let _ = self.upsert_sample(sample, dp_override)?;
                 return Ok(());
             }
         }
 
-        self.add_sample(ts, value)
+        self.add_sample(sample)
     }
 
-    pub(super) fn add_sample(&mut self, timestamp: Timestamp, value: f64) -> ValkeyResult<()> {
-        let sample = Sample {
-            timestamp,
-            value,
-        };
+    pub(super) fn add_sample(&mut self, sample: Sample) -> ValkeyResult<()> {
 
         let was_empty = self.is_empty();
         let chunk = self.get_last_chunk();
@@ -213,11 +212,11 @@ impl TimeSeries {
             _ => {},
         }
         if was_empty {
-            self.first_timestamp = timestamp;
+            self.first_timestamp = sample.timestamp;
         }
 
-        self.last_value = value;
-        self.last_timestamp = timestamp;
+        self.last_value = sample.value;
+        self.last_timestamp = sample.timestamp;
         self.total_samples += 1;
         Ok(())
     }
@@ -231,14 +230,13 @@ impl TimeSeries {
         let mut iter = self.chunks.iter_mut().rev();
         let last_chunk = iter.next().unwrap();
 
-        // check if previous block has capacity, and if so merge into it
+        // check if previous chunk has capacity, and if so merge into it
         if let Some(prev_chunk) = iter.next() {
-            let duplicate_policy = self.duplicate_policy;
             if let Some(deleted_count) = merge_by_capacity(
                 prev_chunk,
                 last_chunk,
                 min_timestamp,
-                duplicate_policy,
+                self.duplicate_policy,
             )? {
                 self.total_samples -= deleted_count;
                 last_chunk.add_sample(sample)?;
@@ -272,15 +270,13 @@ impl TimeSeries {
 
     pub(super) fn upsert_sample(
         &mut self,
-        timestamp: Timestamp,
-        value: f64,
+        sample: Sample,
         dp_override: Option<DuplicatePolicy>,
     ) -> ValkeyResult<usize> {
         let dp_policy = dp_override.unwrap_or(self.duplicate_policy);
 
-        let (pos, _) = get_chunk_index(&self.chunks, timestamp);
+        let (pos, _) = get_chunk_index(&self.chunks, sample.timestamp);
         let chunk = self.chunks.get_mut(pos).unwrap(); // todo: get_unchecked
-        let sample = Sample { timestamp, value };
 
         match chunk.upsert(sample, dp_policy) {
             Ok((size, new_chunk)) => {
@@ -290,8 +286,8 @@ impl TimeSeries {
                     self.chunks.insert(insert_at, new_chunk);
                 }
                 self.total_samples += size;
-                if timestamp == self.last_timestamp {
-                    self.last_value = value;
+                if sample.timestamp == self.last_timestamp {
+                    self.last_value = sample.value;
                 }
                 Ok(size)
             },
@@ -495,18 +491,23 @@ impl TimeSeries {
         raw::save_string(rdb, TIMESTAMP_TYPE);
         raw::save_unsigned(rdb, self.id as u64);
         raw::save_string(rdb, &self.metric_name);
-        raw::save_unsigned(rdb, self.labels.len() as u64);
+        rdb_save_usize(rdb, self.labels.len());
         for label in self.labels.iter() {
             raw::save_string(rdb, &label.name);
             raw::save_string(rdb, &label.value);
         }
         rdb_save_duration(rdb, &self.retention);
         rdb_save_optional_duration(rdb, &self.dedupe_interval);
-        raw::save_unsigned(rdb, self.duplicate_policy.as_u8() as u64);
-        raw::save_unsigned(rdb, self.chunk_compression as u64);
+
+        let mut tmp = self.duplicate_policy.as_str();
+        raw::save_string(rdb, tmp);
+
+        tmp = self.chunk_compression.name();
+        raw::save_string(rdb, tmp);
+
         rdb_save_optional_rounding(rdb, &self.rounding);
-        raw::save_unsigned(rdb, self.chunk_size_bytes as u64);
-        raw::save_unsigned(rdb, self.chunks.len() as u64);
+        rdb_save_usize(rdb, self.chunk_size_bytes);
+        rdb_save_usize(rdb, self.chunks.len());
         for chunk in self.chunks.iter() {
             chunk.rdb_save(rdb);
         }
@@ -521,7 +522,7 @@ impl TimeSeries {
     }
 
      fn load_internal(rdb: *mut raw::RedisModuleIO, _encver: i32) -> ValkeyResult<Self> {
-        let id_type: String = raw::load_string(rdb)?.into();
+        let id_type: String = rdb_load_string(rdb)?;
         if id_type != TIMESTAMP_TYPE {
             let other_type = if id_type == TIMESTAMP_TYPE_U32 {
                 TIMESTAMP_TYPE_U64
@@ -532,30 +533,26 @@ impl TimeSeries {
             return Err(ValkeyError::String(msg))
         }
         let id = raw::load_unsigned(rdb)? as TimeseriesId;
-        let metric_name = raw::load_string(rdb)?.into();
-        let labels_len = raw::load_unsigned(rdb)? as usize;
+        let metric_name = rdb_load_string(rdb)?;
+        let labels_len = rdb_load_usize(rdb)?;
         let mut labels = Vec::with_capacity(labels_len);
         for _ in 0..labels_len {
-            let name = raw::load_string(rdb)?;
-            let value = raw::load_string(rdb)?;
-            labels.push(Label { name: name.into(), value: value.into() });
+            let name = rdb_load_string(rdb)?;
+            let value = rdb_load_string(rdb)?;
+            labels.push(Label { name, value });
         }
         let retention = rdb_load_duration(rdb)?;
+
         let dedupe_interval = rdb_load_optional_duration(rdb)?;
-        let duplicate_policy = DuplicatePolicy::try_from(raw::load_unsigned(rdb)? as u8)
-            .map_err(|_| valkey_module::error::Error::Generic(
-                GenericError::new("Invalid duplicate policy")
-            ))?;
+        let duplicate_policy = DuplicatePolicy::try_from(rdb_load_string(rdb)?)?;
 
         let chunk_compression = ChunkCompression::try_from(
-            raw::load_unsigned(rdb)? as u8
-        ).map_err(|_| valkey_module::error::Error::Generic(
-            GenericError::new("Invalid chunk compression")
-        ))?;
+            rdb_load_string(rdb)?
+        )?;
 
         let rounding = rdb_load_optional_rounding(rdb)?;
-        let chunk_size_bytes = raw::load_unsigned(rdb)? as usize;
-        let chunks_len = raw::load_unsigned(rdb)? as usize;
+        let chunk_size_bytes = rdb_load_usize(rdb)?;
+        let chunks_len = rdb_load_usize(rdb)?;
         let mut chunks = Vec::with_capacity(chunks_len);
         let mut last_value = f64::NAN;
         let mut total_samples: usize = 0;

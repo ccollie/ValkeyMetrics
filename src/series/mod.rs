@@ -26,6 +26,7 @@ pub(super) use chunks::*;
 pub(crate) use constants::*;
 pub(crate) use defrag::*;
 pub(crate) use time_series::*;
+use crate::error_consts;
 use crate::series::types::RoundingStrategy;
 
 pub const SAMPLE_SIZE: usize = size_of::<Sample>();
@@ -151,7 +152,7 @@ impl FromStr for DuplicatePolicy {
             "min" => Ok(Min),
             "max" => Ok(Max),
             "sum" => Ok(Sum),
-            _ => Err(ValkeyError::String(format!("invalid duplicate policy: {s}"))),
+            _ => Err(ValkeyError::Str(error_consts::INVALID_DUPLICATE_POLICY)),
         }
     }
 }
@@ -160,6 +161,13 @@ impl TryFrom<&str> for DuplicatePolicy {
     type Error = ValkeyError;
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         DuplicatePolicy::from_str(s)
+    }
+}
+
+impl TryFrom<String> for DuplicatePolicy {
+    type Error = ValkeyError;
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        DuplicatePolicy::from_str(&s)
     }
 }
 

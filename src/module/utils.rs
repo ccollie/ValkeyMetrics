@@ -22,15 +22,6 @@ pub unsafe extern "C" fn string_from_module_string(
     CStr::from_ptr(c_str).to_string_lossy()
 }
 
-pub(crate) fn call_valkey_command<'a>(ctx: &Context, cmd: &'a str, args: &'a [String]) -> ValkeyResult {
-    let call_options: CallOptions = CallOptionsBuilder::default()
-        .resp(CallOptionResp::Resp3)
-        .build();
-    let args = args.iter().map(|x| x.as_bytes()).collect::<Vec<_>>();
-    ctx.call_ext::<_, CallResult>(cmd, &call_options, args.as_slice())
-        .map_or_else(|e| Err(e.into()), |v| Ok((&v).into()))
-}
-
 pub fn parse_timestamp_arg(
     arg: &str,
     name: &str,

@@ -1,6 +1,7 @@
 use std::time::Duration;
 use metricsql_runtime::types::Timestamp;
-use valkey_module::{raw, ValkeyError, ValkeyResult};
+use valkey_module::{raw, ValkeyError, ValkeyResult, ValkeyString};
+use valkey_module::error::Error;
 use crate::series::types::RoundingStrategy;
 
 const OPTIONAL_MARKER_PRESENT: u64 = 0xfe;
@@ -83,6 +84,18 @@ pub(crate) fn rdb_load_u8(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<u8> {
 }
 
 #[inline]
+pub(crate) fn rdb_save_u32(rdb: *mut raw::RedisModuleIO, value: u32) {
+    raw::save_unsigned(rdb, value as u64)
+}
+
+#[inline]
+pub(crate) fn rdb_load_u32(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<u32> {
+    let value = raw::load_signed(rdb)?;
+    // todo: validate that value is in range
+    Ok(value as u32)
+}
+
+#[inline]
 pub(crate) fn rdb_save_i32(rdb: *mut raw::RedisModuleIO, value: i32) {
     raw::save_signed(rdb, value as i64)
 }
@@ -138,4 +151,20 @@ pub(crate) fn rdb_load_optional_rounding(rdb: *mut raw::RedisModuleIO) -> Valkey
     } else {
         Ok(None)
     }
+}
+
+
+#[inline]
+pub(crate) fn rdb_save_string(rdb: *mut raw::RedisModuleIO, value: &str) {
+    raw::save_string(rdb, value);
+}
+
+#[inline]
+pub(crate) fn rdb_load_string(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<String> {
+    Ok(String::from(raw::load_string(rdb)?))
+}
+
+#[inline]
+pub(crate) fn rdb_load_valkey_string(rdb: *mut raw::RedisModuleIO) -> Result<ValkeyString, Error> {
+    raw::load_string(rdb)
 }

@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt::Display;
 use valkey_module::error::Error;
-use valkey_module::RedisModuleIO;
+use valkey_module::{RedisModuleIO, ValkeyError};
+use crate::error_consts;
 
 pub const MIN_CHUNK_SIZE: usize = 48;
 pub const MAX_CHUNK_SIZE: usize = 1048576;
@@ -56,14 +57,21 @@ impl TryFrom<u8> for ChunkCompression {
 }
 
 impl TryFrom<&str> for ChunkCompression {
-    type Error = TsdbError;
+    type Error = ValkeyError;
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         match s {
             s if s.eq_ignore_ascii_case("uncompressed") => Ok(ChunkCompression::Uncompressed),
             s if s.eq_ignore_ascii_case("gorilla") => Ok(ChunkCompression::Gorilla),
             s if s.eq_ignore_ascii_case("pco") => Ok(ChunkCompression::Pco),
-            _ => Err(TsdbError::InvalidCompression(s.to_string())),
+            _ => Err(ValkeyError::Str(error_consts::INVALID_CHUNK_COMPRESSION_METHOD)),
         }
+    }
+}
+
+impl TryFrom<String> for ChunkCompression {
+    type Error = ValkeyError;
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        ChunkCompression::try_from(&s[..])
     }
 }
 

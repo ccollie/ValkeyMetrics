@@ -2,8 +2,7 @@ use crate::common::types::Sample;
 use joinkit::Joinkit;
 use super::JoinValue;
 
-pub struct JoinInnerIter<'a>
-{
+pub struct JoinInnerIter<'a> {
     iter: Box<dyn Iterator<Item=(&'a Sample, &'a Sample)> + 'a>
 }
 

@@ -71,7 +71,7 @@ mod tests {
 
         // Add a sample exactly at the retention boundary
         let retention_boundary = current_time + 3600 * 1000; // Convert to milliseconds
-        let result = ts.add_sample(retention_boundary, 42.0);
+        let result = ts.add_sample(Sample { timestamp: retention_boundary, value: 42.0 });
 
         assert!(result.is_ok());
         assert_eq!(ts.last_timestamp, retention_boundary);
@@ -124,7 +124,7 @@ mod tests {
         ];
 
         for (timestamp, value) in samples {
-            ts.add_sample(timestamp, value).unwrap();
+            ts.add_sample(Sample { timestamp, value }).unwrap();
         }
 
         assert_eq!(ts.total_samples, 5);
@@ -142,12 +142,12 @@ mod tests {
         ts.duplicate_policy = DuplicatePolicy::KeepLast;
 
         // Add first sample
-        ts.add_sample(timestamp, 1.0).unwrap();
+        ts.add_sample(Sample { timestamp, value: 1.0 }).unwrap();
         assert_eq!(ts.total_samples, 1);
         assert_eq!(ts.last_value, 1.0);
 
         // Add second sample with same timestamp but different value
-        ts.add_sample(timestamp, 2.0).unwrap();
+        ts.add_sample(Sample { timestamp, value: 2.0 }).unwrap();
         assert_eq!(ts.total_samples, 1);
         assert_eq!(ts.last_value, 2.0);
 
@@ -161,12 +161,12 @@ mod tests {
         ts.duplicate_policy = DuplicatePolicy::KeepFirst;
 
         // Add first sample
-        ts.add_sample(timestamp, 1.0).unwrap();
+        ts.add_sample(Sample { timestamp, value: 1.0 }).unwrap();
         assert_eq!(ts.total_samples, 1);
         assert_eq!(ts.last_value, 1.0);
 
         // Add second sample with same timestamp but different value
-        ts.add_sample(timestamp, 2.0).unwrap();
+        ts.add_sample(Sample { timestamp, value: 2.0 }).unwrap();
         assert_eq!(ts.total_samples, 1);
         assert_eq!(ts.last_value, 1.0);
 
@@ -183,12 +183,12 @@ mod tests {
         ts.chunk_size_bytes = 8; // Set a small chunk size to force new chunk creation
 
         // Add first sample
-        ts.add_sample(1000, 1.0).unwrap();
+        ts.add_sample(Sample { timestamp: 1000, value: 1.0 }).unwrap();
         assert_eq!(ts.chunks.len(), 1);
         assert_eq!(ts.total_samples, 1);
 
         // Add second sample, which should create a new chunk
-        ts.add_sample(2000, 2.0).unwrap();
+        ts.add_sample(Sample { timestamp: 2000, value: 2.0 }).unwrap();
         assert_eq!(ts.chunks.len(), 2);
         assert_eq!(ts.total_samples, 2);
         assert_eq!(ts.first_timestamp, 1000);
@@ -532,9 +532,9 @@ fn test_trim_updates_timestamps() {
     #[test]
     fn test_remove_range_start_before_first_timestamp() {
         let mut ts = TimeSeries::default();
-        ts.add_sample(100, 1.0).unwrap();
-        ts.add_sample(200, 2.0).unwrap();
-        ts.add_sample(300, 3.0).unwrap();
+        ts.add_sample(Sample { timestamp: 100, value: 1.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 200, value: 2.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 300, value: 3.0 }).unwrap();
 
         assert_eq!(ts.total_samples, 3);
         assert_eq!(ts.first_timestamp, 100);
@@ -550,9 +550,9 @@ fn test_trim_updates_timestamps() {
     #[test]
     fn test_remove_range_end_after_last_timestamp() {
         let mut ts = TimeSeries::default();
-        ts.add_sample(100, 1.0).unwrap();
-        ts.add_sample(200, 2.0).unwrap();
-        ts.add_sample(300, 3.0).unwrap();
+        ts.add_sample(Sample { timestamp: 100, value: 1.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 200, value: 2.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 300, value: 3.0 }).unwrap();
 
         assert_eq!(ts.total_samples, 3);
         assert_eq!(ts.first_timestamp, 100);
@@ -569,9 +569,9 @@ fn test_trim_updates_timestamps() {
     fn test_remove_range_same_chunk() {
         // Arrange
         let mut ts = TimeSeries::default();
-        ts.add_sample(1000, 1.0).unwrap();
-        ts.add_sample(2000, 2.0).unwrap();
-        ts.add_sample(3000, 3.0).unwrap();
+        ts.add_sample(Sample { timestamp: 1000, value: 1.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 2000, value: 2.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 3000, value: 3.0 }).unwrap();
 
         // Act
         let result = ts.remove_range(1500, 2500);
@@ -590,12 +590,12 @@ fn test_trim_updates_timestamps() {
         let mut ts = TimeSeries::default();
 
         // Add samples to chunks
-        ts.add_sample(100, 1.0).unwrap();
-        ts.add_sample(200, 2.0).unwrap();
-        ts.add_sample(300, 3.0).unwrap();
-        ts.add_sample(400, 4.0).unwrap();
-        ts.add_sample(500, 5.0).unwrap();
-        ts.add_sample(600, 6.0).unwrap();
+        ts.add_sample(Sample { timestamp: 100, value: 1.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 200, value: 2.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 300, value: 3.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 400, value: 4.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 500, value: 5.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 600, value: 6.0 }).unwrap();
 
         // Remove range spanning multiple chunks
         ts.remove_range(250, 450).unwrap();
@@ -637,9 +637,9 @@ fn test_trim_updates_timestamps() {
     #[test]
     fn test_remove_range_entire_series() {
         let mut ts = TimeSeries::default();
-        ts.add_sample(1000, 1.0).unwrap();
-        ts.add_sample(2000, 2.0).unwrap();
-        ts.add_sample(3000, 3.0).unwrap();
+        ts.add_sample(Sample { timestamp: 1000, value: 1.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 2000, value: 2.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 3000, value: 3.0 }).unwrap();
 
         let start_ts = 1000;
         let end_ts = 3000;
