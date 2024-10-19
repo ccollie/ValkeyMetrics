@@ -20,7 +20,7 @@ pub fn alter(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         }
 
         ctx.replicate_verbatim();
-        ctx.notify_keyspace_event(NotifyEvent::MODULE, "VKM.ALTER", &parsed_key);
+        ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.ALTER", &parsed_key);
         VALKEY_OK
     })
 }

@@ -3,9 +3,9 @@ mod tests {
     use crate::common::types::{Label, Sample, Timestamp};
     use crate::error_consts;
     use crate::series::test_utils::generate_random_samples;
-    use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, TimeSeries, TimeSeriesChunk};
-    use std::time::Duration;
+    use crate::series::{merge_by_capacity, Chunk, ChunkCompression, DuplicatePolicy, TimeSeries, TimeSeriesChunk};
     use metricsql_runtime::prelude::TimestampTrait;
+    use std::time::Duration;
     use valkey_module::ValkeyError;
 
     fn create_test_timeseries() -> TimeSeries {
@@ -29,7 +29,7 @@ mod tests {
 
     fn add_chunk_data(ts: &mut TimeSeries, chunk_count: usize) {
         let sample_count = chunk_count * ELEMENTS_PER_CHUNK;
-        let mut samples = generate_random_samples(0, sample_count);
+        let samples = generate_random_samples(0, sample_count);
         for chunk_samples in samples.chunks(ELEMENTS_PER_CHUNK) {
             let mut chunk = TimeSeriesChunk::new(ChunkCompression::Uncompressed, 1024);
             chunk.set_data(chunk_samples).unwrap();
@@ -78,7 +78,6 @@ mod tests {
         assert_eq!(ts.last_value, 42.0);
         assert_eq!(ts.total_samples, 1);
     }
-
 
     #[test]
     fn test_add_sample_within_dedupe_interval() {
@@ -330,6 +329,167 @@ mod tests {
         assert_eq!(ts.get_range(1, 3), expected_samples);
     }
 
+    //*************** iterators
+    #[test]
+    fn test_range_iter_with_equal_start_and_end() {
+        let mut ts = create_test_timeseries();
+        add_chunk_data(&mut ts, 1);
+
+        let start_end = ts.last_timestamp;
+        let iter = ts.range_iter(start_end, start_end);
+
+        let samples: Vec<Sample> = iter.collect();
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].timestamp, start_end);
+    }
+
+    #[test]
+    fn test_range_iter_full_range() {
+        let mut ts = create_test_timeseries();
+        add_chunk_data(&mut ts, 2);
+
+        let first_ts = ts.first_timestamp;
+        let last_ts = ts.last_timestamp;
+
+        let start = first_ts - 1000;
+        let end = last_ts + 1000;
+
+        let samples: Vec<Sample> = ts.range_iter(start, end).collect();
+
+        assert_eq!(samples.len(), ts.total_samples);
+        assert_eq!(samples.first().unwrap().timestamp, first_ts);
+        assert_eq!(samples.last().unwrap().timestamp, last_ts);
+
+        for (i, sample) in samples.iter().enumerate() {
+            if i > 0 {
+                assert!(sample.timestamp > samples[i-1].timestamp);
+            }
+        }
+    }
+
+    #[test]
+    fn test_range_iter_between_samples() {
+        let mut ts = create_test_timeseries();
+        add_chunk_data(&mut ts, 1);  // Add one chunk of data
+
+        let chunk = &ts.chunks[0];
+        let samples = chunk.get_range(-1, i64::MAX).unwrap();
+        let mid_count = samples.len() / 2;
+        let mid_timestamp = samples[mid_count].timestamp;
+
+        let iter = ts.range_iter(mid_timestamp - 1, mid_timestamp + 1);
+
+        let samples: Vec<Sample> = iter.collect();
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].timestamp, mid_timestamp);
+    }
+
+    #[test]
+    fn test_range_iter_empty_timeseries() {
+        let ts = create_test_timeseries();
+        let start = 1000;
+        let end = 2000;
+        let iter = ts.range_iter(start, end);
+        assert!(iter.collect::<Vec<Sample>>().is_empty());
+    }
+
+    #[test]
+    fn test_range_iter_within_same_chunk() {
+        let mut ts = create_test_timeseries();
+        add_chunk_data(&mut ts, 1); // Add one chunk of data
+
+        let (first_ts, last_ts) = get_chunk_boundaries(&mut ts, 0);
+        let start = first_ts + 1;
+        let end = last_ts - 1;
+
+        let samples: Vec<_> = ts.range_iter(start, end).collect();
+
+        assert!(!samples.is_empty(), "Expected non-empty samples");
+        assert!(samples.first().unwrap().timestamp >= start, "First sample timestamp should be >= start");
+        assert!(samples.last().unwrap().timestamp <= end, "Last sample timestamp should be <= end");
+    }
+
+    #[test]
+    fn test_range_iter_across_chunks() {
+        let mut ts = create_test_timeseries();
+        add_chunk_data(&mut ts, 3);
+
+        let mut all_samples: Vec<Sample> =
+            ts.chunks
+                .iter()
+                .fold(Vec::new(), |mut acc, chunk| {
+                    let samples = chunk.get_range(0, i64::MAX).unwrap();
+                    acc.extend(samples);
+                    acc
+                });
+
+        all_samples.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
+        let (start, _) = get_chunk_boundaries(&mut ts, 0);
+        let (_, end) = get_chunk_boundaries(&mut ts, 2);
+
+        let samples: Vec<Sample> = ts.range_iter(start, end).collect();
+
+        assert_eq!(samples.len(), 3 * ELEMENTS_PER_CHUNK);
+        assert_eq!(samples.first().unwrap().timestamp, start);
+        assert_eq!(samples.last().unwrap().timestamp, end);
+
+        for window in samples.windows(2) {
+            assert!(window[0].timestamp < window[1].timestamp);
+        }
+
+        assert_eq!(all_samples, samples);
+
+
+        // Test start and end both starting in the middle of two chunks
+        // |------|--------|--------|------|
+        //    |                         |
+        //  start                      end
+        let start = all_samples[10].timestamp; // change if ELEMENTS_PER_CHUNK changes
+        let end = all_samples[all_samples.len() - 10].timestamp; // change if ELEMENTS_PER_CHUNK changes
+        let actual = ts.range_iter(start, end).collect::<Vec<Sample>>();
+        let expected: Vec<_> = all_samples[10..=all_samples.len() - 10].to_vec();
+
+        assert_eq!(actual.len(), expected.len());
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_range_iter_at_chunk_boundaries() {
+        let mut ts = create_test_timeseries();
+        add_chunk_data(&mut ts, 2); // Add data to create two chunks
+
+        // Get the boundaries of the first and second chunk
+        let (first_chunk_start, first_chunk_end) = get_chunk_boundaries(&mut ts, 0);
+        let (second_chunk_start, second_chunk_end) = get_chunk_boundaries(&mut ts, 1);
+
+        // Use range_iter with start and end timestamps at the boundaries of the two chunks
+        let samples: Vec<Sample> = ts.range_iter(first_chunk_end, second_chunk_start).collect();
+
+        // Verify that the samples collected are from the correct timestamps
+        assert_eq!(samples.first().unwrap().timestamp, first_chunk_end);
+        assert_eq!(samples.last().unwrap().timestamp, second_chunk_start);
+    }
+
+    #[test]
+    fn test_range_iter_start_before_first_sample() {
+        let mut ts = create_test_timeseries();
+        add_chunk_data(&mut ts, 1);
+
+        let first_timestamp = ts.first_timestamp;
+        let last_timestamp = ts.last_timestamp;
+
+        let start = first_timestamp - 1000;
+        let end = last_timestamp;
+
+        let samples: Vec<Sample> = ts.range_iter(start, end).collect();
+
+        assert!(!samples.is_empty());
+        assert_eq!(samples[0].timestamp, first_timestamp);
+        assert_eq!(samples.last().unwrap().timestamp, last_timestamp);
+        assert_eq!(samples.len(), ts.total_samples);
+    }
+
     /***** TRIM ******/
 
     #[test]
@@ -461,23 +621,23 @@ mod tests {
     }
 
     #[test]
-fn test_trim_updates_timestamps() {
-    let mut ts = create_test_timeseries();
-    add_chunk_data(&mut ts, 3);
+    fn test_trim_updates_timestamps() {
+        let mut ts = create_test_timeseries();
+        add_chunk_data(&mut ts, 3);
 
-    let original_first_timestamp = ts.first_timestamp;
-    let original_last_timestamp = ts.last_timestamp;
+        let original_first_timestamp = ts.first_timestamp;
+        let original_last_timestamp = ts.last_timestamp;
 
-    // Set retention to remove the first chunk
-    ts.retention = Duration::from_secs((ts.last_timestamp - ts.first_timestamp) as u64 / 2);
+        // Set retention to remove the first chunk
+        ts.retention = Duration::from_secs((ts.last_timestamp - ts.first_timestamp) as u64 / 2);
 
-    ts.trim().unwrap();
+        ts.trim().unwrap();
 
-    assert!(ts.first_timestamp > original_first_timestamp, "first_timestamp should be updated after trimming");
-    assert_eq!(ts.last_timestamp, original_last_timestamp, "last_timestamp should remain unchanged after trimming");
-    assert!(ts.chunks.len() < 3, "Some chunks should be removed after trimming");
-    assert!(!ts.chunks.is_empty(), "TimeSeries should not be empty after trimming");
-}
+        assert!(ts.first_timestamp > original_first_timestamp, "first_timestamp should be updated after trimming");
+        assert_eq!(ts.last_timestamp, original_last_timestamp, "last_timestamp should remain unchanged after trimming");
+        assert!(ts.chunks.len() < 3, "Some chunks should be removed after trimming");
+        assert!(!ts.chunks.is_empty(), "TimeSeries should not be empty after trimming");
+    }
 
     #[test]
     fn test_trim_single_sample() {
@@ -515,7 +675,7 @@ fn test_trim_updates_timestamps() {
         ts.trim().unwrap();
 
         assert!(ts.total_samples < initial_samples, "Total samples should decrease after trimming");
-        assert_eq!(ts.total_samples, ts.chunks.iter().map(|c| c.num_samples()).sum::<usize>(),
+        assert_eq!(ts.total_samples, ts.chunks.iter().map(|c| c.len()).sum::<usize>(),
                    "Total samples should match the sum of samples in remaining chunks");
     }
 
@@ -601,8 +761,8 @@ fn test_trim_updates_timestamps() {
         ts.remove_range(250, 450).unwrap();
 
         // Assert samples removed
-        assert_eq!(ts.chunks[0].num_samples(), 1); // [100, 1.0]
-        assert_eq!(ts.chunks[1].num_samples(), 1); // [600, 6.0]
+        assert_eq!(ts.chunks[0].len(), 1); // [100, 1.0]
+        assert_eq!(ts.chunks[1].len(), 1); // [600, 6.0]
 
         // Assert total samples updated
         assert_eq!(ts.total_samples, 2);

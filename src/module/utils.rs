@@ -1,26 +1,15 @@
-use std::borrow::Cow;
-use std::ffi::CStr;
 use std::fmt::Display;
-use valkey_module::{CallOptionResp, CallOptions, CallOptionsBuilder, CallResult, Context, RedisModuleString, RedisModule_StringPtrLen, ValkeyError, ValkeyResult, ValkeyString};
+use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
 
 use crate::common::current_time_millis;
 use crate::common::types::{Matchers, Timestamp};
 use crate::config::get_global_settings;
 use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::parse_timestamp_range_value;
-use crate::series::types::{TimestampRange, TimestampRangeValue, ValueFilter};
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::{SeriesSampleIterator, TimeSeries};
+use crate::series::types::{TimestampRange, TimestampRangeValue, ValueFilter};
 
-#[no_mangle]
-/// Perform a lossy conversion of a module string into a `Cow<str>`.
-pub unsafe extern "C" fn string_from_module_string(
-    s: *const RedisModuleString,
-) -> Cow<'static, str> {
-    let mut len = 0;
-    let c_str = RedisModule_StringPtrLen.unwrap()(s, &mut len);
-    CStr::from_ptr(c_str).to_string_lossy()
-}
 
 pub fn parse_timestamp_arg(
     arg: &str,

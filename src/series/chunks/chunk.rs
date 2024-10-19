@@ -1,15 +1,16 @@
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
-use crate::series::types::ValueFilter;
+use crate::error_consts;
 use crate::series::chunks::timeseries_chunk::TimeSeriesChunk;
+use crate::series::types::ValueFilter;
 use crate::series::{DuplicatePolicy, Sample};
 use get_size::GetSize;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt::Display;
+use std::vec;
 use valkey_module::error::Error;
 use valkey_module::{RedisModuleIO, ValkeyError};
-use crate::error_consts;
 
 pub const MIN_CHUNK_SIZE: usize = 48;
 pub const MAX_CHUNK_SIZE: usize = 1048576;
@@ -78,7 +79,10 @@ impl TryFrom<String> for ChunkCompression {
 pub trait Chunk: Sized {
     fn first_timestamp(&self) -> Timestamp;
     fn last_timestamp(&self) -> Timestamp;
-    fn num_samples(&self) -> usize;
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     fn last_value(&self) -> f64;
     fn size(&self) -> usize;
     fn max_size(&self) -> usize;
@@ -111,10 +115,14 @@ pub trait Chunk: Sized {
     fn rdb_load(rdb: *mut RedisModuleIO, _encver: i32) -> Result<Self, Error>;
 }
 
-pub(crate) struct ChunkSampleIterator<'a> {
-    inner: Box<dyn Iterator<Item = Sample> + 'a>,
+pub struct ChunkSampleIterator<'a> {
+    inner: vec::IntoIter<Sample>,
+    chunk: &'a TimeSeriesChunk,
+    value_filter: &'a Option<ValueFilter>,
+    ts_filter: &'a Option<Vec<Timestamp>>,
     start: Timestamp,
     end: Timestamp,
+    is_overlap: bool,
     is_init: bool,
 }
 
@@ -125,54 +133,24 @@ impl<'a> ChunkSampleIterator<'a> {
            value_filter: &'a Option<ValueFilter>,
            ts_filter: &'a Option<Vec<Timestamp>>,
     ) -> Self {
-        let iter = if chunk.overlaps(start, end) {
-            Self::get_inner_iter(chunk, start, end, ts_filter, value_filter)
-        } else {
-            // use an empty iterator
-            Box::new(std::iter::empty::<Sample>())
-        };
-
         Self {
-            inner: Box::new(iter),
+            inner: Default::default(),
             start,
             end,
+            chunk,
+            value_filter,
+            ts_filter,
+            is_overlap: chunk.overlaps(start, end),
             is_init: false,
         }
     }
 
-    fn get_inner_iter(chunk: &'a TimeSeriesChunk,
-                      start: Timestamp,
-                      end: Timestamp,
-                      ts_filter: &'a Option<Vec<Timestamp>>,
-                      value_filter: &'a Option<ValueFilter>) -> Box<dyn Iterator<Item = Sample> + 'a> {
-        match (ts_filter, value_filter) {
-            (Some(timestamps), Some(value_filter)) => {
-                Box::new(chunk.samples_by_timestamps(timestamps)
-                    .unwrap_or_else(|_e| {
-                        // todo: properly handle error and log
-                        vec![]
-                    })
-                    .into_iter()
-                    .filter(move |sample| sample.value >= value_filter.min && sample.value <= value_filter.max)
-                )
-            }
-            (Some(timestamps), None) => {
-                Box::new(chunk.samples_by_timestamps(timestamps)
-                    .unwrap_or_else(|_e| {
-                        // todo: properly handle error and log
-                        vec![]
-                    }).into_iter()
-                )
-            }
-            (None, Some(filter)) => {
-                Box::new(
-                    chunk.range_iter(start, end)
-                        .filter(|sample| sample.value >= filter.min && sample.value <= filter.max)
-                )
-            }
-            _ => {
-                Box::new(chunk.range_iter(start, end))
-            }
+    fn handle_init(&mut self) {
+        self.is_init = true;
+        self.inner = if !self.is_overlap {
+            Default::default()
+        } else {
+            self.chunk.get_range_filtered(self.start, self.end, self.ts_filter, self.value_filter).into_iter()
         }
     }
 }
@@ -183,30 +161,15 @@ impl<'a> Iterator for ChunkSampleIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if !self.is_init {
-            self.is_init = true;
-            for sample in self.inner.by_ref() {
-                if sample.timestamp > self.end {
-                    return None;
-                }
-                if sample.timestamp < self.start {
-                    continue;
-                }
-                return Some(sample);
-            }
+            self.handle_init();
         }
-        if let Some(sample) = self.inner.by_ref().next() {
-            if sample.timestamp > self.end {
-                return None;
-            }
-            return Some(sample);
-        }
-        None
+        self.inner.next()
     }
 }
 
 pub(crate) fn validate_chunk_size(chunk_size_bytes: usize) -> TsdbResult<()> {
     fn get_error_result() -> TsdbResult<()> {
-        let msg = format!("TSDB: CHUNK_SIZE value must be a multiple of 2 in the range [{MIN_CHUNK_SIZE} .. {MAX_CHUNK_SIZE}]");
+        let msg = format!("ERR: CHUNK_SIZE value must be a multiple of 2 in the range [{MIN_CHUNK_SIZE} .. {MAX_CHUNK_SIZE}]");
         Err(TsdbError::InvalidConfiguration(msg))
     }
 
@@ -223,43 +186,6 @@ pub(crate) fn validate_chunk_size(chunk_size_bytes: usize) -> TsdbResult<()> {
     }
 
     Ok(())
-}
-
-pub(crate) fn merge_by_capacity(
-    dest: &mut TimeSeriesChunk,
-    src: &mut TimeSeriesChunk,
-    min_timestamp: Timestamp,
-    duplicate_policy: DuplicatePolicy,
-) -> TsdbResult<Option<usize>> {
-    if src.is_empty() {
-        return Ok(None);
-    }
-
-    // check if previous block has capacity, and if so merge into it
-    let count = src.num_samples();
-    let remaining_capacity = dest.estimate_remaining_sample_capacity();
-    // if there is enough capacity in the previous block, merge the last block into it
-    if remaining_capacity >= count {
-        // copy all from last_chunk
-        let res = dest.merge(src, min_timestamp, duplicate_policy)?;
-        // reuse last block
-        src.clear();
-        return Ok(Some(res));
-    } else if remaining_capacity > count / 4 {
-        // do a partial merge
-        let samples = src.get_range(src.first_timestamp(), src.last_timestamp())?;
-        let (left, right) = samples.split_at(remaining_capacity);
-        let mut duplicates = BTreeSet::new();
-        let res = dest.merge_samples(
-            left,
-            duplicate_policy,
-            &mut duplicates,
-        )?;
-        src.clear();
-        src.merge_samples(right, duplicate_policy, &mut duplicates)?;
-        return Ok(Some(res));
-    }
-    Ok(None)
 }
 
 

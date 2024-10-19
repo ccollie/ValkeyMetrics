@@ -15,7 +15,6 @@ use std::marker::PhantomData;
 use core::convert::From;
 
 use bitstream_io::{
-    huffman::WriteHuffmanTree,
     BitQueue,
     Endianness,
     Numeric,
@@ -210,100 +209,6 @@ pub trait BitWrite {
         buf.iter().try_for_each(|b| self.write_out::<8, _>(*b))
     }
 
-    /// Writes `value` number of 1 bits to the stream
-    /// and then writes a 0 bit.  This field is variably-sized.
-    ///
-    /// # Errors
-    ///
-    /// Passes along any I/O error from the underlying stream.
-    ///
-    /// # Examples
-    /// ```
-    /// use std::io::Write;
-    /// use bitstream_io::{BigEndian, BitWriter, BitWrite};
-    /// let mut writer = BitWriter::endian(Vec::new(), BigEndian);
-    /// writer.write_unary0(0).unwrap();
-    /// writer.write_unary0(3).unwrap();
-    /// writer.write_unary0(10).unwrap();
-    /// assert_eq!(writer.into_writer(), [0b01110111, 0b11111110]);
-    /// ```
-    ///
-    /// ```
-    /// use std::io::Write;
-    /// use bitstream_io::{LittleEndian, BitWriter, BitWrite};
-    /// let mut writer = BitWriter::endian(Vec::new(), LittleEndian);
-    /// writer.write_unary0(0).unwrap();
-    /// writer.write_unary0(3).unwrap();
-    /// writer.write_unary0(10).unwrap();
-    /// assert_eq!(writer.into_writer(), [0b11101110, 0b01111111]);
-    /// ```
-    fn write_unary0(&mut self, value: u32) -> io::Result<()> {
-        match value {
-            0 => self.write_bit(false),
-            bits @ 1..=31 => self
-                .write(value, (1u32 << bits) - 1)
-                .and_then(|()| self.write_bit(false)),
-            32 => self
-                .write(value, 0xFFFF_FFFFu32)
-                .and_then(|()| self.write_bit(false)),
-            bits @ 33..=63 => self
-                .write(value, (1u64 << bits) - 1)
-                .and_then(|()| self.write_bit(false)),
-            64 => self
-                .write(value, 0xFFFF_FFFF_FFFF_FFFFu64)
-                .and_then(|()| self.write_bit(false)),
-            mut bits => {
-                while bits > 64 {
-                    self.write(64, 0xFFFF_FFFF_FFFF_FFFFu64)?;
-                    bits -= 64;
-                }
-                self.write_unary0(bits)
-            }
-        }
-    }
-
-    /// Writes `value` number of 0 bits to the stream
-    /// and then writes a 1 bit.  This field is variably-sized.
-    ///
-    /// # Errors
-    ///
-    /// Passes along any I/O error from the underlying stream.
-    ///
-    /// # Example
-    /// ```
-    /// use std::io::Write;
-    /// use bitstream_io::{BigEndian, BitWriter, BitWrite};
-    /// let mut writer = BitWriter::endian(Vec::new(), BigEndian);
-    /// writer.write_unary1(0).unwrap();
-    /// writer.write_unary1(3).unwrap();
-    /// writer.write_unary1(10).unwrap();
-    /// assert_eq!(writer.into_writer(), [0b10001000, 0b00000001]);
-    /// ```
-    ///
-    /// ```
-    /// use std::io::Write;
-    /// use bitstream_io::{LittleEndian, BitWriter, BitWrite};
-    /// let mut writer = BitWriter::endian(Vec::new(), LittleEndian);
-    /// writer.write_unary1(0).unwrap();
-    /// writer.write_unary1(3).unwrap();
-    /// writer.write_unary1(10).unwrap();
-    /// assert_eq!(writer.into_writer(), [0b00010001, 0b10000000]);
-    /// ```
-    fn write_unary1(&mut self, value: u32) -> io::Result<()> {
-        match value {
-            0 => self.write_bit(true),
-            1..=32 => self.write(value, 0u32).and_then(|()| self.write_bit(true)),
-            33..=64 => self.write(value, 0u64).and_then(|()| self.write_bit(true)),
-            mut bits => {
-                while bits > 64 {
-                    self.write(64, 0u64)?;
-                    bits -= 64;
-                }
-                self.write_unary1(bits)
-            }
-        }
-    }
-
     /// Returns true if the stream is aligned at a whole byte.
     fn byte_aligned(&self) -> bool;
 
@@ -330,19 +235,6 @@ pub trait BitWrite {
         }
         Ok(())
     }
-}
-
-/// A trait for anything that can write Huffman codes
-/// of a given endianness to an output stream
-pub trait HuffmanWrite<E: Endianness> {
-    /// Writes Huffman code for the given symbol to the stream.
-    ///
-    /// # Errors
-    ///
-    /// Passes along any I/O error from the underlying stream.
-    fn write_huffman<T>(&mut self, tree: &WriteHuffmanTree<E, T>, symbol: T) -> io::Result<()>
-    where
-        T: Ord + Copy;
 }
 
 impl<W: io::Write, E: Endianness> BitWrite for BitWriter<W, E> {
@@ -526,32 +418,6 @@ impl<W: io::Write, E: Endianness> BitWrite for BitWriter<W, E> {
     }
 }
 
-impl<W: io::Write, E: Endianness> HuffmanWrite<E> for BitWriter<W, E> {
-    /// # Example
-    /// ```
-    /// use std::io::Write;
-    /// use bitstream_io::{BigEndian, BitWriter, HuffmanWrite};
-    /// use bitstream_io::huffman::compile_write_tree;
-    /// let tree = compile_write_tree(
-    ///     vec![('a', vec![0]),
-    ///          ('b', vec![1, 0]),
-    ///          ('c', vec![1, 1, 0]),
-    ///          ('d', vec![1, 1, 1])]).unwrap();
-    /// let mut writer = BitWriter::endian(Vec::new(), BigEndian);
-    /// writer.write_huffman(&tree, 'b').unwrap();
-    /// writer.write_huffman(&tree, 'c').unwrap();
-    /// writer.write_huffman(&tree, 'd').unwrap();
-    /// assert_eq!(writer.into_writer(), [0b10110111]);
-    /// ```
-    #[inline]
-    fn write_huffman<T>(&mut self, tree: &WriteHuffmanTree<E, T>, symbol: T) -> io::Result<()>
-    where
-        T: Ord + Copy,
-    {
-        tree.get(&symbol)
-            .try_for_each(|(bits, value)| self.write(*bits, *value))
-    }
-}
 
 #[inline]
 fn write_byte<W>(mut writer: W, byte: u8) -> io::Result<()>

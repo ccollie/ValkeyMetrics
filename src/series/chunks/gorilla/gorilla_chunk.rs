@@ -7,7 +7,6 @@ use crate::series::chunks::chunk::Chunk;
 use crate::series::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
 use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES};
 use get_size::GetSize;
-use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::mem::size_of;
@@ -41,8 +40,7 @@ impl GorillaChunk {
     }
 
     pub fn with_values(max_size: usize, samples: &[Sample]) -> TsdbResult<Self> {
-        let mut res = Self::default();
-        res.max_size = max_size;
+        let mut res = Self::with_max_size(max_size);
 
         let count = samples.len();
         if count > 0 {
@@ -50,14 +48,6 @@ impl GorillaChunk {
         }
 
         Ok(res)
-    }
-
-    pub fn len(&self) -> usize {
-        self.num_samples()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.num_samples() == 0
     }
 
     pub fn is_full(&self) -> bool {
@@ -85,25 +75,12 @@ impl GorillaChunk {
         Ok(())
     }
 
-    fn decompress(&self) -> TsdbResult<Vec<Sample>> {
-        if self.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let mut values: Vec<Sample> = Vec::with_capacity(self.num_samples());
-        for item in self.xor_encoder.iter() {
-            values.push(item?);
-        }
-
-        Ok(values)
-    }
-
     pub fn compression_ratio(&self) -> f64 {
         if self.is_empty() {
             return 0.0;
         }
         let compressed_size = self.xor_encoder.buf().len();
-        let uncompressed_size = self.num_samples() * (size_of::<i64>() + size_of::<f64>());
+        let uncompressed_size = self.len() * (size_of::<i64>() + size_of::<f64>());
         (uncompressed_size / compressed_size) as f64
     }
 
@@ -132,7 +109,7 @@ impl GorillaChunk {
     }
 
     pub fn bytes_per_sample(&self) -> usize {
-        let count = self.num_samples();
+        let count = self.len();
         if  count == 0 {
             return 0;
         }
@@ -147,7 +124,7 @@ impl GorillaChunk {
     /// Estimate the number of samples that can be stored in the remaining capacity
     /// Note that for low sample counts this will be very inaccurate
     pub fn remaining_samples(&self) -> usize {
-        if self.num_samples() == 0 {
+        if self.len() == 0 {
             return 0;
         }
         self.remaining_capacity() / self.bytes_per_sample()
@@ -170,7 +147,7 @@ impl GorillaChunk {
     }
 
     pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
-        if self.num_samples() == 0 || timestamps.is_empty() {
+        if self.len() == 0 || timestamps.is_empty() {
             return Ok(vec![]);
         }
         let mut samples = Vec::with_capacity(timestamps.len());
@@ -210,7 +187,7 @@ impl Chunk for GorillaChunk {
     fn last_timestamp(&self) -> Timestamp {
         self.xor_encoder.timestamp
     }
-    fn num_samples(&self) -> usize {
+    fn len(&self) -> usize {
         self.xor_encoder.num_samples
     }
     fn last_value(&self) -> f64 {
@@ -243,7 +220,7 @@ impl Chunk for GorillaChunk {
         }
 
         self.xor_encoder = new_encoder;
-        let new_count = self.num_samples();
+        let new_count = self.len();
 
         Ok(old_sample_count - new_count)
     }
@@ -288,7 +265,7 @@ impl Chunk for GorillaChunk {
             return Ok(1)
         }
 
-        let count = self.num_samples();
+        let count = self.len();
         let mut xor_encoder = XOREncoder::new();
 
         let mut iter = self.xor_encoder.iter();
@@ -339,12 +316,12 @@ impl Chunk for GorillaChunk {
             return self.upsert_sample(first, dp_policy);
         } else if self.is_empty() {
             return match self.set_data(samples) {
-                Ok(_) => Ok(self.num_samples()),
+                Ok(_) => Ok(self.len()),
                 Err(e) => Err(e),
             };
         }
 
-        let mut count = self.num_samples();
+        let mut count = self.len();
         let mut xor_encoder = XOREncoder::new();
 
         let mut left = samples.iter().peekable();
@@ -412,7 +389,7 @@ impl Chunk for GorillaChunk {
             return Ok(self.clone());
         }
 
-        let mid = self.num_samples() / 2;
+        let mid = self.len() / 2;
         for (i, value) in self.xor_encoder.iter().enumerate() {
             let sample = value?;
             if i < mid {
@@ -563,7 +540,7 @@ mod tests {
         for sample in data.iter() {
             chunk.add_sample(&sample).unwrap();
         }
-        assert_eq!(chunk.num_samples(), data.len());
+        assert_eq!(chunk.len(), data.len());
         assert_eq!(chunk.first_timestamp(), data[0].timestamp);
         assert_eq!(chunk.last_timestamp(), data[data.len() - 1].timestamp);
         assert_eq!(chunk.last_value(), data[data.len() - 1].value);
@@ -588,9 +565,9 @@ mod tests {
             chunk.add_sample(datum).unwrap();
         }
 
-        assert_eq!(chunk.num_samples(), data.len());
+        assert_eq!(chunk.len(), data.len());
         chunk.clear();
-        assert_eq!(chunk.num_samples(), 0);
+        assert_eq!(chunk.len(), 0);
         assert_eq!(chunk.first_timestamp(), 0);
         assert_eq!(chunk.last_timestamp(), 0);
     }
@@ -599,14 +576,14 @@ mod tests {
     fn test_upsert() {
         for chunk_size in (64..8192).step_by(64) {
             const SAMPLE_COUNT: usize = 200;
-            let mut samples = generate_random_samples(0, SAMPLE_COUNT);
+            let samples = generate_random_samples(0, SAMPLE_COUNT);
             let mut chunk = GorillaChunk::with_max_size(chunk_size);
 
             let sample_count = samples.len();
             for sample in samples.into_iter() {
                 chunk.upsert_sample(sample, DuplicatePolicy::KeepLast).unwrap();
             }
-            assert_eq!(chunk.num_samples(), sample_count);
+            assert_eq!(chunk.len(), sample_count);
         }
     }
 
@@ -665,8 +642,8 @@ mod tests {
         let mid = count / 2;
 
         let right = chunk.split().unwrap();
-        assert_eq!(chunk.num_samples(), mid);
-        assert_eq!(right.num_samples(), mid);
+        assert_eq!(chunk.len(), mid);
+        assert_eq!(right.len(), mid);
 
         let (left_samples, right_samples) = samples.split_at(mid);
 
@@ -691,8 +668,8 @@ mod tests {
         let mid = count / 2;
 
         let right = chunk.split().unwrap();
-        assert_eq!(chunk.num_samples(), mid);
-        assert_eq!(right.num_samples(), mid + 1);
+        assert_eq!(chunk.len(), mid);
+        assert_eq!(right.len(), mid + 1);
 
         let (left_samples, right_samples) = samples.split_at(mid);
 

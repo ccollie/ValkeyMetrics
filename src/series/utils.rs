@@ -1,5 +1,16 @@
-use enquote::enquote;
 use crate::common::types::{Label, Sample, Timestamp};
+use enquote::enquote;
+use crate::series::types::ValueFilter;
+
+#[inline]
+pub(crate) fn filter_samples_by_date_range(samples: &mut Vec<Sample>, start: Timestamp, end: Timestamp) {
+    samples.retain(|s| s.timestamp >= start && s.timestamp <= end)
+}
+
+#[inline]
+pub(crate) fn filter_samples_by_value(samples: &mut Vec<Sample>, value_filter: &ValueFilter) {
+    samples.retain(|s| s.value >= value_filter.min && s.value <= value_filter.max)
+}
 
 /// Find the index of the first element of `arr` that is greater
 /// or equal to `val`.
@@ -30,21 +41,19 @@ where
 
 pub fn find_last_ge_index<T: Ord>(arr: &[T], val: &T) -> usize {
     if arr.len() <= 16 {
-        return arr.iter().rposition(|x| val >= x).unwrap_or(0);
+        return match arr.iter().rposition(|x| val >= x) {
+            Some(idx) => {
+                if arr[idx] > *val {
+                    idx.saturating_sub(1)
+                } else {
+                    idx
+                }
+            },
+            None => 0,
+        }
     }
     arr.binary_search(val).unwrap_or_else(|x| x.saturating_sub(1))
 }
-
-/// Returns the index of the first timestamp that is greater than or equal to `start_ts`.
-pub(crate) fn get_timestamp_index(timestamps: &[i64], start_ts: Timestamp) -> Option<usize> {
-    let idx= find_first_ge_index(timestamps, &start_ts);
-    if idx == timestamps.len() {
-        None
-    } else {
-        Some(idx)
-    }
-}
-
 
 /// Finds the start and end indices of timestamps within a specified range.
 ///
@@ -66,73 +75,76 @@ pub(crate) fn get_timestamp_index(timestamps: &[i64], start_ts: Timestamp) -> Op
 /// The returned indices can be used to slice the original `timestamps` array
 /// to get the subset of timestamps within the specified range.
 pub(crate) fn get_timestamp_index_bounds(timestamps: &[i64], start_ts: Timestamp, end_ts: Timestamp) -> Option<(usize, usize)> {
-    if timestamps.is_empty() {
-        return None;
-    }
-    let start_idx = find_first_ge_index(timestamps, &start_ts);
-    if start_idx > timestamps.len() - 1 {
-        return None;
-    }
-    let stamps = &timestamps[start_idx..];
-    let end_idx = find_last_ge_index(stamps, &end_ts) + start_idx;
-
-    Some((start_idx, end_idx))
+    get_index_bounds(timestamps, &start_ts, &end_ts)
 }
 
-pub(crate) fn get_sample_index_bounds(samples: &[Sample], start_ts: Timestamp, end_ts: Timestamp) -> Option<(usize, usize)> {
-    if samples.is_empty() {
+/// Finds the start and end indices (inclusive) of a range within a sorted slice.
+///
+/// # Parameters
+///
+/// * `values`: A slice of ordered elements to search within.
+/// * `start`: The lower bound of the range to search for.
+/// * `end`: The upper bound of the range to search for.
+///
+/// # Returns
+///
+/// Returns `Option<(usize, usize)>`:
+/// * `Some((start_idx, end_idx))` if valid indices are found within the range.
+/// * `None` if the `values` slice is empty, if all samples are less than `start`,
+///   or if `start` and `end` are equal and greater than the sample at the found index.
+///
+/// Used to get an inclusive bounds for the slice (all elements in slice[start_index...=end_index]
+/// satisfy the condition x >= start &&  <= end).
+pub(crate) fn get_index_bounds<T: Ord>(values: &[T], start: &T, end: &T) -> Option<(usize, usize)> {
+    if values.is_empty() {
         return None;
     }
 
-    let len = samples.len();
+    let len = values.len();
 
-    let mut search = Sample { timestamp: start_ts, value: 0.0 };
-    let start_idx = find_first_ge_index(samples, &search);
-
+    let start_idx = find_first_ge_index(values, start);
     if start_idx >= len {
         return None;
     }
 
-    search.timestamp = end_ts;
-    let right = &samples[start_idx..];
-    let idx = find_last_ge_index(right, &search);
+    let right = &values[start_idx..];
+    let idx = find_last_ge_index(right, end);
     let end_idx = start_idx + idx;
+
+    // imagine this scenario:
+    // samples = &[10, 20, 30, 40]
+    // start = 25, end = 25
+    // we have a situation where start_index == end_index (2), yet samples[2] is greater than end,
+    if start_idx == end_idx {
+        // todo: get_unchecked
+        if values[start_idx] > *end {
+            return None;
+        }
+    }
 
     Some((start_idx, end_idx))
 }
 
+
+pub(crate) fn get_sample_index_bounds(samples: &[Sample], start_ts: Timestamp, end_ts: Timestamp) -> Option<(usize, usize)> {
+
+    let start_sample = Sample { timestamp: start_ts, value: 0.0 };
+    let end_sample = Sample { timestamp: end_ts, value: 0.0 };
+
+    get_index_bounds(samples, &start_sample, &end_sample)
+}
+
 pub fn trim_to_range_inclusive(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start_ts: Timestamp, end_ts: Timestamp) {
-    if timestamps.is_empty() {
-        return;
-    }
-
-    if start_ts == end_ts {
-        let idx = find_first_ge_index(timestamps, &start_ts);
-        if idx < timestamps.len() {
-            let ts = timestamps[idx]; // todo: get_unchecked
-            if idx == 0 {
-                // idx == 0 could mean that the timestamp is not in range exclusive if both start_ts and end_ts
-                // are less the first timestamp.
-                if end_ts < ts {
-                    timestamps.clear();
-                    values.clear();
-                    return;
-                }
-            }
-            let value = values[idx]; // todo: get_unchecked
-            values.clear();
-            values.push(value);
-
-            timestamps.clear();
-            timestamps.push(ts);
-
-        } else {
-            timestamps.clear();
-            values.clear();
-        }
-        return;
-    }
     if let Some((start_idx, end_idx)) = get_timestamp_index_bounds(timestamps, start_ts, end_ts) {
+        if start_idx == end_idx {
+            // todo: get_unchecked
+            let ts = timestamps[start_idx];
+            let value = values[start_idx];
+            timestamps.clear();
+            values.clear();
+            timestamps.push(ts);
+            values.push(value);
+        }
         if start_idx > 0 {
             timestamps.drain(..start_idx);
             values.drain(..start_idx);

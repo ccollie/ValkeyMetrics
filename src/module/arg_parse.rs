@@ -14,6 +14,7 @@ use std::iter::{Peekable, Skip};
 use std::time::Duration;
 use std::vec::IntoIter;
 use valkey_module::{NextArg, ValkeyError, ValkeyResult, ValkeyString};
+use crate::error_consts;
 
 const MAX_TS_VALUES_FILTER: usize = 16;
 pub const CMD_ARG_COUNT: &str = "COUNT";
@@ -33,6 +34,8 @@ pub const CMD_ARG_CHUNK_SIZE: &str = "CHUNK_SIZE";
 pub const CMD_ARG_DEDUPE_INTERVAL: &str = "DEDUPE_INTERVAL";
 pub const CMD_ARG_WITH_LABELS: &str = "WITHLABELS";
 pub const CMD_ARG_SELECTED_LABELS: &str = "SELECTED_LABELS";
+pub const CMD_ARG_SIGNIFICANT_DIGITS: &str = "SIGNIFICANT_DIGITS";
+pub const CMD_ARG_DECIMAL_DIGITS: &str = "DECIMAL_DIGITS";
 
 
 pub type CommandArgIterator = Peekable<Skip<IntoIter<ValkeyString>>>;
@@ -43,13 +46,7 @@ pub fn parse_number_arg(arg: &ValkeyString, name: &str) -> ValkeyResult<f64> {
     }
     let arg_str = arg.to_string_lossy();
     parse_number_with_unit(&arg_str)
-        .map_err(|_| {
-            if name.is_empty() {
-              ValkeyError::Str("TSDB: invalid number")
-            } else {
-                ValkeyError::String(format!("TSDB: cannot parse {name} as number"))
-            }
-        })
+        .map_err(|_| ValkeyError::Str(error_consts::INVALID_NUMBER))
 }
 
 pub fn parse_integer_arg(arg: &ValkeyString, name: &str, allow_negative: bool) -> ValkeyResult<i64> {

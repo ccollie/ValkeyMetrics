@@ -21,7 +21,7 @@ pub fn defrag_series(series: &mut TimeSeries) -> TsdbResult<()> {
     let mut prev_chunk = iter.next().unwrap();
     while let Some(mut chunk) = iter.next() {
         if chunk.is_empty() {
-            deleted_count += chunk.num_samples();
+            deleted_count += chunk.len();
             chunks_to_remove.push(i);
             i += 1;
             continue;

@@ -8,6 +8,7 @@ use core::mem::size_of;
 use get_size::GetSize;
 use std::collections::BTreeSet;
 use valkey_module::raw;
+use crate::series::serialization::{rdb_load_usize, rdb_save_usize};
 
 // todo: move to constants
 pub const MAX_UNCOMPRESSED_SAMPLES: usize = 256;
@@ -56,14 +57,6 @@ impl UncompressedChunk {
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.samples.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.samples.is_empty()
-    }
-
     pub fn is_full(&self) -> bool {
         self.len() >= self.max_elements
     }
@@ -108,7 +101,7 @@ impl UncompressedChunk {
     }
 
     pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
-        if self.num_samples() == 0 || timestamps.is_empty() {
+        if self.len() == 0 || timestamps.is_empty() {
             return Ok(vec![]);
         }
         let first_timestamp = timestamps[0];
@@ -134,13 +127,7 @@ impl UncompressedChunk {
 
     fn get_range_slice(&self, start_ts: Timestamp, end_ts: Timestamp) -> Vec<Sample> {
         if let Some((start_idx, end_index)) = get_sample_index_bounds(&self.samples, start_ts, end_ts) {
-            self.samples[start_idx..=end_index].iter()
-                .filter_map(|sample| if sample.timestamp >= start_ts && sample.timestamp <= end_ts {
-                    Some(*sample)
-                } else {
-                    None
-                })
-                .collect::<Vec<Sample>>()
+            self.samples[start_idx..=end_index].to_vec()
         } else {
             vec![]
         }
@@ -169,7 +156,7 @@ impl Chunk for UncompressedChunk {
         self.samples[self.samples.len() - 1].timestamp
     }
 
-    fn num_samples(&self) -> usize {
+    fn len(&self) -> usize {
         self.samples.len()
     }
 
@@ -246,12 +233,11 @@ impl Chunk for UncompressedChunk {
             } else {
                 self.upsert_sample(first, dp_policy)?;
             }
-            return Ok(self.num_samples());
+            return Ok(self.len());
         }
 
         if self.is_empty() {
-            self.samples.resize(samples.len(), Sample::default());
-            self.samples.extend_from_slice(samples);
+            self.samples = samples.to_vec();
             return Ok(self.samples.len())
         }
 
@@ -313,9 +299,9 @@ impl Chunk for UncompressedChunk {
 
     fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
         // todo: compress ?
-        raw::save_unsigned(rdb, self.max_size as u64);
-        raw::save_unsigned(rdb, self.max_elements as u64);
-        raw::save_unsigned(rdb, self.samples.len() as u64);
+        rdb_save_usize(rdb, self.max_size);
+        rdb_save_usize(rdb, self.max_elements);
+        rdb_save_usize(rdb, self.samples.len());
         for Sample { timestamp, value } in self.samples.iter() {
             raw::save_signed(rdb, *timestamp);
             raw::save_double(rdb, *value);
@@ -323,9 +309,9 @@ impl Chunk for UncompressedChunk {
     }
 
     fn rdb_load(rdb: *mut raw::RedisModuleIO, _encver: i32) -> Result<Self, valkey_module::error::Error> {
-        let max_size = raw::load_unsigned(rdb)? as usize;
-        let max_elements = raw::load_unsigned(rdb)? as usize;
-        let len = raw::load_unsigned(rdb)? as usize;
+        let max_size = rdb_load_usize(rdb)?;
+        let max_elements = rdb_load_usize(rdb)?;
+        let len = rdb_load_usize(rdb)?;
         let mut samples = Vec::with_capacity(len);
         for _ in 0..len {
             let ts = raw::load_signed(rdb)?;

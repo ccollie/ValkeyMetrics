@@ -67,7 +67,3 @@ pub fn start_redis_server_with_module(port: u16) -> Result<ChildGuard> {
 pub fn stop_valkey_server(child: &mut ChildGuard) {
     child.child.kill().expect("Ohh no!");
 }
-
-pub fn error_cannot_find_iset_key(key_name: &str) -> String {
-    format!("An error was signalled by the server: Interval Set '{key_name}' does not exist!", key_name = key_name)
-}

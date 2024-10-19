@@ -1,6 +1,8 @@
 use crate::common::types::{Sample, Timestamp};
 use crate::error::TsdbResult;
 use crate::iter::SampleIter;
+use crate::series::types::ValueFilter;
+use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value};
 use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, UncompressedChunk, SPLIT_FACTOR};
 use core::mem::size_of;
 use get_size::GetSize;
@@ -33,10 +35,6 @@ impl TimeSeriesChunk {
                 Pco(PcoChunk::with_max_size(chunk_size))
             }
         }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.num_samples() == 0
     }
 
     pub fn is_full(&self) -> bool {
@@ -132,6 +130,53 @@ impl TimeSeriesChunk {
         }
     }
 
+    pub(crate) fn get_range_filtered(
+        &self,
+        start_timestamp: Timestamp,
+        end_timestamp: Timestamp,
+        timestamp_filter: &Option<Vec<Timestamp>>,
+        value_filter: &Option<ValueFilter>
+    ) -> Vec<Sample> {
+
+        fn get_by_range(chunk: &TimeSeriesChunk, start_timestamp: Timestamp, end_timestamp: Timestamp) -> Vec<Sample> {
+            // todo: raise error
+            chunk.get_range(start_timestamp, end_timestamp)
+                .unwrap_or_default()
+                .into_iter()
+                .collect()
+        }
+
+        match (timestamp_filter, value_filter) {
+            (Some(ts_filter), Some(value_filter)) => {
+                let mut samples = self.samples_by_timestamps(ts_filter)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect();
+
+                filter_samples_by_date_range(&mut samples, start_timestamp, end_timestamp);
+                filter_samples_by_value(&mut samples, value_filter);
+                samples
+            }
+            (None, Some(value_filter)) => {
+                let mut samples = get_by_range(self, start_timestamp, end_timestamp);
+                filter_samples_by_value(&mut samples, value_filter);
+                samples
+            }
+            (Some(ts_filter), None) => {
+                let mut samples = self.samples_by_timestamps(ts_filter)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect();
+
+                filter_samples_by_date_range(&mut samples, start_timestamp, end_timestamp);
+                samples
+            }
+            (None, None) => {
+                get_by_range(self, start_timestamp, end_timestamp)
+            }
+        }
+    }
+
     pub fn set_data(&mut self, samples: &[Sample]) -> TsdbResult<()> {
         use TimeSeriesChunk::*;
         match self {
@@ -147,9 +192,10 @@ impl TimeSeriesChunk {
         retention_threshold: Timestamp,
         duplicate_policy: DuplicatePolicy,
     ) -> TsdbResult<usize> {
+        let min_timestamp = retention_threshold.max(other.first_timestamp());
         self.merge_range(
             other,
-            other.first_timestamp(),
+            min_timestamp,
             other.last_timestamp(),
             retention_threshold,
             duplicate_policy,
@@ -219,12 +265,12 @@ impl Chunk for TimeSeriesChunk {
         }
     }
 
-    fn num_samples(&self) -> usize {
+    fn len(&self) -> usize {
         use TimeSeriesChunk::*;
         match self {
-            Uncompressed(chunk) => chunk.num_samples(),
-            Gorilla(chunk) => chunk.num_samples(),
-            Pco(chunk) => chunk.num_samples(),
+            Uncompressed(chunk) => chunk.len(),
+            Gorilla(chunk) => chunk.len(),
+            Pco(chunk) => chunk.len(),
         }
     }
 
@@ -365,4 +411,42 @@ impl Chunk for TimeSeriesChunk {
         };
         Ok(chunk)
     }
+}
+
+
+pub(crate) fn merge_by_capacity(
+    dest: &mut TimeSeriesChunk,
+    src: &mut TimeSeriesChunk,
+    min_timestamp: Timestamp,
+    duplicate_policy: DuplicatePolicy,
+) -> TsdbResult<Option<usize>> {
+    if src.is_empty() {
+        return Ok(None);
+    }
+
+    // check if previous block has capacity, and if so merge into it
+    let count = src.len();
+    let remaining_capacity = dest.estimate_remaining_sample_capacity();
+    let first_ts = src.first_timestamp().max(min_timestamp);
+    // if there is enough capacity in the previous block, merge the last block into it
+    if remaining_capacity >= count {
+        // copy all from last_chunk
+        let res = dest.merge(src, first_ts, duplicate_policy)?;
+        // reuse last block
+        src.clear();
+        return Ok(Some(res));
+    } else if remaining_capacity > count / 4 {
+        // do a partial merge
+        let samples = src.get_range(first_ts, src.last_timestamp())?;
+        let (left, right) = samples.split_at(remaining_capacity);
+        let mut duplicates = BTreeSet::new();
+        let res = dest.merge_samples(
+            left,
+            duplicate_policy,
+            &mut duplicates,
+        )?;
+        src.set_data(right)?;
+        return Ok(Some(res));
+    }
+    Ok(None)
 }

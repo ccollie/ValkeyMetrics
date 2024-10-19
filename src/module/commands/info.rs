@@ -68,7 +68,7 @@ fn get_one_chunk_info(chunk: &TimeSeriesChunk) -> ValkeyValue {
     let mut map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::with_capacity(6);
     map.insert("startTimestamp".into(), chunk.first_timestamp().into());
     map.insert("endTimestamp".into(), chunk.last_timestamp().into());
-    map.insert("samples".into(), chunk.num_samples().into());
+    map.insert("samples".into(), chunk.len().into());
     map.insert("size".into(), chunk.size().into());
     map.insert("bytesPerSample".into(), chunk.bytes_per_sample().into());
     ValkeyValue::Map(map)

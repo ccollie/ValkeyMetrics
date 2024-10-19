@@ -4,7 +4,7 @@ use crate::error::{TsdbError, TsdbResult};
 use crate::iter::SampleIter;
 use crate::series::chunks::Chunk;
 use crate::series::serialization::{rdb_load_usize, rdb_save_usize};
-use crate::series::utils::trim_to_range_inclusive;
+use crate::series::utils::{find_last_ge_index, get_timestamp_index_bounds};
 use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64, PooledVecF64, PooledVecI64};
@@ -47,15 +47,15 @@ impl Default for PcoChunk {
 
 impl PcoChunk {
     pub fn with_max_size(max_size: usize) -> Self {
-        let mut res = Self::default();
-        res.max_size = max_size;
-        res
+        PcoChunk {
+            max_size,
+            ..Self::default()
+        }
     }
 
     pub fn with_values(max_size: usize, samples: &[Sample]) -> TsdbResult<Self> {
         debug_assert!(!samples.is_empty());
-        let mut res = Self::default();
-        res.max_size = max_size;
+        let mut res = Self::with_max_size(max_size);
 
         let count = samples.len();
         if count > 0 {
@@ -70,14 +70,6 @@ impl PcoChunk {
         }
 
         Ok(res)
-    }
-
-    pub fn len(&self) -> usize {
-        self.count
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.count == 0
     }
 
     pub fn is_full(&self) -> bool {
@@ -219,35 +211,6 @@ impl PcoChunk {
         uncompressed_size / compressed_size
     }
 
-    pub(crate) fn process_range<F, State, R>(
-        &self,
-        start: Timestamp,
-        end: Timestamp,
-        state: &mut State,
-        mut f: F,
-    ) -> TsdbResult<R>
-    where
-        F: FnMut(&mut State, &[i64], &[f64]) -> TsdbResult<R>,
-    {
-        let mut handle_empty_range = |state: &mut State| -> TsdbResult<R> {
-            let mut timestamps = vec![];
-            let mut values = vec![];
-            f(state, &mut timestamps, &mut values)
-        };
-
-        // special case of range exceeding block range
-        if self.is_empty() || start > self.max_time || end < self.min_time {
-            return handle_empty_range(state);
-        }
-
-        if let Some((mut timestamps, mut values)) = self.decompress()? {
-            trim_to_range_inclusive(&mut timestamps, &mut values, start, end);
-            f(state, &timestamps, &values)
-        } else {
-            handle_empty_range(state)
-        }
-    }
-
     pub fn data_size(&self) -> usize {
         self.timestamps.get_heap_size() +
             self.values.get_heap_size() +
@@ -288,25 +251,29 @@ impl PcoChunk {
     }
 
     pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
-        if self.num_samples() == 0 || timestamps.is_empty() {
+        if self.len() == 0 || timestamps.is_empty() {
             return Ok(vec![]);
         }
-        let mut state = timestamps;
-        let last_timestamp = timestamps[timestamps.len() - 1] - 1i64;
-        let first_timestamp = timestamps[0];
 
-        self.process_range(first_timestamp, last_timestamp, &mut state, |state, timestamps, values| {
+        if let Some((stored_timestamps, values)) = self.decompress()? {
+            let mut start_ofs: usize = 0;
             let mut samples = Vec::with_capacity(timestamps.len());
-            for ts in state.iter() {
-                if let Ok(i) = timestamps.binary_search(ts) {
+            for ts in timestamps {
+                let (idx, found) = get_timestamp_index(timestamps, *ts, start_ofs);
+                start_ofs = idx + 1;
+                if found {
+                    // todo: timestamp.get_unchecked, values.get_unchecked(idx), since we know
+                    // that the index is in bounds
                     samples.push(Sample {
-                        timestamp: timestamps[i],
-                        value: values[i],
+                        timestamp: stored_timestamps[idx],
+                        value: values[idx],
                     })
                 }
             }
-            Ok(samples)
-        })
+            return Ok(samples)
+        }
+
+        Ok(vec![])
     }
 }
 
@@ -318,7 +285,7 @@ impl Chunk for PcoChunk {
     fn last_timestamp(&self) -> Timestamp {
         self.max_time
     }
-    fn num_samples(&self) -> usize {
+    fn len(&self) -> usize {
         self.count
     }
     fn last_value(&self) -> f64 {
@@ -371,22 +338,17 @@ impl Chunk for PcoChunk {
     }
 
     fn get_range(&self, start: Timestamp, end: Timestamp) -> TsdbResult<Vec<Sample>> {
-        if let Some((mut timestamps, mut values)) = self.decompress()? {
-            trim_to_range_inclusive(&mut timestamps, &mut values, start, end);
-
-            Ok(timestamps.iter()
-                .zip(values.iter())
-                .filter_map(|(timestamp, value)| {
-                    if *timestamp >= start && *timestamp <= end {
-                        Some(Sample { timestamp: *timestamp, value: *value })
-                    } else {
-                        None
-                    }
-                })
-                .collect())
-        } else {
-            Ok(vec![])
+        if let Some((timestamps, values)) = self.decompress()? {
+            if let Some((start_index, end_index)) = get_timestamp_index_bounds(&timestamps, start, end) {
+                let stamps = &timestamps[start_index..=end_index];
+                let values = &values[start_index..=end_index];
+                return Ok(stamps.iter()
+                    .zip(values.iter())
+                    .map(|(timestamp, value)| Sample { timestamp: *timestamp, value: *value })
+                    .collect())
+            }
         }
+        Ok(vec![])
     }
 
     fn upsert_sample(
@@ -479,14 +441,13 @@ impl Chunk for PcoChunk {
     where
         Self: Sized,
     {
-        let mut result = Self::default();
-        result.max_size = self.max_size;
+        let mut result = Self::with_max_size(self.max_size);
 
         if self.is_empty() {
             return Ok(result);
         }
 
-        let mid = self.num_samples() / 2;
+        let mid = self.len() / 2;
 
         // this compression method does not do streaming compression, so we have to accumulate all the samples
         // in a new chunk and then swap it with the old
@@ -541,18 +502,12 @@ impl Chunk for PcoChunk {
 
 fn get_timestamp_index(timestamps: &[Timestamp], ts: Timestamp, start_ofs: usize) -> (usize, bool) {
     let stamps = &timestamps[start_ofs..];
-    if stamps.len() <= 16 {
-        // If the vectors are small, perform a linear search.
-        match stamps.iter().position(|x| *x >= ts){
-            Some(pos) => (pos + start_ofs, false),
-            None => (timestamps.len() - 1, true),
-        }
-    } else {
-        match stamps.binary_search(&ts) {
-            Ok(pos) => (pos + start_ofs, true),
-            Err(idx) => (idx + start_ofs, false),
-        }
+    let idx = find_last_ge_index(stamps, &ts);
+    if idx > timestamps.len() - 1 {
+        return (timestamps.len() - 1, false);
     }
+    // todo: get_unchecked
+    (idx + start_ofs, stamps[idx] == ts)
 }
 
 fn remove_values_in_range(
@@ -562,41 +517,19 @@ fn remove_values_in_range(
     end_ts: Timestamp,
 ) {
     debug_assert_eq!(timestamps.len(), values.len(), "Timestamps and scores vectors must be of the same length");
-
-    let (start_index, end_index) = if timestamps.len() <= 32 {
-        // If the vectors are small, perform a linear search.
-        let start_index = timestamps.iter()
-            .position(|x| *x >= start_ts)
-            .unwrap_or(0);
-
-        let end_index = timestamps.iter()
-            .rposition(|x| *x <= end_ts)
-            .unwrap_or(timestamps.len());
-
-        (start_index, end_index)
-    } else {
-        let slice = timestamps.as_slice();
-
-        let start_index = slice.partition_point(|x| *x < start_ts);
-        // had issue with partition_point not returning the correct index for end_ts
-        let end_index = slice[start_index..].binary_search_by_key(&end_ts, |x| *x)
-            .map(|index| index + start_index)
-            .unwrap_or(slice.len() - 1);
-
-        (start_index, end_index)
-    };
-
-    if start_index == end_index {
-        let ts = timestamps.get(start_index).unwrap();
-        if *ts >= start_ts  && *ts <= end_ts {
-            timestamps.remove(start_index);
-            values.remove(start_index);
+    if let Some((start_index, end_index)) = get_timestamp_index_bounds(timestamps, start_ts, end_ts) {
+        if start_index == end_index {
+            let ts = timestamps.get(start_index).unwrap();
+            if *ts >= start_ts && *ts <= end_ts {
+                timestamps.remove(start_index);
+                values.remove(start_index);
+            }
+            return
         }
-        return
-    }
 
-    timestamps.drain(start_index..=end_index);
-    values.drain(start_index..=end_index);
+        timestamps.drain(start_index..=end_index);
+        values.drain(start_index..=end_index);
+    }
 }
 
 fn compress_values(compressed: &mut Vec<u8>, values: &[f64]) -> TsdbResult<()> {
@@ -638,9 +571,7 @@ fn decompress_timestamps(compressed: &[u8], dst: &mut Vec<i64>) -> TsdbResult<()
 
 pub struct PcoChunkIterator<'a> {
     chunk: &'a PcoChunk,
-    timestamps: Vec<Timestamp>,
-    values: Vec<f64>,
-    idx: usize,
+    iter: std::vec::IntoIter<Sample>,
     start: Timestamp,
     end: Timestamp,
     is_init: bool,
@@ -650,11 +581,9 @@ impl<'a> PcoChunkIterator<'a> {
     fn new(chunk: &'a PcoChunk) -> Self {
         Self {
             chunk,
-            timestamps: vec![],
-            values: vec![],
-            idx: 0,
-            start: i64::MAX,
-            end: i64::MIN,
+            iter: vec![].into_iter(),
+            start: i64::MIN,
+            end: i64::MAX,
             is_init: false,
         }
     }
@@ -666,21 +595,11 @@ impl<'a> PcoChunkIterator<'a> {
         iter
     }
 
-    fn has_range(&self) -> bool {
-        self.start < self.end
-    }
-
     fn init(&mut self) {
         self.is_init = true;
-
-        match self.chunk.decompress_internal(&mut self.timestamps, &mut self.values) {
-            Ok(_) => {
-                if self.has_range() {
-                    trim_to_range_inclusive(&mut self.timestamps, &mut self.values, self.start, self.end);
-                    // should we do this, or will the allocator cause jitter
-                    self.timestamps.shrink_to_fit();
-                    self.values.shrink_to_fit();
-                }
+        match self.chunk.get_range(self.start, self.end) {
+            Ok(samples) => {
+                self.iter = samples.into_iter();
             }
             Err(_e) => {
                 // todo: log
@@ -696,13 +615,7 @@ impl<'a> Iterator for PcoChunkIterator<'a> {
         if !self.is_init {
             self.init();
         }
-        if self.idx >= self.timestamps.len() {
-            return None;
-        }
-        let timestamp = self.timestamps[self.idx];
-        let value = self.values[self.idx];
-        self.idx += 1;
-        Some(Sample { timestamp, value })
+        self.iter.next()
     }
 }
 #[cfg(test)]
@@ -751,7 +664,7 @@ mod tests {
         let data = generate_random_samples(0, 1000);
 
         chunk.set_data(&data).unwrap();
-        assert_eq!(chunk.num_samples(), data.len());
+        assert_eq!(chunk.len(), data.len());
         assert_eq!(chunk.min_time, data[0].timestamp);
         assert_eq!(chunk.max_time, data[data.len() - 1].timestamp);
         assert_eq!(chunk.last_value, data[data.len() - 1].value);
@@ -774,9 +687,9 @@ mod tests {
         let data = generate_random_samples(0, 1000);
 
         chunk.set_data(&data).unwrap();
-        assert_eq!(chunk.num_samples(), data.len());
+        assert_eq!(chunk.len(), data.len());
         chunk.clear();
-        assert_eq!(chunk.num_samples(), 0);
+        assert_eq!(chunk.len(), 0);
         assert_eq!(chunk.min_time, 0);
         assert_eq!(chunk.max_time, 0);
         assert!(chunk.last_value.is_nan());
@@ -794,7 +707,7 @@ mod tests {
             for sample in data.into_iter() {
                 chunk.upsert_sample(sample, DuplicatePolicy::KeepLast).unwrap();
             }
-            assert_eq!(chunk.num_samples(), data_len);
+            assert_eq!(chunk.len(), data_len);
         }
     }
 
@@ -830,8 +743,8 @@ mod tests {
         let mid = count / 2;
 
         let right = chunk.split().unwrap();
-        assert_eq!(chunk.num_samples(), mid);
-        assert_eq!(right.num_samples(), mid);
+        assert_eq!(chunk.len(), mid);
+        assert_eq!(right.len(), mid);
 
         let (left_samples, right_samples) = data.split_at(mid);
 
@@ -855,8 +768,8 @@ mod tests {
         let mid = count / 2;
 
         let right = chunk.split().unwrap();
-        assert_eq!(chunk.num_samples(), mid);
-        assert_eq!(right.num_samples(), mid + 1);
+        assert_eq!(chunk.len(), mid);
+        assert_eq!(right.len(), mid + 1);
 
         let (left_samples, right_samples) = samples.split_at(mid);
 

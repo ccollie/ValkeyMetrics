@@ -1,21 +1,24 @@
 use crate::common::types::Sample;
-use crate::iter::sample_slice_iterator::SampleSliceIter;
 use crate::iter::vec_sample_iterator::VecSampleIterator;
 use crate::series::time_series::SeriesSampleIterator;
 use crate::series::{ChunkSampleIterator, GorillaChunkIterator, PcoChunkIterator};
 
+#[derive(Default)]
 pub enum SampleIter<'a> {
     Series(SeriesSampleIterator<'a>),
     Chunk(ChunkSampleIterator<'a>),
-    Slice(SampleSliceIter<'a>),
+    Slice(std::slice::Iter<'a, Sample>),
     Vec(VecSampleIterator),
     Gorilla(GorillaChunkIterator<'a>),
     Pco(PcoChunkIterator<'a>),
+    #[default]
+    Empty,
 }
 
 impl<'a> SampleIter<'a> {
     pub fn slice(slice: &'a [Sample]) -> Self {
-        SampleIter::Slice(SampleSliceIter::new(slice))
+        let iter = slice.iter();
+        SampleIter::Slice(iter)
     }
     pub fn series(iter: SeriesSampleIterator<'a>) -> Self {
         SampleIter::Series(iter)
@@ -42,10 +45,11 @@ impl<'a> Iterator for SampleIter<'a> {
         match self {
             SampleIter::Series(series) => series.next(),
             SampleIter::Chunk(chunk) => chunk.next(),
-            SampleIter::Slice(slice) => slice.next(),
+            SampleIter::Slice(slice) => slice.next().copied(),
             SampleIter::Vec(iter) => iter.next(),
             SampleIter::Gorilla(iter) => iter.next(),
             SampleIter::Pco(iter) => iter.next(),
+            SampleIter::Empty => None,
         }
     }
 }

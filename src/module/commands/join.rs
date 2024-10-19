@@ -1,4 +1,3 @@
-use super::range_utils::get_range_internal;
 use crate::common::types::{Sample, Timestamp};
 use crate::iter::aggregator::aggregate;
 use crate::module::arg_parse::*;
@@ -11,6 +10,7 @@ use std::time::Duration;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 use crate::join::{JoinIterator, JoinOptions, JoinType, JoinValue};
 use crate::join::asof::AsOfJoinStrategy;
+use crate::series::get_series_range_filtered;
 
 const CMD_ARG_COUNT: &str = "COUNT";
 const CMD_ARG_LEFT: &str = "LEFT";
@@ -286,7 +286,7 @@ pub(super) fn transform_join_value_to_sample(item: &JoinValue, f: BinopFunc) -> 
 
 fn fetch_samples(ts: &TimeSeries, options: &JoinOptions) -> Vec<Sample> {
     let (start, end) = options.date_range.get_series_range(ts, true);
-    let mut samples = get_range_internal(ts, start, end, &options.timestamp_filter, &options.value_filter);
+    let mut samples = get_series_range_filtered(ts, start, end, &options.timestamp_filter, &options.value_filter);
     if let Some(count) = &options.count {
         samples.truncate(*count);
     }

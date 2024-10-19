@@ -5,9 +5,10 @@ use crate::series::time_series::TimeSeries;
 use crate::series::{ChunkEncoding, TimeSeriesOptions};
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
+use crate::series::types::RoundingStrategy;
 
-const CMD_ARG_SIGNIFICANT_DIGITS: &str = "SIGNIFICANT_DIGITS";
 const MAX_SIGNIFICANT_DIGITS: u8 = 16;
+const MAX_DECIMAL_DIGITS: u8 = 16;
 
 /// Create a new time series
 ///
@@ -16,6 +17,7 @@ const MAX_SIGNIFICANT_DIGITS: u8 = 16;
 ///   [ENCODING <COMPRESSED|UNCOMPRESSED>]
 ///   [CHUNK_SIZE size]
 ///   [DUPLICATE_POLICY policy]
+///   [SIGNIFICANT_DIGITS digits | DECIMAL_DIGITS digits]
 ///   [DEDUPE_INTERVAL duplicateTimediff]
 pub fn create(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let (parsed_key, options) = parse_create_options(args)?;
@@ -37,28 +39,45 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
         .map_err(|e| ValkeyError::String(format!("ERR invalid METRIC {:?}", e)))?;
 
     while let Ok(arg) = args.next_str() {
-        match arg {
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_RETENTION) => {
+        let arg_upper = arg.to_ascii_uppercase();
+        match arg_upper.as_str() {
+            CMD_ARG_RETENTION => {
                 options.retention(parse_retention(&mut args)?)
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_DEDUPE_INTERVAL) => {
+            CMD_ARG_DEDUPE_INTERVAL => {
                 options.dedupe_interval = Some(parse_dedupe_interval(&mut args)?)
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_DUPLICATE_POLICY) => {
+            CMD_ARG_DUPLICATE_POLICY => {
                 options.duplicate_policy = Some(parse_duplicate_policy(&mut args)?)
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_SIGNIFICANT_DIGITS) => {
+            CMD_ARG_SIGNIFICANT_DIGITS => {
                 let next = args.next_u64()?;
                 if next > MAX_SIGNIFICANT_DIGITS as u64 {
-                    let msg = "ERR SIGNIFICANT_DIGITS must be between 0 and 16";
+                    let msg = format!("ERR SIGNIFICANT_DIGITS must be between 0 and {MAX_SIGNIFICANT_DIGITS}");
+                    return Err(ValkeyError::String(msg));
+                }
+                if options.rounding.is_some() {
+                    let msg = "ERR rounding already set";
                     return Err(ValkeyError::Str(msg));
                 }
-                options.significant_digits = Some(next as u8);
+                options.rounding = Some(RoundingStrategy::SignificantDigits(next as i32));
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_CHUNK_SIZE) => {
+            CMD_ARG_DECIMAL_DIGITS => {
+                let next = args.next_u64()?;
+                if next > MAX_DECIMAL_DIGITS as u64 {
+                    let msg = format!("ERR DECIMAL_DIGITS must be between 0 and {MAX_DECIMAL_DIGITS}");
+                    return Err(ValkeyError::String(msg));
+                }
+                if options.rounding.is_some() {
+                    let msg = "ERR rounding already set";
+                    return Err(ValkeyError::Str(msg));
+                }
+                options.rounding = Some(RoundingStrategy::DecimalDigits(next as i32));
+            }
+            CMD_ARG_CHUNK_SIZE => {
                 options.chunk_size(parse_chunk_size(&mut args)?);
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_ENCODING) => {
+            CMD_ARG_ENCODING => {
                 let enc = args.next_string()?;
                 match ChunkEncoding::try_from(enc.as_str()) {
                     Ok(encoding) => { options.encoding = Some(encoding); }

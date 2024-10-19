@@ -6,6 +6,7 @@ pub type Sample = metricsql_runtime::types::Sample;
 pub type Label = metricsql_runtime::types::Label;
 pub type Matchers = metricsql_parser::prelude::Matchers;
 pub type TimestampTrait = dyn metricsql_runtime::types::TimestampTrait;
+pub type IntMap<K,V> = metricsql_common::hash::IntMap<K, V>;
 
 pub trait SampleLike: Eq + PartialEq + PartialOrd + Ord {
     fn timestamp(&self) -> Timestamp;

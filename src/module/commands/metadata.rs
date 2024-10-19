@@ -58,7 +58,7 @@ pub fn label_names(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     Ok(format_array_result(labels))
 }
 
-// VM.LABEL_VALUES <label_name> [FILTER <match>] [START <timestamp_ms>] [END <timestamp_ms>]
+// VM.LABEL_VALUES label [FILTER seriesMatcher] [START fromTimestamp] [END fromTimestamp]
 // https://prometheus.io/docs/prometheus/latest/querying/api/#querying-label-values
 pub(crate) fn label_values(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let label_args = parse_metadata_command_args(ctx, args, true)?;
@@ -136,20 +136,21 @@ fn parse_metadata_command_args(
     }
 
     while let Ok(arg) = args.next_str() {
-        match arg {
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_START) => {
+        let arg_upper = arg.to_uppercase();
+        match arg_upper.as_str() {
+            CMD_ARG_START => {
                 let next = args.next_str()?;
-                start_value = Some(parse_timestamp_arg(next, "START")?);
+                start_value = Some(parse_timestamp_arg(next, CMD_ARG_START)?);
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_END) => {
+            CMD_ARG_END => {
                 let next = args.next_str()?;
-                end_value = Some(parse_timestamp_arg(next, "END")?);
+                end_value = Some(parse_timestamp_arg(next, CMD_ARG_END)?);
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_MATCH) => {
+            CMD_ARG_MATCH => {
                 let m = parse_series_selector_list(&mut args, is_cmd_token)?;
                 matchers.extend(m);
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_LIMIT) => {
+            CMD_ARG_LIMIT => {
                 let next = args.next_u64()?;
                 if next > usize::MAX as u64 {
                     return Err(ValkeyError::Str("ERR LIMIT too large"));
