@@ -19,6 +19,7 @@ mod serialization;
 mod timeseries_tests;
 pub mod types;
 pub(crate) mod transform_op;
+mod series_storage;
 
 use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
@@ -190,6 +191,7 @@ impl TryFrom<u8> for DuplicatePolicy {
 #[derive(Debug, Default, Clone)]
 pub struct TimeSeriesOptions {
     pub encoding: Option<ChunkEncoding>,
+    pub chunk_compression: Option<ChunkCompression>,
     pub chunk_size: Option<usize>,
     pub retention: Option<Duration>,
     pub duplicate_policy: Option<DuplicatePolicy>,

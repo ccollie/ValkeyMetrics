@@ -7,12 +7,12 @@ pub type Label = metricsql_runtime::types::Label;
 pub type Matchers = metricsql_parser::prelude::Matchers;
 pub type TimestampTrait = dyn metricsql_runtime::types::TimestampTrait;
 pub type IntMap<K,V> = metricsql_common::hash::IntMap<K, V>;
+pub type QueryParams = metricsql_runtime::prelude::query::QueryParams;
 
 pub trait SampleLike: Eq + PartialEq + PartialOrd + Ord {
     fn timestamp(&self) -> Timestamp;
     fn value(&self) -> f64;
 }
-
 
 impl SampleLike for Sample {
     fn timestamp(&self) -> Timestamp {

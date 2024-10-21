@@ -288,8 +288,11 @@ impl TimeSeries {
 
     /// Get the time series between given start and end time (both inclusive).
     pub fn get_range(&self, start_time: Timestamp, end_time: Timestamp) -> Vec<Sample> {
-        let min_timestamp = self.get_min_timestamp();
-        self.range_iter(start_time.max(min_timestamp), end_time).collect()
+        let min_timestamp = self.get_min_timestamp().max(start_time);
+        if !self.overlaps(min_timestamp, end_time) {
+            return Vec::new();
+        }
+        self.range_iter(min_timestamp, end_time).collect()
     }
 
     pub fn get_sample(&self, start_time: Timestamp) -> ValkeyResult<Option<Sample>> {

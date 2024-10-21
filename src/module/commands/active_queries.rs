@@ -1,7 +1,7 @@
-use crate::globals::get_query_context;
 use metricsql_runtime::types::{Timestamp, TimestampTrait};
 use std::collections::HashMap;
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use crate::query::get_query_context;
 
 /// Returns currently running queries.
 pub fn active_queries(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {

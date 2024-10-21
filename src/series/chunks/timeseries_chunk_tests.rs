@@ -21,8 +21,8 @@ mod tests {
             Sample { timestamp: 40, value: 4.0 },
         ];
 
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 400);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 400);
             chunk.set_data(&samples).unwrap();
 
             assert_eq!(chunk.len(), 4);
@@ -36,8 +36,8 @@ mod tests {
 
     #[test]
     fn test_get_range_empty_chunk() {
-        for chunk_type in &CHUNK_TYPES {
-            let chunk = TimeSeriesChunk::new(*chunk_type, 100);
+        for chunk_type in CHUNK_TYPES {
+            let chunk = TimeSeriesChunk::new(chunk_type, 100);
 
             assert!(chunk.is_empty());
 
@@ -51,8 +51,8 @@ mod tests {
     fn test_get_range_single_sample() {
         let sample = Sample { timestamp: 10, value: 1.0 };
 
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 100);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.add_sample(&sample).unwrap();
 
             assert_eq!(chunk.len(), 1);
@@ -74,8 +74,8 @@ mod tests {
             Sample { timestamp: 30, value: 3.0 },
         ];
 
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 100);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.set_data(&samples).unwrap();
 
             assert_eq!(chunk.len(), 3);
@@ -97,8 +97,8 @@ mod tests {
             Sample { timestamp: 30, value: 3.0 },
         ];
 
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 100);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.set_data(&samples).unwrap();
 
             assert_eq!(chunk.len(), 3);
@@ -116,8 +116,8 @@ mod tests {
             Sample { timestamp: 30, value: 3.0 },
         ];
 
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 100);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.set_data(&samples).unwrap();
 
             assert_eq!(chunk.len(), 3);
@@ -137,8 +137,8 @@ mod tests {
             Sample { timestamp: 40, value: 4.0 },
         ];
 
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 400);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 400);
             chunk.set_data(&samples).unwrap();
 
             assert_eq!(chunk.len(), 4);
@@ -159,8 +159,8 @@ mod tests {
             Sample { timestamp: 40, value: 4.0 },
         ];
 
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 400);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 400);
             chunk.set_data(&samples).unwrap();
 
             assert_eq!(chunk.len(), 4);
@@ -179,8 +179,8 @@ mod tests {
     fn test_remove_range_single_sample() {
         let sample = Sample { timestamp: 10, value: 1.0 };
 
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 100);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
 
             chunk.add_sample(&sample).unwrap();
 
@@ -225,8 +225,8 @@ mod tests {
             Sample { timestamp: 30, value: 4.0 },
         ];
 
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 100);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.set_data(&[Sample { timestamp: 20, value: 5.0 }]).unwrap();
 
             let mut blocked = BTreeSet::new();
@@ -253,8 +253,8 @@ mod tests {
             Sample { timestamp: 30, value: 4.0 },
         ];
 
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 100);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.set_data(&[Sample { timestamp: 20, value: 5.0 }]).unwrap();
 
             let mut blocked = BTreeSet::new();
@@ -274,8 +274,8 @@ mod tests {
 
     #[test]
     fn test_merge_samples_exceed_capacity() {
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 100);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             let initial_samples = vec![
                 Sample { timestamp: 10, value: 1.0 },
                 Sample { timestamp: 20, value: 2.0 },
@@ -313,8 +313,8 @@ mod tests {
             Sample { timestamp: 30, value: 4.0 },
         ];
 
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 100);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.add_sample(&Sample { timestamp: 20, value: 5.0 }).unwrap();
 
             let mut blocked = BTreeSet::new();
@@ -343,8 +343,8 @@ mod tests {
             Sample { timestamp: 35, value: 4.0 },
         ];
 
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 100);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.set_data(&[Sample { timestamp: 10, value: 0.0 }, Sample { timestamp: 20, value: 0.0 }]).unwrap();
 
             assert_eq!(chunk.len(), 2);
@@ -384,8 +384,8 @@ mod tests {
             Sample { timestamp: 35, value: 3.5 },
         ];
 
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 100);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.set_data(&existing_samples).unwrap();
 
             assert_eq!(chunk.len(), 3);
@@ -418,8 +418,8 @@ mod tests {
             Sample { timestamp: 30, value: 3.0 },
         ];
 
-        for chunk_type in &CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(*chunk_type, 100);
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             let mut blocked = BTreeSet::new();
 
             // First merge should add all samples

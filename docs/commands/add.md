@@ -1,5 +1,3 @@
-**VKM.ADD** Add a sample to a timeseries.
-
 ```
 VM.ADD key timestamp value
 ```

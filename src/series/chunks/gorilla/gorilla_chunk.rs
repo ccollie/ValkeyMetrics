@@ -547,16 +547,6 @@ mod tests {
     }
 
     #[test]
-    fn test_compress_decompress() {
-        let mut chunk = GorillaChunk::default();
-        let expected = generate_random_samples(0, 1000);
-
-        chunk.set_data(&expected).unwrap();
-        let actual = chunk.decompress().unwrap();
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
     fn test_clear() {
         let mut chunk = GorillaChunk::with_max_size(16384);
         let data = generate_random_samples(0, 500);

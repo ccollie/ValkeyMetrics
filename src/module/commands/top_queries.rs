@@ -1,9 +1,9 @@
-use crate::globals::get_query_context;
 use crate::module::arg_parse::parse_duration;
 use metricsql_common::humanize::humanize_duration;
 use std::collections::HashMap;
 use std::time::Duration;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use crate::query::get_query_context;
 
 const CMD_ARG_TOP_K: &str = "TOP_K";
 const CMD_ARG_MAX_LIFETIME: &str = "MAX_LIFETIME";

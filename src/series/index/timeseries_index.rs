@@ -431,6 +431,20 @@ impl TimeSeriesIndex {
         result
     }
 
+    /// Returns a list of all series matching `matchers` while having samples in the range
+    /// Primarily for unit testing outside of valkey contexts
+    pub(crate) fn series_keys_by_matchers_internal(&self, matchers: &[Matchers]) -> Vec<KeyType> {
+        let inner = self.inner.read().unwrap();
+        let bitmap = inner.series_ids_by_matchers(matchers);
+        let mut result: Vec<KeyType> = Vec::with_capacity(bitmap.cardinality() as usize);
+        for id in bitmap.iter() {
+            if let Some(value) = inner.id_to_key.get(&id) {
+                result.push(value.clone())
+            }
+        }
+        result
+    }
+
     pub fn with_series_by_matchers<F, STATE>(
         &self,
         ctx: &Context,

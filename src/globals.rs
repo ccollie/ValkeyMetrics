@@ -1,23 +1,10 @@
 use crate::series::index::{TimeSeriesIndex, TimeSeriesIndexMap};
-use crate::provider::TsdbDataProvider;
-use metricsql_runtime::prelude::Context as QueryContext;
+
 use papaya::Guard;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 use valkey_module::{raw, Context, RedisModule_GetSelectedDb};
 
 pub(crate) static TIMESERIES_INDEX: LazyLock<TimeSeriesIndexMap> = LazyLock::new(TimeSeriesIndexMap::new);
-static QUERY_CONTEXT: LazyLock<QueryContext> = LazyLock::new(create_query_context);
-
-pub fn get_query_context() -> &'static QueryContext {
-    &QUERY_CONTEXT
-}
-
-fn create_query_context() -> QueryContext {
-    // todo: read from config
-    let provider = Arc::new(TsdbDataProvider{});
-    let ctx = QueryContext::new();
-    ctx.with_metric_storage(provider)
-}
 
 
  // Safety: RedisModule_GetSelectedDb is safe to call

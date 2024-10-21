@@ -55,7 +55,7 @@ pub fn parse_integer_arg(arg: &ValkeyString, name: &str, allow_negative: bool) -
     } else {
         let num = parse_number_arg(arg, name)?;
         if num != num.floor() {
-            return Err(ValkeyError::Str("ERR: value must be an integer"));
+            return Err(ValkeyError::Str(error_consts::INVALID_INTEGER));
         }
         if num > i64::MAX as f64 {
             return Err(ValkeyError::Str("ERR: value is too large"));
@@ -82,7 +82,7 @@ pub fn parse_timestamp(arg: &str) -> ValkeyResult<Timestamp> {
         value.timestamp_millis()
     };
     if value < 0 {
-        return Err(ValkeyError::Str("TSDB: invalid timestamp, must be a non-negative integer"));
+        return Err(ValkeyError::Str("ERR: invalid timestamp, must be a non-negative integer"));
     }
     Ok(value)
 }
@@ -237,11 +237,11 @@ pub fn parse_timestamp_filter(args: &mut CommandArgIterator, is_valid_arg: fn(&s
 
 pub fn parse_value_filter(args: &mut CommandArgIterator) -> ValkeyResult<ValueFilter> {
     let min = parse_number_with_unit(args.next_str()?)
-        .map_err(|_| ValkeyError::Str("TSDB: cannot parse filter min parameter"))?;
+        .map_err(|_| ValkeyError::Str("ERR cannot parse filter min parameter"))?;
     let max = parse_number_with_unit(args.next_str()?)
-        .map_err(|_| ValkeyError::Str("TSDB: cannot parse filter max parameter"))?;
+        .map_err(|_| ValkeyError::Str("ERR cannot parse filter max parameter"))?;
     if max < min {
-        return Err(ValkeyError::Str("TSDB: filter min parameter is greater than max"));
+        return Err(ValkeyError::Str("ERR filter min parameter is greater than max"));
     }
     ValueFilter::new(min, max)
 }
@@ -249,9 +249,9 @@ pub fn parse_value_filter(args: &mut CommandArgIterator) -> ValkeyResult<ValueFi
 pub fn parse_count(args: &mut CommandArgIterator) -> ValkeyResult<usize> {
     let next = args.next_arg()?;
     let count = parse_integer_arg(&next, CMD_ARG_COUNT, false)
-        .map_err(|_| ValkeyError::Str("TSDB: COUNT must be a positive integer"))?;
+        .map_err(|_| ValkeyError::Str("ERR COUNT must be a positive integer"))?;
     if count > usize::MAX as i64 {
-        return Err(ValkeyError::Str("TSDB: COUNT value is too large"));
+        return Err(ValkeyError::Str("ERR COUNT value is too large"));
     }
     Ok(count as usize)
 }

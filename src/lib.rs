@@ -17,7 +17,6 @@ mod config;
 mod error;
 mod globals;
 mod module;
-mod provider;
 mod series;
 
 #[cfg(test)]
@@ -25,6 +24,7 @@ mod tests;
 mod iter;
 mod error_consts;
 pub mod join;
+mod query;
 
 use crate::globals::{clear_timeseries_index, with_timeseries_index};
 use crate::series::time_series::TimeSeries;

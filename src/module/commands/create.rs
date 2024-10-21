@@ -82,7 +82,7 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
                 match ChunkEncoding::try_from(enc.as_str()) {
                     Ok(encoding) => { options.encoding = Some(encoding); }
                     Err(_) => {
-                        return Err(ValkeyError::Str("Err invalid chunk encoding"));
+                        return Err(ValkeyError::Str("ERR invalid chunk encoding"));
                     }
                 }
             }

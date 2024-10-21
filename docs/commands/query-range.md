@@ -1,11 +1,7 @@
-### VM.QUERY-RANGE
-
-#### Syntax
-
 ```
 VM.QUERY-RANGE fromTimestamp toTimestamp query [STEP step] [ROUNDING decimals]
 ```
-evaluates an expression query over a range of time.
+evaluates an expression query over a date time range.
 
 ### Required Arguments
 <details open><summary><code>fromTimestamp</code></summary>

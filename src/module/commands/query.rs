@@ -1,11 +1,11 @@
 use crate::common::duration_to_chrono;
 use crate::config::get_global_settings;
-use crate::globals::get_query_context;
 use crate::module::arg_parse::{parse_duration_arg, parse_timestamp_range};
 use crate::module::parse_timestamp_arg;
 use crate::module::result::to_matrix_result;
-use metricsql_runtime::execution::query::{
-    query as engine_query, query_range as engine_query_range,
+use crate::query::{
+    query as base_query,
+    query_range as base_query_range,
 };
 use metricsql_runtime::prelude::query::QueryParams;
 use metricsql_runtime::{QueryResult, RuntimeResult};
@@ -59,8 +59,7 @@ pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
     query_params.step = step;
     query_params.round_digits = round_digits;
 
-    let query_context = get_query_context();
-    handle_query_result(engine_query_range(query_context, &query_params))
+    handle_query_result(base_query_range(&query_params))
 }
 
 ///
@@ -99,8 +98,7 @@ pub fn query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     query_params.end = start;
     query_params.round_digits = round_digits;
 
-    let query_context = get_query_context();
-    handle_query_result(engine_query(query_context, &query_params))
+    handle_query_result(base_query(&query_params))
 }
 
 fn parse_step(arg: &ValkeyString) -> ValkeyResult<chrono::Duration> {

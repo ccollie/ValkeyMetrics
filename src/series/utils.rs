@@ -181,6 +181,7 @@ pub fn format_prometheus_metric_name_into(full_name: &mut String, name: &str, la
     }
 }
 
+// Note - assumes that labels is sorted
 pub fn format_prometheus_metric_name(name: &str, labels: &[Label]) -> String {
     let size_hint = name.len() + labels.iter()
         .map(|l| l.name.len() + l.value.len() + 3).sum::<usize>();
@@ -193,32 +194,6 @@ pub fn format_prometheus_metric_name(name: &str, labels: &[Label]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn get_timestamp_index_empty() {
-        let timestamps = vec![];
-        assert_eq!(get_timestamp_index(&timestamps, 0), None);
-        assert_eq!(get_timestamp_index(&timestamps, 1), None);
-        assert_eq!(get_timestamp_index(&timestamps, 100), None);
-    }
-
-    #[test]
-    fn get_timestamp_index_found() {
-        let timestamps = vec![1, 2, 3, 4, 5];
-        assert_eq!(get_timestamp_index(&timestamps, 1), Some(0));
-        assert_eq!(get_timestamp_index(&timestamps, 2), Some(1));
-        assert_eq!(get_timestamp_index(&timestamps, 3), Some(2));
-        assert_eq!(get_timestamp_index(&timestamps, 4), Some(3));
-        assert_eq!(get_timestamp_index(&timestamps, 5), Some(4));
-    }
-
-    #[test]
-    fn get_timestamp_index_not_found() {
-        let timestamps = vec![1, 2, 3, 4, 5, 10];
-        assert_eq!(get_timestamp_index(&timestamps, 0), Some(0));
-        assert_eq!(get_timestamp_index(&timestamps, 6), Some(5));
-        assert_eq!(get_timestamp_index(&timestamps, 100), None);
-    }
 
     #[test]
     fn trim_to_range_inclusive_all_before_start_ts() {

@@ -38,7 +38,7 @@ We can as an example have the following time series:
 | `latencies{service="auth", region="us-west-2", code="200"}` | `latencies:auth:us-west-2:200`  |
 
 
-Now suppose we want to gather all latencies for `http 200` response in the east `aws` regions, over the last 6 hours. Further,
+Now suppose we want to gather all latencies for `http 200` responses in the east `aws` regions, over the last 6 hours. Further,
 we want to collate the results such that for each timestamp recorded (across series), we return the value for each series, 
 or a NULL if it does not have a sample at the given timestamp.
 
@@ -79,7 +79,7 @@ This would result in
 | 3000      | 30                             | 15                             |
 | 4000      | NULL                           | 40                             |
 
-Now suppose that instead of raw mut values, we want to get the average latencies per timestamp. We can use the `aggregation` argument.
+Now suppose that instead of raw values, we want to get the average latencies per timestamp. We can use the `aggregation` argument.
 
 ```aiignore
 VM.COLLATE -6hr * FILTER latencies{service="auth", region~="us-east-*" code="200"} WITHLABELS AGGREGATION avg

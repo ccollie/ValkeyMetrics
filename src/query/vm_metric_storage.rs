@@ -1,51 +1,46 @@
-use crate::common::types::{Label, Sample, Timestamp};
+use crate::common::types::{Sample, Timestamp};
 use crate::globals::with_timeseries_index;
-use crate::series::index::TimeSeriesIndex;
 use crate::module::VKM_SERIES_TYPE;
+use crate::series::index::TimeSeriesIndex;
 use crate::series::time_series::TimeSeries;
 use async_trait::async_trait;
-use metricsql_runtime::prelude::{Deadline, MetricStorage, QueryResult, QueryResults, RuntimeError, RuntimeResult, SearchQuery};
+use metricsql_runtime::prelude::{Deadline, MetricStorage, QueryResult, QueryResults, RuntimeResult, SearchQuery};
 use metricsql_runtime::types::MetricName;
 use valkey_module::{Context, ValkeyString};
 
-pub struct TsdbDataProvider {}
+/// Interface between the time series database and the metricsql runtime.
+pub(super) struct VMMetricStorage {}
 
-impl TsdbDataProvider {
+impl VMMetricStorage {
 
     fn get_series(&self, ctx: &Context, key: &ValkeyString, start_ts: Timestamp, end_ts: Timestamp) -> RuntimeResult<Option<QueryResult>> {
         let valkey_key = ctx.open_key(key);
         match valkey_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE) {
             Ok(Some(series)) => {
-                let metric = to_metric_name(series);
-                return if series.overlaps(start_ts, end_ts) {
-                    let samples = series.get_range(start_ts, end_ts);
+                let metric = super::to_metric_name(series);
+                let samples = series.get_range(start_ts, end_ts);
 
-                    let count = samples.len();
-                    let (mut timestamps, mut values) = if count > 0 {
-                        (Vec::with_capacity(count), Vec::with_capacity(count))
-                    } else {
-                        (vec![], vec![])
-                    };
-
-                    for Sample { timestamp, value } in samples {
-                        timestamps.push(timestamp);
-                        values.push(value);
-                    }
-
-                    Ok(Some(QueryResult::new(metric, timestamps, values)))
+                let count = samples.len();
+                let (mut timestamps, mut values) = if count > 0 {
+                    (Vec::with_capacity(count), Vec::with_capacity(count))
                 } else {
-                    Ok(Some(QueryResult::new(metric, vec![], vec![])))
+                    (vec![], vec![])
+                };
+
+                for Sample { timestamp, value } in samples {
+                    timestamps.push(timestamp);
+                    values.push(value);
                 }
+
+                Ok(Some(QueryResult::new(metric, timestamps, values)))
             }
-            Ok(None) => {
-                // todo: better error handling. Create a new error in base library
-                return Err(RuntimeError::General(format!("No series found for key: {}", key)));
-            }
+            Ok(None) => Ok(None),
             Err(e) => {
-                ctx.log_warning(&format!("PROMQL: Error: {:?}", e));
+                ctx.log_warning(&format!("ERR: {:?}", e));
+                // TODO return a proper error message. For nowm, return an empty data set
+                Ok(Some(QueryResult::new(MetricName::default(), vec![], vec![])))
             }
         }
-        Ok(None)
     }
 
     fn get_series_data(
@@ -70,7 +65,7 @@ impl TsdbDataProvider {
 }
 
 #[async_trait]
-impl MetricStorage for TsdbDataProvider {
+impl MetricStorage for VMMetricStorage {
     async fn search(&self, sq: SearchQuery, _deadline: Deadline) -> RuntimeResult<QueryResults> {
         // see: https://github.com/RedisLabsModules/redismodule-rs/blob/master/examples/call.rs#L144
         let ctx_guard = valkey_module::MODULE_CONTEXT.lock();
@@ -80,12 +75,4 @@ impl MetricStorage for TsdbDataProvider {
             Ok(result)
         })
     }
-}
-
-fn to_metric_name(ts: &TimeSeries) -> MetricName {
-    let mut mn = MetricName::new(&ts.metric_name);
-    for Label { name, value } in ts.labels.iter() {
-        mn.add_label(name, value);
-    }
-    mn
 }

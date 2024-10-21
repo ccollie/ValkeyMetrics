@@ -1,5 +1,5 @@
 use crate::aggregators::{AggOp, Aggregator};
-use crate::common::types::{Matchers, Sample, Timestamp};
+use crate::common::types::{IntMap, Matchers, Sample, Timestamp};
 use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::*;
 use crate::module::commands::range_utils::get_series_labels;
@@ -8,7 +8,6 @@ use crate::series::types::TimestampRange;
 use crate::module::{get_series_iterator, VKM_SERIES_TYPE};
 use crate::series::time_series::{TimeSeries, TimeseriesId};
 use ahash::HashMapExt;
-use metricsql_common::hash::IntMap;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use valkey_module::redisvalue::ValkeyValueKey;

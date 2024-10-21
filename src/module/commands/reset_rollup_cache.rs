@@ -1,5 +1,5 @@
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
-use crate::globals::get_query_context;
+use crate::query::get_query_context;
 
 pub fn reset_rollup_cache(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     if args.len() != 1 {
