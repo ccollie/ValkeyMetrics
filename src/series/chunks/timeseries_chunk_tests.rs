@@ -2,9 +2,9 @@
 mod tests {
     use crate::common::types::Sample;
     use crate::error::TsdbError;
+    use crate::series::merge::merge_by_capacity;
     use crate::series::test_utils::generate_random_samples;
-    use crate::series::{merge_by_capacity, Chunk, ChunkCompression, DuplicatePolicy, TimeSeriesChunk};
-    use std::collections::BTreeSet;
+    use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, TimeSeriesChunk};
 
     const CHUNK_TYPES: [ChunkCompression; 3] = [
         ChunkCompression::Uncompressed,
@@ -229,8 +229,7 @@ mod tests {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.set_data(&[Sample { timestamp: 20, value: 5.0 }]).unwrap();
 
-            let mut blocked = BTreeSet::new();
-            let result = chunk.merge_samples(&samples, DuplicatePolicy::KeepFirst, &mut blocked);
+            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::KeepFirst));
 
             assert_eq!(result.unwrap(), 3);
             assert_eq!(chunk.len(), 3);
@@ -239,8 +238,6 @@ mod tests {
                 Sample { timestamp: 20, value: 5.0 },
                 Sample { timestamp: 30, value: 4.0 },
             ]);
-            assert_eq!(blocked.len(), 1);
-            assert!(blocked.contains(&20));
         }
     }
 
@@ -257,8 +254,7 @@ mod tests {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.set_data(&[Sample { timestamp: 20, value: 5.0 }]).unwrap();
 
-            let mut blocked = BTreeSet::new();
-            let result = chunk.merge_samples(&samples, DuplicatePolicy::KeepLast, &mut blocked);
+            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::KeepLast));
 
             assert_eq!(result.unwrap(), 3);
             assert_eq!(chunk.len(), 3);
@@ -267,8 +263,7 @@ mod tests {
                 Sample { timestamp: 20, value: 3.0 },
                 Sample { timestamp: 30, value: 4.0 },
             ]);
-            assert_eq!(blocked.len(), 1);
-            assert!(blocked.contains(&20));
+            // assert_eq!(blocked.len(), 1);
         }
     }
 
@@ -288,8 +283,7 @@ mod tests {
                 Sample { timestamp: 50, value: 5.0 },
             ];
 
-            let mut blocked = BTreeSet::new();
-            let result = chunk.merge_samples(&samples_to_merge, DuplicatePolicy::Block, &mut blocked);
+            let result = chunk.merge_samples(&samples_to_merge, Some(DuplicatePolicy::Block));
 
             assert!(result.is_ok());
             let merged_count = result.unwrap();
@@ -317,8 +311,7 @@ mod tests {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.add_sample(&Sample { timestamp: 20, value: 5.0 }).unwrap();
 
-            let mut blocked = BTreeSet::new();
-            let result = chunk.merge_samples(&samples, DuplicatePolicy::Sum, &mut blocked);
+            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Sum));
 
             assert_eq!(result.unwrap(), 3);
             assert_eq!(chunk.len(), 3);
@@ -329,8 +322,6 @@ mod tests {
                 Sample { timestamp: 20, value: 10.0 }, // 5.0 + 2.0 + 3.0
                 Sample { timestamp: 30, value: 4.0 },
             ]);
-
-            assert!(blocked.is_empty());
         }
     }
 
@@ -351,8 +342,7 @@ mod tests {
             assert_eq!(chunk.first_timestamp(), 10);
             assert_eq!(chunk.last_timestamp(), 20);
 
-            let mut blocked = BTreeSet::new();
-            let result = chunk.merge_samples(&samples, DuplicatePolicy::Block, &mut blocked);
+            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Block));
 
             assert_eq!(result.unwrap(), 2);
             assert_eq!(chunk.len(), 4);
@@ -390,13 +380,12 @@ mod tests {
 
             assert_eq!(chunk.len(), 3);
 
-            let mut blocked = BTreeSet::new();
-            let result = chunk.merge_samples(&new_samples, DuplicatePolicy::Block, &mut blocked);
+            let result = chunk.merge_samples(&new_samples, Some(DuplicatePolicy::Block));
 
             assert_eq!(result.unwrap(), 3);
             assert_eq!(chunk.len(), 6);
-            assert_eq!(blocked.len(), 1);
-            assert!(blocked.contains(&20));
+            // assert_eq!(blocked.len(), 1);
+            // assert!(blocked.contains(&20));
 
             let all_samples = chunk.get_range(0, 40).unwrap();
             assert_eq!(all_samples, vec![
@@ -420,14 +409,13 @@ mod tests {
 
         for chunk_type in CHUNK_TYPES {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
-            let mut blocked = BTreeSet::new();
 
             // First merge should add all samples
-            let result = chunk.merge_samples(&samples, DuplicatePolicy::Block, &mut blocked);
+            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Block));
             assert_eq!(result.unwrap(), 3, "{}: Expected 3 samples to be merged", chunk_type);
 
             // Second merge with same samples should add no new samples
-            let result = chunk.merge_samples(&samples, DuplicatePolicy::Block, &mut blocked);
+            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Block));
             assert_eq!(result.unwrap(), 0, "{}: Expected 0 samples to be merged on second attempt", chunk_type);
 
             // Merge with new samples should add only the new ones
@@ -435,7 +423,7 @@ mod tests {
                 Sample { timestamp: 40, value: 4.0 },
                 Sample { timestamp: 20, value: 5.0 }, // Duplicate timestamp
             ];
-            let result = chunk.merge_samples(&new_samples, DuplicatePolicy::Block, &mut blocked);
+            let result = chunk.merge_samples(&new_samples, Some(DuplicatePolicy::Block));
             assert_eq!(result.unwrap(), 1, "{}: Expected 1 new sample to be merged", chunk_type);
         }
     }
@@ -466,7 +454,7 @@ mod tests {
         // Ensure the source chunk is empty
         assert!(src_chunk.is_empty());
 
-        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, DuplicatePolicy::KeepLast);
+        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, Some(DuplicatePolicy::KeepLast));
 
         assert_eq!(result, Ok(None));
     }
@@ -485,7 +473,7 @@ mod tests {
         assert_eq!(dest_chunk.estimate_remaining_sample_capacity(), src_chunk.len());
 
         // Perform the merge
-        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, DuplicatePolicy::KeepLast);
+        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, Some(DuplicatePolicy::KeepLast));
 
         // Verify the result
         assert!(result.is_ok());
@@ -519,7 +507,7 @@ mod tests {
         let remaining_capacity = dest_chunk.estimate_remaining_sample_capacity();
 
         // Perform the merge
-        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, DuplicatePolicy::KeepLast).unwrap();
+        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, Some(DuplicatePolicy::KeepLast)).unwrap();
 
         // Check that a partial merge occurred
         assert!(result.is_some());
@@ -549,7 +537,7 @@ mod tests {
         // Ensure remaining capacity is less than a quarter of the source chunk's sample count
         assert!(remaining_capacity < src_chunk.len() / 4);
 
-        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, DuplicatePolicy::KeepLast);
+        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, Some(DuplicatePolicy::KeepLast));
 
         assert_eq!(result.unwrap(), None);
     }
@@ -568,7 +556,7 @@ mod tests {
         src_chunk.set_data(&samples).unwrap();
 
         // Set the duplicate policy to Block
-        let duplicate_policy = DuplicatePolicy::Block;
+        let duplicate_policy = Some(DuplicatePolicy::Block);
 
         // Attempt to merge the source chunk into the destination chunk
         let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, duplicate_policy);
@@ -601,7 +589,7 @@ mod tests {
         assert!(dest_chunk.is_empty());
 
         // Perform the merge
-        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, DuplicatePolicy::KeepLast);
+        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, Some(DuplicatePolicy::KeepLast));
 
         // Verify the merge result
         assert_eq!(result.unwrap(), Some(samples.len()));
@@ -628,7 +616,7 @@ mod tests {
 
         // Perform the merge
         let min_timestamp = samples[0].timestamp;
-        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, min_timestamp, DuplicatePolicy::KeepLast);
+        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, min_timestamp, Some(DuplicatePolicy::KeepLast));
 
         // Verify the result
         assert!(result.is_ok());

@@ -1,5 +1,6 @@
+use crate::series::merge::merge_by_capacity;
 use crate::error::TsdbResult;
-use crate::series::{Chunk, merge_by_capacity};
+use crate::series::{Chunk};
 use crate::series::time_series::TimeSeries;
 
 pub fn defrag_series(series: &mut TimeSeries) -> TsdbResult<()> {
@@ -32,7 +33,7 @@ pub fn defrag_series(series: &mut TimeSeries) -> TsdbResult<()> {
             prev_chunk,
             chunk,
             min_timestamp,
-            duplicate_policy,
+            Some(duplicate_policy),
         )? {
             deleted_count -= deleted;
             if chunk.is_empty() {

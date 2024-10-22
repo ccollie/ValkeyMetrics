@@ -2,13 +2,14 @@ use crate::common::METRIC_NAME_LABEL;
 use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::parse_series_selector_list;
 use crate::module::result::{format_array_result, get_ts_metric_selector};
-use crate::series::types::{MetadataFunctionArgs, TimestampRangeValue};
+use crate::series::types::MetadataFunctionArgs;
 use crate::module::{normalize_range_args, parse_timestamp_arg, VKM_SERIES_TYPE};
 use crate::series::time_series::TimeSeries;
 use std::collections::BTreeSet;
 use valkey_module::{
     Context as RedisContext, Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue,
 };
+use crate::series::TimestampValue;
 // todo: series count
 
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#finding-series-by-label-matchers
@@ -127,8 +128,8 @@ fn parse_metadata_command_args(
 
     let mut args = args.into_iter().skip(1).peekable();
     let mut matchers = Vec::with_capacity(4);
-    let mut start_value: Option<TimestampRangeValue> = None;
-    let mut end_value: Option<TimestampRangeValue> = None;
+    let mut start_value: Option<TimestampValue> = None;
+    let mut end_value: Option<TimestampValue> = None;
     let mut limit: Option<usize> = None;
 
     fn is_cmd_token(s: &str) -> bool {

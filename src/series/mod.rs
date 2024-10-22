@@ -15,11 +15,11 @@ pub mod index;
 pub mod chunks;
 mod test_utils;
 mod serialization;
-#[cfg(test)]
-mod timeseries_tests;
 pub mod types;
-pub(crate) mod transform_op;
+pub(crate) mod join_reducer;
 mod series_storage;
+mod merge;
+mod timestamp_range;
 
 use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
@@ -27,8 +27,18 @@ pub(super) use chunks::*;
 pub(crate) use constants::*;
 pub(crate) use defrag::*;
 pub(crate) use time_series::*;
+pub(crate) use timestamp_range::*;
+
 use crate::error_consts;
 use crate::series::types::RoundingStrategy;
+
+cfg_if::cfg_if! {
+    if #[cfg(test)] {
+        mod types_tests;
+        mod timestamp_range_tests;
+        mod timeseries_tests;
+    }
+}
 
 pub const SAMPLE_SIZE: usize = size_of::<Sample>();
 

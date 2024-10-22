@@ -6,7 +6,6 @@ use crate::series::types::ValueFilter;
 use crate::series::{DuplicatePolicy, Sample};
 use get_size::GetSize;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 use std::fmt::Display;
 use std::vec;
 use valkey_module::error::Error;
@@ -103,8 +102,7 @@ pub trait Chunk: Sized {
     fn merge_samples(
         &mut self,
         samples: &[Sample],
-        dp_policy: DuplicatePolicy,
-        blocked: &mut BTreeSet<Timestamp>
+        dp_policy: Option<DuplicatePolicy>,
     ) -> TsdbResult<usize>;
 
     fn split(&mut self) -> TsdbResult<Self>;

@@ -1,14 +1,14 @@
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::iter::SampleIter;
+use crate::series::merge::merge_samples;
 use crate::series::chunks::Chunk;
+use crate::series::serialization::{rdb_load_usize, rdb_save_usize};
 use crate::series::utils::get_sample_index_bounds;
 use crate::series::{DuplicatePolicy, Sample, SAMPLE_SIZE};
 use core::mem::size_of;
 use get_size::GetSize;
-use std::collections::BTreeSet;
 use valkey_module::raw;
-use crate::series::serialization::{rdb_load_usize, rdb_save_usize};
 
 // todo: move to constants
 pub const MAX_UNCOMPRESSED_SAMPLES: usize = 256;
@@ -222,16 +222,14 @@ impl Chunk for UncompressedChunk {
     fn merge_samples(
         &mut self,
         samples: &[Sample],
-        dp_policy: DuplicatePolicy,
-        blocked: &mut BTreeSet<Timestamp>
+        dp_policy: Option<DuplicatePolicy>,
     ) -> TsdbResult<usize> {
-
         if samples.len() == 1 {
             let first = samples[0];
             if self.is_empty() {
                 self.add_sample(&first)?;
             } else {
-                self.upsert_sample(first, dp_policy)?;
+                self.upsert_sample(first, DuplicatePolicy::KeepLast)?;
             }
             return Ok(self.len());
         }
@@ -242,39 +240,16 @@ impl Chunk for UncompressedChunk {
         }
 
         let mut dest: Vec<Sample> = Vec::with_capacity(self.samples.len() + samples.len());
-        let mut left_iter = samples.iter().peekable();
-        let mut right_iter = self.samples.iter().peekable();
 
-        let mut current = Sample::default();
-        loop {
-            let merged = match (left_iter.peek(), right_iter.peek()) {
-                (Some(&l), Some(&r)) => {
-                    if l.timestamp == r.timestamp {
-                        let ts = l.timestamp;
-                        if let Ok(val) = dp_policy.duplicate_value(ts, r.value, l.value) {
-                            current = Sample { timestamp: ts, value: val };
-                            left_iter.next();
-                            Some(&current)
-                        } else {
-                            blocked.insert(ts);
-                            left_iter.next()
-                        }
-                    } else if l < r {
-                        left_iter.next()
-                    } else {
-                        right_iter.next()
-                    }
-                }
-                (Some(_), None) => left_iter.next(),
-                (None, Some(_)) => right_iter.next(),
-                (None, None) => None,
-            };
-            if let Some(merged) = merged {
-                dest.push(*merged);
-            } else {
-                break;
+        let left_iter = SampleIter::Slice(samples.iter());
+        let right_iter = SampleIter::Slice(self.samples.iter());
+
+        merge_samples(left_iter, right_iter, dp_policy, &mut dest, |dest, sample, duplicate| {
+            if !duplicate {
+                dest.push(sample);
             }
-        }
+            Ok(())
+        })?;
 
         self.samples = dest;
         Ok(self.samples.len())

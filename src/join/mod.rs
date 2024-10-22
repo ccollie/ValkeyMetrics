@@ -3,7 +3,7 @@ use std::time::Duration;
 use joinkit::EitherOrBoth;
 use metricsql_common::humanize::humanize_duration;
 use crate::common::types::{Sample, Timestamp};
-use crate::series::types::{AggregationOptions, TimestampRange, ValueFilter};
+use crate::series::types::{AggregationOptions, ValueFilter};
 
 mod join_inner_iter;
 mod join_full_iter;
@@ -17,7 +17,8 @@ pub mod asof;
 
 pub use join_iter::*;
 use crate::join::asof::AsOfJoinStrategy;
-use crate::series::transform_op::TransformOperator;
+use crate::series::TimestampRange;
+use crate::series::join_reducer::JoinReducer;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct JoinValue {
@@ -138,7 +139,7 @@ pub struct JoinOptions {
     pub count: Option<usize>,
     pub timestamp_filter: Option<Vec<Timestamp>>,
     pub value_filter: Option<ValueFilter>,
-    pub transform_op: Option<TransformOperator>,
+    pub transform_op: Option<JoinReducer>,
     pub aggregation: Option<AggregationOptions>,
 }
 

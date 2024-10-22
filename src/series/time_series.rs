@@ -1,4 +1,5 @@
-use super::{merge_by_capacity, validate_chunk_size, Chunk, ChunkCompression, ChunkEncoding, Sample, TimeSeriesOptions};
+use crate::series::merge::merge_by_capacity;
+use super::{validate_chunk_size, Chunk, ChunkCompression, ChunkEncoding, Sample, TimeSeriesOptions};
 use crate::common::types::{IntMap, Label, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
@@ -122,8 +123,12 @@ impl TimeSeries {
         Ok(res)
     }
 
+    pub fn len(&self) -> usize {
+        self.total_samples
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.total_samples == 0
+        self.len() == 0
     }
 
     /// Get the full metric name of the time series, including labels in Prometheus format.
@@ -221,7 +226,7 @@ impl TimeSeries {
                 prev_chunk,
                 last_chunk,
                 min_timestamp,
-                self.duplicate_policy,
+                None,
             )? {
                 self.total_samples -= deleted_count;
                 last_chunk.add_sample(sample)?;
@@ -288,6 +293,8 @@ impl TimeSeries {
 
     /// Get the time series between given start and end time (both inclusive).
     pub fn get_range(&self, start_time: Timestamp, end_time: Timestamp) -> Vec<Sample> {
+        // todo: if we span across multiple chunks, we can use rayon to fetch samples
+        // in parallel.
         let min_timestamp = self.get_min_timestamp().max(start_time);
         if !self.overlaps(min_timestamp, end_time) {
             return Vec::new();

@@ -1,7 +1,8 @@
-use std::cmp::Ordering;
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::iter::SampleIter;
+use crate::series::chunks::pco::pco_utils::{compress_timestamps, compress_values, decompress_timestamps, decompress_values};
+use crate::series::chunks::pco::PcoSampleIterator;
 use crate::series::chunks::Chunk;
 use crate::series::serialization::{rdb_load_usize, rdb_save_usize};
 use crate::series::utils::{find_last_ge_index, get_timestamp_index_bounds};
@@ -9,11 +10,9 @@ use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64, PooledVecF64, PooledVecI64};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::cmp::Ordering;
 use std::mem::size_of;
 use valkey_module::raw;
-use crate::series::chunks::pco::pco_utils::{compress_timestamps, compress_values, decompress_timestamps, decompress_values};
-use crate::series::chunks::pco::PcoSampleIterator;
 
 /// items above this count will cause value and timestamp encoding/decoding to happen in parallel
 pub(in crate::series) const COMPRESSION_PARALLELIZATION_THRESHOLD: usize = 1024;
@@ -407,9 +406,10 @@ impl Chunk for PcoChunk {
      fn merge_samples(
         &mut self,
         samples: &[Sample],
-        dp_policy: DuplicatePolicy,
-        blocked: &mut BTreeSet<Timestamp>
+        dp_policy: Option<DuplicatePolicy>,
     ) -> TsdbResult<usize> {
+
+        let dp_policy = dp_policy.unwrap_or(DuplicatePolicy::KeepLast);
         if samples.len() == 1 {
             let first = samples[0];
             if self.is_empty() {
@@ -444,8 +444,6 @@ impl Chunk for PcoChunk {
                 if found {
                     if let Ok(val) = dp_policy.duplicate_value(ts, values[pos], sample.value) {
                         values[pos] = val;
-                    } else {
-                        blocked.insert(ts);
                     }
                 } else {
                     timestamps.insert(pos, sample.timestamp);

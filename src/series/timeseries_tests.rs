@@ -3,7 +3,7 @@ mod tests {
     use crate::common::types::{Label, Sample, Timestamp};
     use crate::error_consts;
     use crate::series::test_utils::generate_random_samples;
-    use crate::series::{merge_by_capacity, Chunk, ChunkCompression, DuplicatePolicy, TimeSeries, TimeSeriesChunk};
+    use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, TimeSeries, TimeSeriesChunk};
     use metricsql_runtime::prelude::TimestampTrait;
     use std::time::Duration;
     use valkey_module::ValkeyError;

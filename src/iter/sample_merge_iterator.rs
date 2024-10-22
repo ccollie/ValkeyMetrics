@@ -11,7 +11,7 @@ pub struct SampleMergeIterator<'a> {
 
 impl<'a> SampleMergeIterator<'a>
 {
-    fn new(left: SampleIter<'a>, right: SampleIter<'a>, duplicate_policy: DuplicatePolicy) -> Self {
+    pub(crate) fn new(left: SampleIter<'a>, right: SampleIter<'a>, duplicate_policy: DuplicatePolicy) -> Self {
         SampleMergeIterator {
             left: left.peekable(),
             right: right.peekable(),

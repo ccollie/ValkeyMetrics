@@ -6,7 +6,7 @@ use std::str::FromStr;
 use valkey_module::ValkeyError;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub enum TransformOperator {
+pub enum JoinReducer {
     AbsDiff,
     Add,
     And,
@@ -32,53 +32,53 @@ pub enum TransformOperator {
     Unless,
 }
 
-pub static BINARY_OPS_MAP: phf::Map<&'static str, TransformOperator> = phf_map! {
-    "+" => TransformOperator::Add,
-    "-" => TransformOperator::Sub,
-    "*" => TransformOperator::Mul,
-    "/" => TransformOperator::Div,
-    "%" => TransformOperator::Mod,
-    "^" => TransformOperator::Pow,
+pub static BINARY_OPS_MAP: phf::Map<&'static str, JoinReducer> = phf_map! {
+    "+" => JoinReducer::Add,
+    "-" => JoinReducer::Sub,
+    "*" => JoinReducer::Mul,
+    "/" => JoinReducer::Div,
+    "%" => JoinReducer::Mod,
+    "^" => JoinReducer::Pow,
 
     // cmp ops
-    "==" => TransformOperator::Eql,
-    "!=" => TransformOperator::NotEq,
-    "<" => TransformOperator::Lt,
-    ">" => TransformOperator::Gt,
-    "<=" => TransformOperator::Lte,
-    ">=" => TransformOperator::Gte,
+    "==" => JoinReducer::Eql,
+    "!=" => JoinReducer::NotEq,
+    "<" => JoinReducer::Lt,
+    ">" => JoinReducer::Gt,
+    "<=" => JoinReducer::Lte,
+    ">=" => JoinReducer::Gte,
 
-    "absdiff" => TransformOperator::AbsDiff,
-    "add" => TransformOperator::Add,
-    "eq" => TransformOperator::Eql,
-    "gt" => TransformOperator::Gt,
-    "gte" => TransformOperator::Gte,
-    "sub" => TransformOperator::Sub,
-    "mod" => TransformOperator::Mod,
-    "mul" => TransformOperator::Mul,
-    "ne"  => TransformOperator::NotEq,
-    "lt" => TransformOperator::Lt,
-    "lte" => TransformOperator::Lte,
-    "div" => TransformOperator::Div,
-    "pow" => TransformOperator::Pow,
+    "absdiff" => JoinReducer::AbsDiff,
+    "add" => JoinReducer::Add,
+    "eq" => JoinReducer::Eql,
+    "gt" => JoinReducer::Gt,
+    "gte" => JoinReducer::Gte,
+    "sub" => JoinReducer::Sub,
+    "mod" => JoinReducer::Mod,
+    "mul" => JoinReducer::Mul,
+    "ne"  => JoinReducer::NotEq,
+    "lt" => JoinReducer::Lt,
+    "lte" => JoinReducer::Lte,
+    "div" => JoinReducer::Div,
+    "pow" => JoinReducer::Pow,
 
     // logic set ops
-    "and" => TransformOperator::And,
-    "or" => TransformOperator::Or,
-    "unless" => TransformOperator::Unless,
+    "and" => JoinReducer::And,
+    "or" => JoinReducer::Or,
+    "unless" => JoinReducer::Unless,
 
-    "if" => TransformOperator::If,
-    "ifnot" => TransformOperator::IfNot,
-    "default" => TransformOperator::Default,
+    "if" => JoinReducer::If,
+    "ifnot" => JoinReducer::IfNot,
+    "default" => JoinReducer::Default,
 
-    "avg" => TransformOperator::Avg,
-    "max" => TransformOperator::Max,
-    "min" => TransformOperator::Min,
+    "avg" => JoinReducer::Avg,
+    "max" => JoinReducer::Max,
+    "min" => JoinReducer::Min,
 };
 
-impl TransformOperator {
+impl JoinReducer {
     pub const fn as_str(&self) -> &'static str {
-        use TransformOperator::*;
+        use JoinReducer::*;
         match self {
             AbsDiff => "absDiff",
             Add => "+",
@@ -112,7 +112,7 @@ impl TransformOperator {
             get_scalar_binop_handler(op, true)
         }
 
-        use TransformOperator::*;
+        use JoinReducer::*;
         match self {
             Max => max,
             Min => min,
@@ -141,15 +141,15 @@ impl TransformOperator {
     }
 }
 
-impl FromStr for TransformOperator {
+impl FromStr for JoinReducer {
     type Err = ValkeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        TransformOperator::try_from(s)
+        JoinReducer::try_from(s)
     }
 }
 
-impl TryFrom<&str> for TransformOperator {
+impl TryFrom<&str> for JoinReducer {
     type Error = ValkeyError;
 
     fn try_from(op: &str) -> Result<Self, Self::Error> {
@@ -171,7 +171,7 @@ impl TryFrom<&str> for TransformOperator {
     }
 }
 
-impl fmt::Display for TransformOperator {
+impl fmt::Display for JoinReducer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.as_str())?;
         Ok(())

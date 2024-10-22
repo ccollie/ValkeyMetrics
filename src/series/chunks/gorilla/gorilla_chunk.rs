@@ -4,11 +4,11 @@ use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::iter::SampleIter;
 use crate::series::chunks::chunk::Chunk;
+use crate::series::merge::merge_samples;
 use crate::series::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
 use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES};
 use get_size::GetSize;
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
 use std::mem::size_of;
 use std::ops::ControlFlow;
 use valkey_module::error::Error as ValkeyError;
@@ -138,8 +138,8 @@ impl GorillaChunk {
         &self.xor_encoder.writer.writer
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = Sample> + '_ {
-        ChunkIter::new(self)
+    pub fn iter(&self) -> SampleIter {
+        GorillaChunkIterator::new(self, i64::MIN, i64::MAX).into()
     }
 
     pub fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> SampleIter {
@@ -301,19 +301,16 @@ impl Chunk for GorillaChunk {
         Ok(size)
     }
 
-    fn merge_samples(
-        &mut self,
-        samples: &[Sample],
-        dp_policy: DuplicatePolicy,
-        blocked: &mut BTreeSet<Timestamp>,
-    ) -> TsdbResult<usize> {
+    fn merge_samples(&mut self, samples: &[Sample], dp_policy: Option<DuplicatePolicy>) -> TsdbResult<usize> {
+        let policy = dp_policy.unwrap_or(DuplicatePolicy::KeepLast);
+
         if samples.len() == 1 {
             let first = samples[0];
             if self.is_empty() {
                 self.add_sample(&first)?;
                 return Ok(1);
             }
-            return self.upsert_sample(first, dp_policy);
+            return self.upsert_sample(first, policy);
         } else if self.is_empty() {
             return match self.set_data(samples) {
                 Ok(_) => Ok(self.len()),
@@ -321,60 +318,29 @@ impl Chunk for GorillaChunk {
             };
         }
 
-        let mut count = self.len();
-        let mut xor_encoder = XOREncoder::new();
-
-        let mut left = samples.iter().peekable();
-        let mut right = self.iter().peekable();
-
-        loop {
-            let merged = match (left.peek(), right.peek()) {
-                (Some(l), Some(r)) => {
-                    if l.timestamp == r.timestamp {
-                        let ts = l.timestamp;
-                        if let Ok(value) = dp_policy.duplicate_value(ts, r.value, l.value) {
-                            left.next();
-                            Sample {
-                                timestamp: ts,
-                                value,
-                            }
-                        } else {
-                            blocked.insert(ts);
-                            left.next();
-                            continue;
-                        }
-                    } else if l.timestamp < r.timestamp {
-                        let res = *(*l);
-                        left.next();
-                        res
-                    } else {
-                        let res = *r;
-                        right.next();
-                        res
-                    }
-                }
-                (Some(l), None) => {
-                    let res = **l;
-                    left.next();
-                    res
-                }
-                (None, Some(r)) => {
-                    let res = *r;
-                    right.next();
-                    res
-                }
-                (None, None) => break,
-            };
-            count += 1;
-            push_sample(&mut xor_encoder, &merged)?;
+        struct MergeState {
+            count: usize,
+            xor_encoder: XOREncoder,
         }
 
-        // the right iterator holds a reference to self, so manually drop it to prevent an issue
-        // below with the borrow checker
-        drop(right);
+        let mut merge_state = MergeState {
+            count: 0,
+            xor_encoder: XOREncoder::new(),
+        };
 
-        self.xor_encoder = xor_encoder;
-        Ok(count)
+        let left = SampleIter::Slice(samples.iter());
+        let right = self.iter();
+
+        merge_samples(left, right, dp_policy, &mut merge_state, |state, sample, is_duplicate| {
+            if !is_duplicate {
+                state.count += 1;
+                push_sample(&mut state.xor_encoder, &sample)?;
+            }
+            Ok(())
+        })?;
+
+        self.xor_encoder = merge_state.xor_encoder;
+        Ok(merge_state.count)
     }
 
 

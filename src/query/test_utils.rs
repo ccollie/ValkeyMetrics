@@ -1,3 +1,15 @@
+// Copyright 2015 The Prometheus Authors
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 use std::sync::Arc;
 use valkey_module::ValkeyResult;
 use crate::common::types::Timestamp;
@@ -107,9 +119,6 @@ pub(super) fn range_query_cases() -> Vec<BenchCase> {
         BenchCase { expr: "topk(5, a_X)".to_string(), steps: 0 },
         BenchCase { expr: "limitk(1, a_X)".to_string(), steps: 0 },
         BenchCase { expr: "limitk(5, a_X)".to_string(), steps: 0 },
-        BenchCase { expr: "limit_ratio(0.1, a_X)".to_string(), steps: 0 },
-        BenchCase { expr: "limit_ratio(0.5, a_X)".to_string(), steps: 0 },
-        BenchCase { expr: "limit_ratio(-0.5, a_X)".to_string(), steps: 0 },
         // Combinations.
         BenchCase { expr: "rate(a_X[1m]) + rate(b_X[1m])".to_string(), steps: 0 },
         BenchCase { expr: "sum without (l)(rate(a_X[1m]))".to_string(), steps: 0 },

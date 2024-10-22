@@ -6,7 +6,6 @@ use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value
 use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, UncompressedChunk, SPLIT_FACTOR};
 use core::mem::size_of;
 use get_size::GetSize;
-use std::collections::BTreeSet;
 use valkey_module::error::{Error, GenericError};
 use valkey_module::RedisModuleIO;
 
@@ -190,7 +189,7 @@ impl TimeSeriesChunk {
         &mut self,
         other: &mut Self,
         retention_threshold: Timestamp,
-        duplicate_policy: DuplicatePolicy,
+        duplicate_policy: Option<DuplicatePolicy>,
     ) -> TsdbResult<usize> {
         let min_timestamp = retention_threshold.max(other.first_timestamp());
         self.merge_range(
@@ -214,7 +213,7 @@ impl TimeSeriesChunk {
         start_ts: Timestamp,
         end_ts: Timestamp,
         retention_threshold: Timestamp,
-        duplicate_policy: DuplicatePolicy,
+        duplicate_policy: Option<DuplicatePolicy>,
     ) -> TsdbResult<usize> {
         if self.is_full() || other.is_empty() {
             return Ok(0);
@@ -222,9 +221,7 @@ impl TimeSeriesChunk {
 
         let min_timestamp = retention_threshold.max(start_ts);
         let samples = other.get_range(min_timestamp, end_ts)?;
-        let mut duplicates = BTreeSet::new();
-
-        self.merge_samples(&samples, duplicate_policy, &mut duplicates)
+        self.merge_samples(&samples, duplicate_policy)
 
     }
 
@@ -344,8 +341,7 @@ impl Chunk for TimeSeriesChunk {
      fn merge_samples(
         &mut self,
         samples: &[Sample],
-        dp_policy: DuplicatePolicy,
-        blocked: &mut BTreeSet<Timestamp>
+        dp_policy: Option<DuplicatePolicy>,
     ) -> TsdbResult<usize> {
         use TimeSeriesChunk::*;
 
@@ -353,13 +349,13 @@ impl Chunk for TimeSeriesChunk {
 
         match self {
             Uncompressed(chunk) => {
-                chunk.merge_samples(samples, dp_policy, blocked)
+                chunk.merge_samples(samples, dp_policy)
             }
             Gorilla(chunk) => {
-                chunk.merge_samples(samples, dp_policy, blocked)
+                chunk.merge_samples(samples, dp_policy)
             }
             Pco(chunk) => {
-                chunk.merge_samples(samples, dp_policy, blocked)
+                chunk.merge_samples(samples, dp_policy)
             }
         }
     }
@@ -411,42 +407,4 @@ impl Chunk for TimeSeriesChunk {
         };
         Ok(chunk)
     }
-}
-
-
-pub(crate) fn merge_by_capacity(
-    dest: &mut TimeSeriesChunk,
-    src: &mut TimeSeriesChunk,
-    min_timestamp: Timestamp,
-    duplicate_policy: DuplicatePolicy,
-) -> TsdbResult<Option<usize>> {
-    if src.is_empty() {
-        return Ok(None);
-    }
-
-    // check if previous block has capacity, and if so merge into it
-    let count = src.len();
-    let remaining_capacity = dest.estimate_remaining_sample_capacity();
-    let first_ts = src.first_timestamp().max(min_timestamp);
-    // if there is enough capacity in the previous block, merge the last block into it
-    if remaining_capacity >= count {
-        // copy all from last_chunk
-        let res = dest.merge(src, first_ts, duplicate_policy)?;
-        // reuse last block
-        src.clear();
-        return Ok(Some(res));
-    } else if remaining_capacity > count / 4 {
-        // do a partial merge
-        let samples = src.get_range(first_ts, src.last_timestamp())?;
-        let (left, right) = samples.split_at(remaining_capacity);
-        let mut duplicates = BTreeSet::new();
-        let res = dest.merge_samples(
-            left,
-            duplicate_policy,
-            &mut duplicates,
-        )?;
-        src.set_data(right)?;
-        return Ok(Some(res));
-    }
-    Ok(None)
 }

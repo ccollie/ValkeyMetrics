@@ -8,9 +8,9 @@ pub fn round_to_decimal_digits(f: f64, digits: i32) -> f64 {
     if digits == 0 {
         return f.round();
     }
-    let m = 10_f64.pow(digits);
-    let mult = (f * m).round();
-    mult / m
+    let multiplier = 10_f64.pow(digits as f64);
+    let mult = (f * multiplier).round();
+    mult / multiplier
 }
 
 

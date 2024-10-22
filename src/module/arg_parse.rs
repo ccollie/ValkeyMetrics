@@ -2,7 +2,7 @@ use crate::aggregators::Aggregator;
 use crate::common::current_time_millis;
 use crate::common::types::{Label, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
-use crate::series::transform_op::TransformOperator;
+use crate::series::join_reducer::JoinReducer;
 use crate::series::types::*;
 use crate::series::{DuplicatePolicy, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
 use chrono::DateTime;
@@ -15,6 +15,7 @@ use std::time::Duration;
 use std::vec::IntoIter;
 use valkey_module::{NextArg, ValkeyError, ValkeyResult, ValkeyString};
 use crate::error_consts;
+use crate::series::{TimestampRange, TimestampValue};
 
 const MAX_TS_VALUES_FILTER: usize = 16;
 pub const CMD_ARG_COUNT: &str = "COUNT";
@@ -88,8 +89,8 @@ pub fn parse_timestamp(arg: &str) -> ValkeyResult<Timestamp> {
 }
 
 
-pub fn parse_timestamp_range_value(arg: &str) -> ValkeyResult<TimestampRangeValue> {
-    TimestampRangeValue::try_from(arg)
+pub fn parse_timestamp_range_value(arg: &str) -> ValkeyResult<TimestampValue> {
+    TimestampValue::try_from(arg)
 }
 
 pub fn parse_duration_arg(arg: &ValkeyString) -> ValkeyResult<Duration> {
@@ -143,8 +144,8 @@ pub fn parse_metric_name(arg: &str) -> TsdbResult<Vec<Label>> {
     })
 }
 
-pub fn parse_operator(arg: &str) -> ValkeyResult<TransformOperator> {
-    TransformOperator::try_from(arg)
+pub fn parse_operator(arg: &str) -> ValkeyResult<JoinReducer> {
+    JoinReducer::try_from(arg)
 }
 
 pub fn parse_chunk_size(args: &mut CommandArgIterator) -> ValkeyResult<usize> {
@@ -194,7 +195,7 @@ pub fn parse_timestamp_range(args: &mut CommandArgIterator) -> ValkeyResult<Time
             ValkeyError::Str("ERR invalid end timestamp")
         })?
     } else {
-        TimestampRangeValue::Latest
+        TimestampValue::Latest
     };
     TimestampRange::new(start, end_value)
 }

@@ -8,13 +8,14 @@ use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::parse_timestamp_range_value;
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::{SeriesSampleIterator, TimeSeries};
-use crate::series::types::{TimestampRange, TimestampRangeValue, ValueFilter};
+use crate::series::{TimestampRange, TimestampValue};
+use crate::series::types::ValueFilter;
 
 
 pub fn parse_timestamp_arg(
     arg: &str,
     name: &str,
-) -> Result<TimestampRangeValue, ValkeyError> {
+) -> Result<TimestampValue, ValkeyError> {
     parse_timestamp_range_value(arg).map_err(|_e| {
         let msg = format!("ERR invalid {} timestamp", name);
         ValkeyError::String(msg)
@@ -22,8 +23,8 @@ pub fn parse_timestamp_arg(
 }
 
 pub(crate) fn normalize_range_args(
-    start: Option<TimestampRangeValue>,
-    end: Option<TimestampRangeValue>,
+    start: Option<TimestampValue>,
+    end: Option<TimestampValue>,
 ) -> ValkeyResult<(Timestamp, Timestamp)> {
     let config = get_global_settings();
     let now = current_time_millis();
