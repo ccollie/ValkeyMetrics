@@ -30,7 +30,7 @@ pub(crate) use time_series::*;
 pub(crate) use timestamp_range::*;
 
 use crate::error_consts;
-use crate::series::types::RoundingStrategy;
+use crate::common::rounding::RoundingStrategy;
 
 cfg_if::cfg_if! {
     if #[cfg(test)] {

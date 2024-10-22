@@ -2,7 +2,7 @@ use std::time::Duration;
 use metricsql_runtime::types::Timestamp;
 use valkey_module::{raw, ValkeyError, ValkeyResult, ValkeyString};
 use valkey_module::error::Error;
-use crate::series::types::RoundingStrategy;
+use crate::common::rounding::RoundingStrategy;
 
 const OPTIONAL_MARKER_PRESENT: u64 = 0xfe;
 const OPTIONAL_MARKER_ABSENT: u64 = 0xff;

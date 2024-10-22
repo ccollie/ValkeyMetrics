@@ -42,7 +42,7 @@ pub(crate) fn query(query_params: &QueryParams) -> RuntimeResult<Vec<QueryResult
 
 pub(crate) fn query_range(query_params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
     let query_context = get_query_context();
-    base_query_range(query_context, &query_params)
+    base_query_range(query_context, query_params)
 }
 
 pub(super) fn to_metric_name(ts: &TimeSeries) -> MetricName {

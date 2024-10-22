@@ -1,15 +1,13 @@
 use std::fmt::Display;
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
 
-use crate::common::current_time_millis;
 use crate::common::types::{Matchers, Timestamp};
-use crate::config::get_global_settings;
 use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::parse_timestamp_range_value;
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::{SeriesSampleIterator, TimeSeries};
-use crate::series::{TimestampRange, TimestampValue};
 use crate::series::types::ValueFilter;
+use crate::series::{TimestampRange, TimestampValue};
 
 
 pub fn parse_timestamp_arg(
@@ -21,36 +19,6 @@ pub fn parse_timestamp_arg(
         ValkeyError::String(msg)
     })
 }
-
-pub(crate) fn normalize_range_args(
-    start: Option<TimestampValue>,
-    end: Option<TimestampValue>,
-) -> ValkeyResult<(Timestamp, Timestamp)> {
-    let config = get_global_settings();
-    let now = current_time_millis();
-
-    let start = if let Some(val) = start {
-        val.as_timestamp()
-    } else {
-        let ts = now - (config.default_step.as_millis() as i64); // todo: how to avoid overflow?
-        ts as Timestamp
-    };
-
-    let end = if let Some(val) = end {
-        val.as_timestamp()
-    } else {
-        now
-    };
-
-    if start > end {
-        return Err(ValkeyError::Str(
-            "ERR end timestamp must not be before start time",
-        ));
-    }
-
-    Ok((start, end))
-}
-
 
 pub fn get_series_iterator<'a>(series: &'a TimeSeries,
                                date_range: TimestampRange,

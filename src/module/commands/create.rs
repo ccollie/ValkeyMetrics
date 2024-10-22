@@ -5,7 +5,7 @@ use crate::series::time_series::TimeSeries;
 use crate::series::{ChunkEncoding, TimeSeriesOptions};
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
-use crate::series::types::RoundingStrategy;
+use crate::common::rounding::RoundingStrategy;
 
 const MAX_SIGNIFICANT_DIGITS: u8 = 16;
 const MAX_DECIMAL_DIGITS: u8 = 16;

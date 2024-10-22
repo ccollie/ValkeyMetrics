@@ -1,5 +1,33 @@
 use std::f64;
+use std::fmt::Display;
+use get_size::GetSize;
 use rand_distr::num_traits::Pow;
+
+#[derive(Clone, Debug, PartialEq, Copy)]
+#[derive(GetSize)]
+pub enum RoundingStrategy {
+    SignificantDigits(i32),
+    DecimalDigits(i32),
+}
+
+impl RoundingStrategy {
+    pub fn round(&self, value: f64) -> f64 {
+        match self {
+            RoundingStrategy::SignificantDigits(digits) => round_to_sig_figs(value, *digits),
+            RoundingStrategy::DecimalDigits(digits) => round_to_decimal_digits(value, *digits),
+        }
+    }
+}
+
+impl Display for RoundingStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RoundingStrategy::SignificantDigits(digits) => write!(f, "significant_digits({})", digits),
+            RoundingStrategy::DecimalDigits(digits) => write!(f, "decimal_digits({})", digits),
+        }
+    }
+}
+
 
 /// rounds f to the given number of decimal digits after the point.
 ///

@@ -6,7 +6,7 @@ use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
 use crate::series::constants::DEFAULT_CHUNK_SIZE_BYTES;
 use crate::series::serialization::*;
-use crate::series::types::{RoundingStrategy, ValueFilter};
+use crate::series::types::{ValueFilter};
 use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value, format_prometheus_metric_name};
 use crate::series::DuplicatePolicy;
 use crate::series::TimeSeriesChunk;
@@ -17,6 +17,7 @@ use std::mem::size_of;
 use std::time::Duration;
 use std::vec;
 use valkey_module::{raw, ValkeyError, ValkeyResult};
+use crate::common::rounding::RoundingStrategy;
 
 const TIMESTAMP_TYPE_U64: &str = "u64";
 const TIMESTAMP_TYPE_U32: &str = "u32";

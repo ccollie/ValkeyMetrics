@@ -1,36 +1,9 @@
 use crate::aggregators::Aggregator;
-use crate::common::rounding::{round_to_decimal_digits, round_to_sig_figs};
 use crate::common::types::{Matchers, Timestamp};
-use get_size::GetSize;
+use crate::series::timestamp_range::{TimestampRange, TimestampValue};
 use std::fmt::Display;
 use std::time::Duration;
 use valkey_module::{ValkeyError, ValkeyResult, ValkeyString};
-use crate::series::timestamp_range::{TimestampRange, TimestampValue};
-
-#[derive(Clone, Debug, PartialEq, Copy)]
-#[derive(GetSize)]
-pub enum RoundingStrategy {
-    SignificantDigits(i32),
-    DecimalDigits(i32),
-}
-
-impl RoundingStrategy {
-    pub fn round(&self, value: f64) -> f64 {
-        match self {
-            RoundingStrategy::SignificantDigits(digits) => round_to_sig_figs(value, *digits),
-            RoundingStrategy::DecimalDigits(digits) => round_to_decimal_digits(value, *digits),
-        }
-    }
-}
-
-impl Display for RoundingStrategy {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RoundingStrategy::SignificantDigits(digits) => write!(f, "significant_digits({})", digits),
-            RoundingStrategy::DecimalDigits(digits) => write!(f, "decimal_digits({})", digits),
-        }
-    }
-}
 
 pub struct MetadataFunctionArgs {
     pub start: Timestamp,
