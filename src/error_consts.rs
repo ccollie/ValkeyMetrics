@@ -6,6 +6,8 @@ pub const INTERNAL_ERROR: &str = "ERR internal error";
 pub const INVALID_CONFIGURATION: &str = "ERR invalid configuration";
 pub const SERIALIZATION_FAIL: &str = "ERR serialization failure";
 pub const DESERIALIZE_ERROR: &str = "ERR cannot deserialize";
+pub const CHUNK_DECOMPRESSION: &str = "ERR cannot decompress chunk";
+
 pub const DUPLICATE_SAMPLE: &str = "ERR duplicate sample";
 pub const INVALID_METRICS: &str = "ERR invalid metric";
 pub const INVALID_CHUNK_SIZE: &str = "ERR invalid chunk size";

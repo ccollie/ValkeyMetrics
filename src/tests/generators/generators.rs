@@ -156,7 +156,7 @@ impl Iterator for MackeyGlassGenerator {
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.buf.len() {
             self.index = 0;
-            self.buf = mackey_glass(20, self.tau, self.seed);
+            self.buf = mackey_glass(20, Some(self.tau), self.seed);
         }
         let v = self.buf[self.index];
         self.index += 1;

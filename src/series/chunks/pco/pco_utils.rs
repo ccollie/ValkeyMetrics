@@ -3,6 +3,8 @@ use pco::standalone::{simple_compress, simple_decompress};
 use pco::ChunkConfig;
 use pco::DEFAULT_COMPRESSION_LEVEL;
 use std::error::Error;
+use crate::common::types::Timestamp;
+use crate::error::{TsdbError, TsdbResult};
 
 // mirror ChunkConfig here so downstream users don't need to import pco
 #[derive(Clone, Debug)]
@@ -51,6 +53,42 @@ pub fn pco_decode<T: NumberLike>(src: &[u8], dst: &mut Vec<T>) -> Result<(), Box
         Err(e) => return Err(Box::new(e)),
     }
     Ok(())
+}
+
+pub(super) fn compress_values(compressed: &mut Vec<u8>, values: &[f64]) -> TsdbResult<()> {
+    if values.is_empty() {
+        return Ok(());
+    }
+    pco_encode(values, compressed)
+        .map_err(|e| TsdbError::CannotSerialize(format!("values: {}", e)))
+}
+
+pub(super) fn decompress_values(compressed: &[u8], dst: &mut Vec<f64>) -> TsdbResult<()> {
+    if compressed.is_empty() {
+        return Ok(());
+    }
+    pco_decode(compressed, dst)
+        .map_err(|e| TsdbError::CannotDeserialize(format!("values: {}", e)))
+}
+
+pub(super) fn compress_timestamps(compressed: &mut Vec<u8>, timestamps: &[Timestamp]) -> TsdbResult<()> {
+    if timestamps.is_empty() {
+        return Ok(());
+    }
+    let config = CompressorConfig {
+        compression_level: DEFAULT_COMPRESSION_LEVEL,
+        delta_encoding_order: 2
+    };
+    encode_with_options(timestamps, compressed, config)
+        .map_err(|e| TsdbError::CannotSerialize(format!("timestamps: {}", e)))
+}
+
+pub(super) fn decompress_timestamps(compressed: &[u8], dst: &mut Vec<i64>) -> TsdbResult<()> {
+    if compressed.is_empty() {
+        return Ok(());
+    }
+    pco_decode(compressed, dst)
+        .map_err(|e| TsdbError::CannotDeserialize(format!("timestamps: {}", e)))
 }
 
 #[cfg(test)]

@@ -40,9 +40,9 @@ use crate::tests::generators::create_rng;
 ///         - seed: to seed the random generator, can be used to generate the same
 ///           timeseries at each invocation.
 ///         - n_samples : number of samples to generate
-pub fn mackey_glass(sample_len: usize, tau: usize, seed: Option<u64>) -> Vec<f64> {
+pub fn mackey_glass(sample_len: usize, tau: Option<usize>, seed: Option<u64>) -> Vec<f64> {
     let delta_t = 10;
-    let history_len = tau * delta_t;
+    let history_len = tau.unwrap_or(17) * delta_t;
     let mut timeseries = 1.2;
 
     let mut rng = create_rng(seed).unwrap();

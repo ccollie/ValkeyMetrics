@@ -12,6 +12,6 @@ pub use gorilla::{
     GorillaChunk,
     GorillaChunkIterator
 };
-pub use pco::{ PcoChunk, PcoChunkIterator };
+pub use pco::{ PcoChunk, PcoSampleIterator };
 pub use uncompressed::*;
 pub use timeseries_chunk::*;

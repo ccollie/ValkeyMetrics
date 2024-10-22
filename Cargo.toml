@@ -63,9 +63,3 @@ id64 = ["xxhash-rust/xxh3"]
 [lib]
 crate-type=["rlib", "cdylib"]
 name = "valkey_metrics"
-
-[profile.release]
-lto = true
-codegen-units = 1
-opt-level = 3
-target-cpu = "native"

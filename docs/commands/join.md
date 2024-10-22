@@ -87,7 +87,7 @@ For each sample in the left table, the join finds the closest matching value fro
 `tolerance` sets a limit on how far apart the timestamps can be while still considering them a match. 
 The tolerance can be specified as:
  - An integer representing milliseconds
- - A duration specified as a string, e.g. 2m
+ - A duration specified as a string, _e.g. 2m
 
 If not specified, there is no tolerance limit (equivalent to an infinite tolerance)
 When set, JOIN ASOF will only match keys within the specified tolerance range. Any potential matches outside this range will be treated as no match12.

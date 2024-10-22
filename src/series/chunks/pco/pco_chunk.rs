@@ -1,4 +1,4 @@
-use super::pco_utils::{encode_with_options, pco_decode, pco_encode, CompressorConfig};
+use std::cmp::Ordering;
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::iter::SampleIter;
@@ -8,11 +8,12 @@ use crate::series::utils::{find_last_ge_index, get_timestamp_index_bounds};
 use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64, PooledVecF64, PooledVecI64};
-use pco::DEFAULT_COMPRESSION_LEVEL;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::mem::size_of;
 use valkey_module::raw;
+use crate::series::chunks::pco::pco_utils::{compress_timestamps, compress_values, decompress_timestamps, decompress_values};
+use crate::series::chunks::pco::PcoSampleIterator;
 
 /// items above this count will cause value and timestamp encoding/decoding to happen in parallel
 pub(in crate::series) const COMPRESSION_PARALLELIZATION_THRESHOLD: usize = 1024;
@@ -243,37 +244,58 @@ impl PcoChunk {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = Sample> + '_ {
-        PcoChunkIterator::new(self)
+        match PcoSampleIterator::new(&self.timestamps, &self.values) {
+            Ok(iter) => iter.into(),
+            Err(_) => {
+                // todo: log error
+                SampleIter::Empty
+            },
+        }
     }
 
     pub fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> SampleIter {
-        PcoChunkIterator::new_range(self, start_ts, end_ts).into()
+        let iter = PcoSampleIterator::new_range(
+            &self.timestamps,
+            &self.values,
+            start_ts,
+            end_ts,
+        );
+        match iter {
+            Ok(iter) => iter.into(),
+            Err(_) => {
+                // todo: log error
+                SampleIter::Empty
+            },
+        }
     }
 
     pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
         if self.len() == 0 || timestamps.is_empty() {
             return Ok(vec![]);
         }
+        let mut samples = Vec::with_capacity(timestamps.len());
+        let mut timestamps = timestamps;
+        let first_timestamp = timestamps[0].max(self.min_time);
+        let last_timestamp = timestamps[timestamps.len() - 1].min(self.max_time);
 
-        if let Some((stored_timestamps, values)) = self.decompress()? {
-            let mut start_ofs: usize = 0;
-            let mut samples = Vec::with_capacity(timestamps.len());
-            for ts in timestamps {
-                let (idx, found) = get_timestamp_index(timestamps, *ts, start_ofs);
-                start_ofs = idx + 1;
-                if found {
-                    // todo: timestamp.get_unchecked, values.get_unchecked(idx), since we know
-                    // that the index is in bounds
-                    samples.push(Sample {
-                        timestamp: stored_timestamps[idx],
-                        value: values[idx],
-                    })
+        for sample in self.range_iter(first_timestamp, last_timestamp) {
+            let first_ts = timestamps[0];
+            match sample.timestamp.cmp(&first_ts) {
+                Ordering::Less => continue,
+                Ordering::Equal => {
+                    timestamps = &timestamps[1..];
+                    samples.push(sample);
+                }
+                Ordering::Greater => {
+                    timestamps = &timestamps[1..];
+                    if timestamps.is_empty() {
+                        break;
+                    }
                 }
             }
-            return Ok(samples)
         }
 
-        Ok(vec![])
+        Ok(samples)
     }
 }
 
@@ -532,92 +554,6 @@ fn remove_values_in_range(
     }
 }
 
-fn compress_values(compressed: &mut Vec<u8>, values: &[f64]) -> TsdbResult<()> {
-    if values.is_empty() {
-        return Ok(());
-    }
-    pco_encode(values, compressed)
-        .map_err(|e| TsdbError::CannotSerialize(format!("values: {}", e)))
-}
-
-fn decompress_values(compressed: &[u8], dst: &mut Vec<f64>) -> TsdbResult<()> {
-    if compressed.is_empty() {
-        return Ok(());
-    }
-    pco_decode(compressed, dst)
-        .map_err(|e| TsdbError::CannotDeserialize(format!("values: {}", e)))
-}
-
-fn compress_timestamps(compressed: &mut Vec<u8>, timestamps: &[Timestamp]) -> TsdbResult<()> {
-    if timestamps.is_empty() {
-        return Ok(());
-    }
-    let config = CompressorConfig {
-        compression_level: DEFAULT_COMPRESSION_LEVEL,
-        delta_encoding_order: 2
-    };
-    encode_with_options(timestamps, compressed, config)
-        .map_err(|e| TsdbError::CannotSerialize(format!("timestamps: {}", e)))
-}
-
-fn decompress_timestamps(compressed: &[u8], dst: &mut Vec<i64>) -> TsdbResult<()> {
-    if compressed.is_empty() {
-        return Ok(());
-    }
-    pco_decode(compressed, dst)
-        .map_err(|e| TsdbError::CannotDeserialize(format!("timestamps: {}", e)))
-}
-
-
-pub struct PcoChunkIterator<'a> {
-    chunk: &'a PcoChunk,
-    iter: std::vec::IntoIter<Sample>,
-    start: Timestamp,
-    end: Timestamp,
-    is_init: bool,
-}
-
-impl<'a> PcoChunkIterator<'a> {
-    fn new(chunk: &'a PcoChunk) -> Self {
-        Self {
-            chunk,
-            iter: vec![].into_iter(),
-            start: i64::MIN,
-            end: i64::MAX,
-            is_init: false,
-        }
-    }
-
-    fn new_range(chunk: &'a PcoChunk, start_ts: Timestamp, end_ts: Timestamp) -> Self {
-        let mut iter = PcoChunkIterator::new(chunk);
-        iter.start = start_ts;
-        iter.end = end_ts;
-        iter
-    }
-
-    fn init(&mut self) {
-        self.is_init = true;
-        match self.chunk.get_range(self.start, self.end) {
-            Ok(samples) => {
-                self.iter = samples.into_iter();
-            }
-            Err(_e) => {
-                // todo: log
-            }
-        }
-    }
-}
-
-impl<'a> Iterator for PcoChunkIterator<'a> {
-    type Item = Sample;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if !self.is_init {
-            self.init();
-        }
-        self.iter.next()
-    }
-}
 #[cfg(test)]
 mod tests {
     use crate::common::types::Timestamp;

@@ -3,21 +3,26 @@ use crate::series::DuplicatePolicy;
 use std::collections::BTreeSet;
 
 
-pub fn merge_samples(
-    dest: &mut Vec<Sample>,
+pub fn merge_samples<F,STATE>(
     left: impl Iterator<Item=Sample>,
     right: impl Iterator<Item=Sample>,
     dp_policy: DuplicatePolicy,
-    blocked: &mut BTreeSet<Timestamp>
-) {
+    mut f: F,
+    state: &mut STATE
+)
+where F: FnMut(&mut STATE, Sample, bool) -> () {
     let mut left_iter = left.peekable();
     let mut right_iter = right.peekable();
 
     if left_iter.peek().is_none() {
-       dest.extend(right_iter);
+        for sample in right_iter {
+            f(state, sample, false);
+        }
         return;
     } else if right_iter.peek().is_none() {
-        dest.extend(left_iter);
+        for sample in left_iter {
+            f(state, sample, false);
+        }
         return;
     }
 
@@ -30,7 +35,8 @@ pub fn merge_samples(
                         left_iter.next();
                         Some(Sample { timestamp: ts, value: val })
                     } else {
-                        blocked.insert(ts);
+                        let sample = Sample { timestamp: ts, value: r.value };
+                        f(state, sample, true);
                         left_iter.next()
                     }
                 } else if l < r {
@@ -44,7 +50,7 @@ pub fn merge_samples(
             (None, None) => None,
         };
         if let Some(merged) = merged {
-            dest.push(merged);
+            f(state, merged, false);
         } else {
             break;
         }

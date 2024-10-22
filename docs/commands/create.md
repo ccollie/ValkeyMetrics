@@ -20,7 +20,7 @@ is key name for the time series.
 </details>
 
 <details open><summary><code>metric</code></summary> 
-The metric name in Prometheus format, e.g. `node_memory_used_bytes{hostname="host1.domain.com"}`
+The metric name in Prometheus format, _e.g. `node_memory_used_bytes{hostname="host1.domain.com"}`
 is key name for time series. See https://prometheus.io/docs/concepts/data_model/#metric-names-and-labels
 </details>
 

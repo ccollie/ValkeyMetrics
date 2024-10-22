@@ -1,7 +1,7 @@
 use crate::common::types::Sample;
 use crate::iter::vec_sample_iterator::VecSampleIterator;
 use crate::series::time_series::SeriesSampleIterator;
-use crate::series::{ChunkSampleIterator, GorillaChunkIterator, PcoChunkIterator};
+use crate::series::{ChunkSampleIterator, GorillaChunkIterator, PcoSampleIterator};
 
 #[derive(Default)]
 pub enum SampleIter<'a> {
@@ -10,7 +10,7 @@ pub enum SampleIter<'a> {
     Slice(std::slice::Iter<'a, Sample>),
     Vec(VecSampleIterator),
     Gorilla(GorillaChunkIterator<'a>),
-    Pco(PcoChunkIterator<'a>),
+    Pco(PcoSampleIterator<'a>),
     #[default]
     Empty,
 }
@@ -32,7 +32,7 @@ impl<'a> SampleIter<'a> {
     pub fn gorilla(iter: GorillaChunkIterator<'a>) -> Self {
         SampleIter::Gorilla(iter)
     }
-    pub fn pco(iter: PcoChunkIterator<'a>) -> Self {
+    pub fn pco(iter: PcoSampleIterator<'a>) -> Self {
         SampleIter::Pco(iter)
     }
 }
@@ -84,8 +84,8 @@ impl<'a> From<GorillaChunkIterator<'a>> for SampleIter<'a> {
     }
 }
 
-impl<'a> From<PcoChunkIterator<'a>> for SampleIter<'a> {
-    fn from(value: PcoChunkIterator<'a>) -> Self {
+impl<'a> From<PcoSampleIterator<'a>> for SampleIter<'a> {
+    fn from(value: PcoSampleIterator<'a>) -> Self {
         Self::Pco(value)
     }
 }
