@@ -63,7 +63,7 @@ impl TryFrom<&str> for ChunkCompression {
             s if s.eq_ignore_ascii_case("uncompressed") => Ok(ChunkCompression::Uncompressed),
             s if s.eq_ignore_ascii_case("gorilla") => Ok(ChunkCompression::Gorilla),
             s if s.eq_ignore_ascii_case("pco") => Ok(ChunkCompression::Pco),
-            _ => Err(ValkeyError::Str(error_consts::INVALID_CHUNK_COMPRESSION_METHOD)),
+            _ => Err(ValkeyError::Str(error_consts::INVALID_CHUNK_COMPRESSION)),
         }
     }
 }

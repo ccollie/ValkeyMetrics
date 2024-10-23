@@ -213,7 +213,7 @@ fn parse_collate_options(args: &mut CommandArgIterator) -> ValkeyResult<CollateO
             }
             CMD_ARG_AGGREGATION => {
                 let agg_str = args.next_str()
-                    .map_err(|_e| ValkeyError::Str("TSDB: Error parsing AGGREGATION"))?;
+                    .map_err(|_e| ValkeyError::Str("ERR: Error parsing AGGREGATION"))?;
                 let aggregator = Aggregator::try_from(agg_str)?;
                 options.aggregator = Some(aggregator);
             }

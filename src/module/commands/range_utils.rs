@@ -2,19 +2,9 @@ use crate::aggregators::AggOp;
 use crate::common::types::{Sample, Timestamp};
 use crate::iter::aggregator::AggrIterator;
 use crate::series::get_series_range_filtered;
-use crate::series::time_series::{SeriesSampleIterator, TimeSeries};
-use crate::series::types::{AggregationOptions, RangeGroupingOptions, RangeOptions, ValueFilter};
+use crate::series::time_series::TimeSeries;
+use crate::series::types::{AggregationOptions, RangeGroupingOptions, RangeOptions};
 use valkey_module::ValkeyValue;
-
-pub(super) fn get_sample_iterator<'a>(
-    series: &'a TimeSeries,
-    start_timestamp: Timestamp,
-    end_timestamp: Timestamp,
-    timestamp_filter: &'a Option<Vec<Timestamp>>,
-    value_filter: &'a Option<ValueFilter>
-) -> SeriesSampleIterator<'a> {
-    SeriesSampleIterator::new(series, start_timestamp, end_timestamp, value_filter, timestamp_filter)
-}
 
 pub(crate) fn get_range(series: &TimeSeries, args: &RangeOptions, check_retention: bool) -> Vec<Sample> {
     let (start_timestamp, end_timestamp) = args.date_range.get_series_range(series, check_retention);

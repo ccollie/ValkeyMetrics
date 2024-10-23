@@ -1,3 +1,4 @@
+use crate::common::binary_search::find_last_ge_index;
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::iter::SampleIter;
@@ -5,7 +6,7 @@ use crate::series::chunks::pco::pco_utils::{compress_timestamps, compress_values
 use crate::series::chunks::pco::PcoSampleIterator;
 use crate::series::chunks::Chunk;
 use crate::series::serialization::{rdb_load_usize, rdb_save_usize};
-use crate::series::utils::{find_last_ge_index, get_timestamp_index_bounds};
+use crate::series::utils::{get_timestamp_index_bounds};
 use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64, PooledVecF64, PooledVecI64};
@@ -522,12 +523,32 @@ impl Chunk for PcoChunk {
 
 fn get_timestamp_index(timestamps: &[Timestamp], ts: Timestamp, start_ofs: usize) -> (usize, bool) {
     let stamps = &timestamps[start_ofs..];
+    // for regularly spaced timestamps, we can get extreme levels of compression. Also since pco is
+    // intended for "cold" storage we can have larger than normal numbers of samples.
+    // if we pass a threshold, see if we should use an exponential search
     let idx = find_last_ge_index(stamps, &ts);
     if idx > timestamps.len() - 1 {
         return (timestamps.len() - 1, false);
     }
     // todo: get_unchecked
     (idx + start_ofs, stamps[idx] == ts)
+}
+
+const EXPONENTIAL_SEARCH_THRESHOLD = 65536;
+fn should_use_exponential_search(timestamps: &[Timestamp], ts: Timestamp) -> bool {
+    if timestamps.len() < EXPONENTIAL_SEARCH_THRESHOLD {
+        return false;
+    }
+    // exponential search is only worth it if we're near the beginning, so we use the following heuristic:
+    // 1. Assume timestamps are equally spaced
+    // 2. Get delta of `ts` from the start
+    // 3. Calculate delta as a percentage of the range
+    // 4. If delta is less than 25% of the range, return true. Otherwise, return false.
+    // This heuristic assumes that timestamps are evenly spaced. If they aren't, this heuristic may not be accurate.
+    let start_ts = timestamps[0];
+    let end_ts = timestamps[timestamps.len() - 1];
+    let delta = (ts - start_ts) as f64 / (end_ts - start_ts) as f64;
+    delta < 0.20
 }
 
 fn remove_values_in_range(

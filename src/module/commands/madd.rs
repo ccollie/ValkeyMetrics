@@ -12,7 +12,7 @@ pub fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     }
 
     if arg_count % 3 != 0 {
-        return Err(ValkeyError::Str("ERR: wrong number of arguments for 'VM.MADD' command"));
+        return Err(ValkeyError::WrongArity);
     }
 
     let sample_count = arg_count / 3;

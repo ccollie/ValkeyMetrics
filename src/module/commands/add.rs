@@ -13,7 +13,7 @@ const CMD_ARG_METRIC: &str = "METRIC";
 ///     [DUPLICATE_POLICY policy]
 ///     [DEDUPE_INTERVAL duration]
 ///     [CHUNK_SIZE size]
-///     [METRIC name]
+///     [METRIC metric]
 ///
 pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1).peekable();

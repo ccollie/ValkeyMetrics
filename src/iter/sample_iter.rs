@@ -10,7 +10,7 @@ pub enum SampleIter<'a> {
     Slice(std::slice::Iter<'a, Sample>),
     Vec(VecSampleIterator),
     Gorilla(GorillaChunkIterator<'a>),
-    Pco(PcoSampleIterator<'a>),
+    Pco(Box<PcoSampleIterator<'a>>),
     #[default]
     Empty,
 }
@@ -33,7 +33,7 @@ impl<'a> SampleIter<'a> {
         SampleIter::Gorilla(iter)
     }
     pub fn pco(iter: PcoSampleIterator<'a>) -> Self {
-        SampleIter::Pco(iter)
+        SampleIter::Pco(Box::new(iter))
     }
 }
 
@@ -86,6 +86,6 @@ impl<'a> From<GorillaChunkIterator<'a>> for SampleIter<'a> {
 
 impl<'a> From<PcoSampleIterator<'a>> for SampleIter<'a> {
     fn from(value: PcoSampleIterator<'a>) -> Self {
-        Self::Pco(value)
+        Self::Pco(Box::new(value))
     }
 }

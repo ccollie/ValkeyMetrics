@@ -1,11 +1,12 @@
+use crate::common::rounding::RoundingStrategy;
+use crate::error_consts;
 use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::*;
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::TimeSeries;
-use crate::series::{ChunkEncoding, TimeSeriesOptions};
+use crate::series::{ChunkCompression, TimeSeriesOptions};
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
-use crate::common::rounding::RoundingStrategy;
 
 const MAX_SIGNIFICANT_DIGITS: u8 = 16;
 const MAX_DECIMAL_DIGITS: u8 = 16;
@@ -36,7 +37,7 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
 
     let metric = args.next_string()?;
     options.labels = parse_metric_name(&metric)
-        .map_err(|e| ValkeyError::String(format!("ERR invalid METRIC {:?}", e)))?;
+        .map_err(|_e| ValkeyError::Str(error_consts::INVALID_METRIC))?;
 
     while let Ok(arg) = args.next_str() {
         let arg_upper = arg.to_ascii_uppercase();
@@ -77,12 +78,12 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
             CMD_ARG_CHUNK_SIZE => {
                 options.chunk_size(parse_chunk_size(&mut args)?);
             }
-            CMD_ARG_ENCODING => {
+            CMD_ARG_COMPRESSION => {
                 let enc = args.next_string()?;
-                match ChunkEncoding::try_from(enc.as_str()) {
-                    Ok(encoding) => { options.encoding = Some(encoding); }
+                match ChunkCompression::try_from(enc.as_str()) {
+                    Ok(compression) => { options.chunk_compression = Some(compression); }
                     Err(_) => {
-                        return Err(ValkeyError::Str("ERR invalid chunk encoding"));
+                        return Err(ValkeyError::Str(error_consts::INVALID_CHUNK_COMPRESSION));
                     }
                 }
             }

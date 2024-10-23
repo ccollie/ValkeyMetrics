@@ -3,6 +3,7 @@ mod utils;
 pub mod rounding;
 mod encoding;
 pub mod bitwriter;
+pub mod binary_search;
 
 pub use utils::*;
 

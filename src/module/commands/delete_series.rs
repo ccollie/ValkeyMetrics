@@ -3,6 +3,7 @@ use crate::module::arg_parse::parse_series_selector;
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::TimeSeries;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use crate::error_consts;
 
 ///
 /// VM.DELETE-SERIES selector..
@@ -22,7 +23,7 @@ pub fn delete_series(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let res = with_timeseries_index(ctx, move |index| {
         let keys = index.series_keys_by_matchers(ctx, &matchers);
         if keys.is_empty() {
-            return Err(ValkeyError::Str("ERR no series found"));
+            return Err(ValkeyError::Str(error_consts::NO_SERIES_FOUND));
         }
         let mut deleted: usize = 0;
         for key in keys {

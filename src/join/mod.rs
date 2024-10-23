@@ -139,7 +139,7 @@ pub struct JoinOptions {
     pub count: Option<usize>,
     pub timestamp_filter: Option<Vec<Timestamp>>,
     pub value_filter: Option<ValueFilter>,
-    pub transform_op: Option<JoinReducer>,
+    pub reducer: Option<JoinReducer>,
     pub aggregation: Option<AggregationOptions>,
 }
 

@@ -3,6 +3,7 @@ use crate::module::arg_parse::*;
 use crate::module::commands::range_utils::get_series_labels;
 use crate::module::result::sample_to_value;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use crate::error_consts;
 use crate::module::with_matched_series;
 
 struct MGetOptions {
@@ -94,7 +95,7 @@ fn parse_mget_options(args: &mut CommandArgIterator) -> ValkeyResult<MGetOptions
     }
 
     if options.filter.is_empty() {
-        return Err(ValkeyError::Str("ERR no FILTER given"));
+        return Err(ValkeyError::Str(error_consts::MISSING_FILTER));
     }
 
     Ok(options)

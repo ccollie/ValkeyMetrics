@@ -3,7 +3,7 @@ use crate::common::types::{Sample, Timestamp};
 use crate::globals::with_timeseries_index;
 use crate::iter::{MultiSeriesSampleIter, SampleIter};
 use crate::module::commands::range_arg_parse::parse_range_options;
-use crate::module::commands::range_utils::{aggregate_samples, get_sample_iterator, get_series_labels, group_samples_internal};
+use crate::module::commands::range_utils::{aggregate_samples, get_series_labels, group_samples_internal};
 use crate::module::result::sample_to_value;
 use crate::series::types::{AggregationOptions, RangeGroupingOptions, RangeOptions};
 use crate::module::VKM_SERIES_TYPE;
@@ -251,11 +251,8 @@ fn aggregate_grouped_samples(group: &GroupedSeries, options: &RangeOptions, aggr
 }
 
 fn get_series_iterator<'a>(meta: &SeriesMeta<'a>, options: &'a RangeOptions) -> SeriesSampleIterator<'a> {
-    get_sample_iterator(meta.series,
-                        meta.start_ts,
-                        meta.end_ts,
-                        &options.timestamp_filter,
-                        &options.value_filter)
+    SeriesSampleIterator::new(meta.series, meta.start_ts, meta.end_ts,
+                              &options.value_filter, &options.timestamp_filter)
 }
 
 fn get_sample_iterators<'a>(series: &[SeriesMeta<'a>], range_options: &'a RangeOptions) -> Vec<SampleIter<'a>> {

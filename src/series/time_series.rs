@@ -85,16 +85,7 @@ impl TimeSeries {
             res.chunk_size_bytes = chunk_size;
         }
 
-        if let Some(encoding) = options.encoding {
-            match encoding {
-                ChunkEncoding::Compressed => {
-                    res.chunk_compression = ChunkCompression::Gorilla
-                }
-                ChunkEncoding::Uncompressed => {
-                    res.chunk_compression = ChunkCompression::Uncompressed
-                }
-            }
-        }
+        let compression = options.chunk_compression.unwrap_or(ChunkCompression::Gorilla);
 
         res.duplicate_policy = options.duplicate_policy.unwrap_or(DuplicatePolicy::KeepLast);
 

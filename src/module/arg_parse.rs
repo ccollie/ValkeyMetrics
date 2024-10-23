@@ -22,6 +22,7 @@ pub const CMD_ARG_COUNT: &str = "COUNT";
 pub const CMD_PARAM_REDUCER: &str = "REDUCE";
 const CMD_PARAM_ALIGN: &str = "ALIGN";
 pub const CMD_ARG_ENCODING: &str = "ENCODING";
+pub const CMD_ARG_COMPRESSION: &str = "COMPRESSION";
 pub const CMD_ARG_FILTER_BY_VALUE: &str = "FILTER_BY_VALUE";
 pub const CMD_ARG_FILTER_BY_TS: &str = "FILTER_BY_TS";
 pub const CMD_ARG_AGGREGATION: &str = "AGGREGATION";
@@ -79,7 +80,7 @@ pub fn parse_timestamp(arg: &str) -> ValkeyResult<Timestamp> {
         dt
     } else {
         let value = DateTime::parse_from_rfc3339(arg)
-            .map_err(|_| ValkeyError::Str("invalid timestamp"))?;
+            .map_err(|_| ValkeyError::Str(error_consts::INVALID_TIMESTAMP))?;
         value.timestamp_millis()
     };
     if value < 0 {
@@ -118,8 +119,7 @@ pub fn parse_duration_ms(arg: &str) -> ValkeyResult<i64> {
             match arg.parse::<i64>() {
                 Ok(v) => Ok(v),
                 Err(_e) => {
-                    let str = format!("ERR: failed to parse duration: {}", arg);
-                    Err(ValkeyError::String(str))
+                    Err(ValkeyError::Str(error_consts::INVALID_DURATION))
                 },
             }
         },
@@ -204,7 +204,7 @@ pub fn parse_retention(args: &mut CommandArgIterator) -> ValkeyResult<Duration> 
     if let Ok(next) = args.next_str() {
         match parse_duration(next) {
             Ok(d) => Ok(d),
-            Err(_) => Err(ValkeyError::Str("ERR invalid duration value")),
+            Err(_) => Err(ValkeyError::Str(error_consts::INVALID_DURATION)),
         }
     } else {
         Err(ValkeyError::Str("ERR missing RETENTION value"))

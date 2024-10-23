@@ -44,7 +44,7 @@ pub fn join(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         count: Default::default(),
         timestamp_filter: Default::default(),
         value_filter: Default::default(),
-        transform_op: None,
+        reducer: None,
         aggregation: None,
     };
 
@@ -94,7 +94,7 @@ fn parse_asof(args: &mut CommandArgIterator) -> ValkeyResult<JoinType> {
             if ch.is_ascii_digit() {
                 let tolerance_ms = parse_duration_ms(arg_str)?;
                 if tolerance_ms < 0 {
-                    return Err(ValkeyError::Str("TSDB: negative tolerance not valid"));
+                    return Err(ValkeyError::Str("ERR: negative tolerance not valid"));
                 }
                 tolerance = Duration::from_millis(tolerance_ms as u64);
                 let _ = args.next_arg()?;
@@ -172,7 +172,7 @@ fn parse_join_args(args: &mut CommandArgIterator, options: &mut JoinOptions) -> 
             }
             CMD_ARG_REDUCE => {
                 let arg = args.next_str()?;
-                options.transform_op = Some(parse_operator(arg)?);
+                options.reducer = Some(parse_operator(arg)?);
             }
             CMD_ARG_AGGREGATION => {
                 options.aggregation = Some(parse_aggregation_options(args)?)
@@ -182,7 +182,7 @@ fn parse_join_args(args: &mut CommandArgIterator, options: &mut JoinOptions) -> 
     }
 
     // aggregations are only valid when there is a transform
-    if options.aggregation.is_some() && options.transform_op.is_none() {
+    if options.aggregation.is_some() && options.reducer.is_none() {
         return Err(ValkeyError::Str("ERR: join aggregation requires a reducer"));
     }
 
@@ -200,7 +200,7 @@ fn join_internal(left: &[Sample], right: &[Sample], options: &JoinOptions) -> Va
 
     let join_iter = JoinIterator::new(left, right, options.join_type);
 
-    if let Some(op) = options.transform_op {
+    if let Some(op) = options.reducer {
         let transform = op.get_handler();
 
         let iter = join_iter.map(|x| {
