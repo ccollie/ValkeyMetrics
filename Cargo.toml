@@ -57,8 +57,12 @@ test-case = "3.3.1"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [features]
+default = ["tokio"]
 # Enable for u64 timeseries ids
 id64 = ["xxhash-rust/xxh3"]
+tokio = ["metricsql_common/tokio", "metricsql_runtime/tokio"]
+async-std = ["metricsql_common/async-std", "metricsql_runtime/async-std"]
+smol = ["metricsql_common/smol", "metricsql_runtime/smol"]
 
 [lib]
 crate-type=["rlib", "cdylib"]

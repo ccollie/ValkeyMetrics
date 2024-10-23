@@ -156,7 +156,7 @@ pub fn parse_chunk_size(args: &mut CommandArgIterator) -> ValkeyResult<usize> {
     }
 
     let chunk_size = parse_number_with_unit(arg).map_err(|_e| {
-        ValkeyError::Str("TSDB: invalid chunk size")
+        ValkeyError::Str(error_consts::INVALID_CHUNK_SIZE)
     })?;
 
     if chunk_size != chunk_size.floor() {
@@ -178,11 +178,11 @@ pub fn parse_duplicate_policy(args: &mut CommandArgIterator) -> ValkeyResult<Dup
             if let Ok(policy) = DuplicatePolicy::try_from(next) {
                 Ok(policy)
             } else {
-                Err(ValkeyError::Str("ERR invalid DUPLICATE_POLICY"))
+                Err(ValkeyError::Str(error_consts::INVALID_DUPLICATE_POLICY))
             }
         },
         Err(_e) => {
-            Err(ValkeyError::Str("ERR missing DUPLICATE_POLICY"))
+            Err(ValkeyError::Str(error_consts::INVALID_DUPLICATE_POLICY))
         }
     }
 }
@@ -222,7 +222,7 @@ pub fn parse_timestamp_filter(args: &mut CommandArgIterator, is_valid_arg: fn(&s
         if let Ok(timestamp) = parse_timestamp(arg) {
             values.push(timestamp);
         } else  {
-            return Err(ValkeyError::Str("TSDB: cannot parse timestamp"));
+            return Err(ValkeyError::Str(error_consts::INVALID_TIMESTAMP));
         }
         if values.len() == MAX_TS_VALUES_FILTER {
             break
@@ -309,7 +309,7 @@ pub fn parse_label_list(args: &mut CommandArgIterator, is_cmd_token: fn(&str) ->
         }
         let label = args.next_str()?;
         if labels.contains(label) {
-            let msg = format!("TSDB: duplicate label: {label}");
+            let msg = format!("ERR: duplicate label: {label}");
             return Err(ValkeyError::String(msg));
         }
         labels.insert(label.to_string());
@@ -339,7 +339,7 @@ pub fn parse_series_selector_list(args: &mut CommandArgIterator, is_cmd_token: f
         if let Ok(selector) = parse_series_selector(arg) {
             matchers.push(selector);
         } else {
-            return Err(ValkeyError::Str("ERR invalid FILTER series selector"));
+            return Err(ValkeyError::Str(error_consts::INVALID_SERIES_SELECTOR));
         }
     }
 
@@ -401,12 +401,12 @@ fn parse_alignment(align: &str) -> ValkeyResult<RangeAlignment> {
             match c {
                 '-' => RangeAlignment::Start,
                 '+' => RangeAlignment::End,
-                _ => return Err(ValkeyError::Str("TSDB: unknown ALIGN parameter")),
+                _ => return Err(ValkeyError::Str(error_consts::INVALID_ALIGN)),
             }
         }
         _ => {
             let timestamp = parse_timestamp(align)
-                .map_err(|_| ValkeyError::Str("TSDB: unknown ALIGN parameter"))?;
+                .map_err(|_| ValkeyError::Str(error_consts::INVALID_ALIGN))?;
             RangeAlignment::Timestamp(timestamp)
         }
     };

@@ -1,14 +1,10 @@
 use crate::common::duration_to_chrono;
 use crate::config::get_global_settings;
+use crate::error_consts;
 use crate::module::arg_parse::{parse_duration_arg, parse_timestamp_range};
 use crate::module::parse_timestamp_arg;
-use crate::module::result::to_matrix_result;
-use crate::query::{
-    query as base_query,
-    query_range as base_query_range,
-};
-use metricsql_runtime::prelude::query::QueryParams;
-use metricsql_runtime::{QueryResult, RuntimeResult};
+use crate::module::result::{to_instant_vector_result, to_matrix_result};
+use crate::query::{run_instant_query, run_range_query, QueryParams};
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString};
 
 const CMD_ARG_STEP: &str = "STEP";
@@ -59,7 +55,9 @@ pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
     query_params.step = step;
     query_params.round_digits = round_digits;
 
-    handle_query_result(base_query_range(&query_params))
+    let result = run_range_query(&query_params)?;
+
+    Ok(to_matrix_result(result))
 }
 
 ///
@@ -67,6 +65,7 @@ pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
 ///         [TIMEOUT duration]
 ///         [ROUNDING digits]
 ///
+/// Execute an instant query
 pub fn query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1);
 
@@ -84,8 +83,7 @@ pub fn query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
                 round_digits = args.next_u64()?.max(100) as u8;
             }
             _ => {
-                let msg = format!("ERR invalid argument '{}'", arg);
-                return Err(ValkeyError::String(msg));
+                return Err(ValkeyError::Str(error_consts::INVALID_ARGUMENT));
             }
         };
     }
@@ -98,14 +96,16 @@ pub fn query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     query_params.end = start;
     query_params.round_digits = round_digits;
 
-    handle_query_result(base_query(&query_params))
+    let result = run_instant_query(&query_params)?;
+
+    Ok(to_instant_vector_result(result))
 }
 
 fn parse_step(arg: &ValkeyString) -> ValkeyResult<chrono::Duration> {
     if let Ok(duration) = parse_duration_arg(arg) {
         Ok(duration_to_chrono(duration))
     } else {
-        Err(ValkeyError::Str("ERR invalid STEP duration"))
+        Err(ValkeyError::Str(error_consts::INVALID_STEP_DURATION))
     }
 }
 
@@ -115,7 +115,7 @@ fn normalize_step(step: Option<chrono::Duration>) -> ValkeyResult<chrono::Durati
         Ok(val)
     } else {
         chrono::Duration::from_std(config.default_step)
-            .map_err(|_| ValkeyError::Str("ERR invalid STEP duration"))
+            .map_err(|_| ValkeyError::Str(error_consts::INVALID_STEP_DURATION))
     }
 }
 
@@ -126,14 +126,4 @@ fn get_default_query_params() -> QueryParams {
         result.round_digits = rounding;
     }
     result
-}
-
-fn handle_query_result(result: RuntimeResult<Vec<QueryResult>>) -> ValkeyResult {
-    match result {
-        Ok(result) => Ok(to_matrix_result(result)),
-        Err(e) => {
-            let err_msg = format!("ERR: {:?}", e);
-            Err(ValkeyError::String(err_msg.to_string()))
-        }
-    }
 }

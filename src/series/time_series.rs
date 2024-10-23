@@ -1,12 +1,13 @@
-use crate::series::merge::merge_by_capacity;
-use super::{validate_chunk_size, Chunk, ChunkCompression, ChunkEncoding, Sample, TimeSeriesOptions};
-use crate::common::types::{IntMap, Label, Timestamp};
+use super::{validate_chunk_size, Chunk, ChunkCompression, TimeSeriesOptions};
+use crate::common::rounding::RoundingStrategy;
+use crate::common::types::{IntMap, Sample, Label, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
 use crate::series::constants::DEFAULT_CHUNK_SIZE_BYTES;
+use crate::series::merge::merge_by_capacity;
 use crate::series::serialization::*;
-use crate::series::types::{ValueFilter};
+use crate::series::types::ValueFilter;
 use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value, format_prometheus_metric_name};
 use crate::series::DuplicatePolicy;
 use crate::series::TimeSeriesChunk;
@@ -17,20 +18,19 @@ use std::mem::size_of;
 use std::time::Duration;
 use std::vec;
 use valkey_module::{raw, ValkeyError, ValkeyResult};
-use crate::common::rounding::RoundingStrategy;
 
 const TIMESTAMP_TYPE_U64: &str = "u64";
 const TIMESTAMP_TYPE_U32: &str = "u32";
 
-#[cfg(feature = "id64")]
-pub type TimeseriesId = u64;
-#[cfg(feature = "id64")]
-pub const TIMESTAMP_TYPE: &str = TIMESTAMP_TYPE_U64;
-
-#[cfg(not(feature = "id64"))]
-pub type TimeseriesId = u32;
-#[cfg(not(feature = "id64"))]
-pub const TIMESTAMP_TYPE: &str = TIMESTAMP_TYPE_U64;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "id64")] {
+        pub type TimeseriesId = u64;
+        pub const TIMESTAMP_TYPE: &str = TIMESTAMP_TYPE_U64;
+    } else {
+        pub type TimeseriesId = u32;
+        pub const TIMESTAMP_TYPE: &str = TIMESTAMP_TYPE_U64;
+    }
+}
 
 /// Represents a time series. The time series consists of time series blocks, each containing BLOCK_SIZE_FOR_TIME_SERIES
 /// data points.
@@ -85,7 +85,7 @@ impl TimeSeries {
             res.chunk_size_bytes = chunk_size;
         }
 
-        let compression = options.chunk_compression.unwrap_or(ChunkCompression::Gorilla);
+        res.chunk_compression = options.chunk_compression.unwrap_or(ChunkCompression::Gorilla);
 
         res.duplicate_policy = options.duplicate_policy.unwrap_or(DuplicatePolicy::KeepLast);
 

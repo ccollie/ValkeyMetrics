@@ -1,9 +1,9 @@
-use crate::common::types::{Label, Sample, Timestamp};
+use crate::common::types::{Label, Sample};
+use crate::query::{InstantQueryResult, RangeQueryResult};
 use crate::series::time_series::TimeSeries;
 use metricsql_runtime::types::{MetricName, METRIC_NAME_LABEL};
 use std::collections::HashMap;
 use std::fmt::Display;
-use metricsql_runtime::QueryResult;
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::{ValkeyString, ValkeyValue};
 
@@ -57,158 +57,111 @@ pub(crate) fn metric_name_to_valkey_value(
     ValkeyValue::Map(map)
 }
 
-pub(super) fn sample_to_result(timestamp: Timestamp, value: f64) -> ValkeyValue {
-    let epoch = ValkeyValue::Integer(timestamp);
-    let value = ValkeyValue::SimpleString(value.to_string());
-    vec![epoch, value].into()
-}
-
-pub(super) fn samples_to_result(timestamps: &[i64], values: &[f64]) -> ValkeyValue {
-    timestamps
-        .iter()
-        .zip(values.iter())
-        .map(|(ts, val)| sample_to_result(*ts, *val))
-        .collect::<Vec<ValkeyValue>>()
-        .into()
-}
 
 /// `To Prometheus Range Vector output
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#range-vectors
 /// ``` json
 /// {
-///     "status" : "success",
-///     "data" : {
-///         "resultType" : "matrix",
-///         "result" : [
-///             {
-///                 "metric" : {
-///                     "__name__" : "up",
-///                     "job" : "prometheus",
-///                     "instance" : "localhost:9090"
-///                 },
-///                 "values" : [
-///                     [ 1435781430.781, "1" ],
-///                     [ 1435781445.781, "1" ],
-///                     [ 1435781460.781, "1" ]
-///                 ]
-///             },
-///             {
-///                 "metric" : {
-///                     "__name__" : "up",
-///                     "job" : "node",
-///                     "instance" : "localhost:9091"
-///                 },
-///                 "values" : [
-///                     [ 1435781430.781, "0" ],
-///                     [ 1435781445.781, "0" ],
-///                     [ 1435781460.781, "1" ]
-///                 ]
-///             }
-///         ]
-///     }
+//     "resultType" : "matrix",
+//     "data" : [
+//         {
+//             "metric" : {
+//                 "__name__" : "up",
+//                 "job" : "prometheus",
+//                 "instance" : "localhost:9090"
+//             },
+//             "values" : [
+//                 [ 1435781430.781, "1" ],
+//                 [ 1435781445.781, "1" ],
+//                 [ 1435781460.781, "1" ]
+//             ]
+//         },
+//         {
+//             "metric" : {
+//                 "__name__" : "up",
+//                 "job" : "node",
+//                 "instance" : "localhost:9091"
+//             },
+//             "values" : [
+//                 [ 1435781430.781, "0" ],
+//                 [ 1435781445.781, "0" ],
+//                 [ 1435781460.781, "1" ]
+//             ]
+//         }
+//     ]
 /// }
 /// ```
-pub fn to_matrix_result(vals: Vec<QueryResult>) -> ValkeyValue {
-    let map: Vec<ValkeyValue> = vals
+pub fn to_matrix_result(vals: Vec<RangeQueryResult>) -> ValkeyValue {
+    let data: Vec<ValkeyValue> = vals
         .into_iter()
         .map(|val| {
             let metric_name = metric_name_to_valkey_value(&val.metric, None);
-            let samples = samples_to_result(&val.timestamps, &val.values);
+            let samples = val.samples.into_iter()
+                .map(sample_to_value)
+                .collect::<Vec<_>>();
+
             let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
                 (ValkeyValueKey::from("metric"), metric_name),
-                (ValkeyValueKey::from("values"), samples),
+                (ValkeyValueKey::from("values"), samples.into()),
             ]
             .into_iter()
             .collect();
+
             ValkeyValue::Map(map)
         })
         .collect();
 
-    to_success_result(map.into(), ResultType::Matrix)
+    let map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::from([
+        (ValkeyValueKey::from("resultType"), "vector".into()),
+        (ValkeyValueKey::from("data"), data.into()),
+    ]);
+
+    ValkeyValue::Map(map)
 }
 
 /// Convert to Prometheus Instant Vector output format
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#instant-vectors
 /// ``` json
 /// {
-///     "status" : "success",
-///     "data" : {
-///         "resultType" : "vector",
-///         "result" : [
-///             {
-///                 "metric" : {
-///                     "__name__" : "up",
-///                     "job" : "prometheus",
-///                     "instance" : "localhost:9090"
-///                 },
-///                 "value": [ 1435781451.781, "1" ]
-///             },
-///             {
-///                 "metric" : {
-///                     "__name__" : "up",
-///                     "job" : "node",
-///                     "instance" : "localhost:9100"
-///                 },
-///                 "value" : [ 1435781451.781, "0" ]
-///             }
-///         ]
-///     }
+///    "resultType" : "vector",
+//     "data" : [
+//         {
+//             "metric" : {
+//                 "__name__" : "up",
+//                 "job" : "prometheus",
+//                 "instance" : "localhost:9090"
+//             },
+//             "value": [ 1435781451.781, "1" ]
+//         },
+//         {
+//             "metric" : {
+//                 "__name__" : "up",
+//                 "job" : "node",
+//                 "instance" : "localhost:9100"
+//             },
+//             "value" : [ 1435781451.781, "0" ]
+//         }
+//     ]
 /// }
 /// ```
-pub fn to_instant_vector_result(metric: &MetricName, ts: Timestamp, value: f64) -> ValkeyValue {
-    let metric_name = metric_name_to_valkey_value(metric, None);
-    let sample = sample_to_result(ts, value);
-    let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
-        (ValkeyValueKey::from("metric"), metric_name),
-        (ValkeyValueKey::from("value"), sample),
-    ]
-    .into_iter()
-    .collect();
+pub fn to_instant_vector_result(results: Vec<InstantQueryResult>) -> ValkeyValue {
+    let data: Vec<_> = results.iter().map(|x| {
+        let metric_name = metric_name_to_valkey_value(&x.metric, None);
+        let map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::from([
+            (ValkeyValueKey::from("metric"), metric_name),
+            (ValkeyValueKey::from("value"), sample_to_value(x.sample)),
+        ]);
+        map
+    }).collect();
+
+    let map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::from([
+        (ValkeyValueKey::from("resultType"), "matrix".into()),
+        (ValkeyValueKey::from("data"), data.into()),
+    ]);
 
     ValkeyValue::Map(map)
 }
 
-fn to_single_vector_result(metric: &MetricName, ts: Timestamp, value: f64) -> ValkeyValue {
-    let metric_name = metric_name_to_valkey_value(metric, None);
-    let sample = sample_to_result(ts, value);
-    let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
-        (ValkeyValueKey::from("metric"), metric_name),
-        (ValkeyValueKey::from("value"), sample),
-    ]
-    .into_iter()
-    .collect();
-
-    ValkeyValue::Map(map)
-}
-
-pub fn to_success_result(data: ValkeyValue, response_type: ResultType) -> ValkeyValue {
-    let data_map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
-        (
-            ValkeyValueKey::from("resultType"),
-            ValkeyValue::SimpleStringStatic(response_type.as_str()),
-        ),
-        (ValkeyValueKey::from("result"), data),
-    ]
-    .into_iter()
-    .collect();
-
-    let map: HashMap<ValkeyValueKey, ValkeyValue> = vec![
-        status_element(true),
-        (
-            ValkeyValueKey::from("data"),
-            ValkeyValue::Map(data_map),
-        ),
-    ]
-    .into_iter()
-    .collect();
-
-    ValkeyValue::Map(map)
-}
-
-pub fn format_string_array_result(arr: &[String]) -> ValkeyValue {
-    let converted = arr.iter().map(ValkeyValue::from).collect();
-    format_array_result(converted)
-}
 
 pub fn format_array_result(arr: Vec<ValkeyValue>) -> ValkeyValue {
     let map: HashMap<ValkeyValueKey, ValkeyValue> = [

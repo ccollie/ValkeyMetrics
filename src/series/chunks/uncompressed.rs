@@ -1,11 +1,11 @@
-use crate::common::types::Timestamp;
+use crate::common::types::{Timestamp, Sample};
 use crate::error::{TsdbError, TsdbResult};
 use crate::iter::SampleIter;
 use crate::series::merge::merge_samples;
 use crate::series::chunks::Chunk;
 use crate::series::serialization::{rdb_load_usize, rdb_save_usize};
 use crate::series::utils::get_sample_index_bounds;
-use crate::series::{DuplicatePolicy, Sample, SAMPLE_SIZE};
+use crate::series::{DuplicatePolicy, SAMPLE_SIZE};
 use core::mem::size_of;
 use get_size::GetSize;
 use valkey_module::raw;
@@ -305,9 +305,10 @@ impl Chunk for UncompressedChunk {
 mod tests {
     use crate::error::TsdbError;
     use crate::series::chunks::uncompressed::UncompressedChunk;
-    use crate::series::{Chunk, Sample};
+    use crate::common::types::{Sample};
     use crate::tests::generators::create_rng;
     use rand::Rng;
+    use crate::series::Chunk;
 
     pub(crate) fn saturate_uncompressed_chunk(chunk: &mut UncompressedChunk) {
         let mut rng = create_rng(None).unwrap();

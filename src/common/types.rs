@@ -1,13 +1,12 @@
-pub type Timestamp = metricsql_runtime::prelude::Timestamp;
-pub type PooledTimestampVec = metricsql_common::pool::PooledVecI64;
-pub type PooledVecF64 = metricsql_common::pool::PooledVecF64;
-pub type PooledVecI64 = metricsql_common::pool::PooledVecI64;
-pub type Sample = metricsql_runtime::types::Sample;
-pub type Label = metricsql_runtime::types::Label;
-pub type Matchers = metricsql_parser::prelude::Matchers;
-pub type TimestampTrait = dyn metricsql_runtime::types::TimestampTrait;
+pub use metricsql_common::prelude::{
+    StringMatchHandler
+};
+pub use metricsql_common::pool::{PooledVecI64, PooledVecF64};
+pub use metricsql_runtime::types::{Label, Sample, Timestamp, TimestampTrait, MetricName};
+pub use metricsql_runtime::{TagFilter};
+pub use metricsql_parser::label::{ LabelFilter, LabelFilterOp, Matchers };
 pub type IntMap<K,V> = metricsql_common::hash::IntMap<K, V>;
-pub type QueryParams = metricsql_runtime::prelude::query::QueryParams;
+pub use metricsql_runtime::prelude::query::QueryParams;
 
 pub trait SampleLike: Eq + PartialEq + PartialOrd + Ord {
     fn timestamp(&self) -> Timestamp;

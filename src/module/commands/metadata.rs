@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use valkey_module::{
     Context as RedisContext, Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue,
 };
+use crate::error_consts;
 use crate::series::{normalize_range_args, TimestampValue};
 // todo: series count
 
@@ -89,7 +90,7 @@ where
     with_timeseries_index(ctx, move |index| {
         let keys = index.series_keys_by_matchers(ctx, &args.matchers);
         if keys.is_empty() {
-            return Err(ValkeyError::Str("ERR no series found"));
+            return Err(ValkeyError::Str(error_consts::NO_SERIES_FOUND));
         }
         for key in keys {
             let redis_key = ctx.open_key(&key);
@@ -168,9 +169,7 @@ fn parse_metadata_command_args(
     let (start, end) = normalize_range_args(start_value, end_value)?;
 
     if require_matchers && matchers.is_empty() {
-        return Err(ValkeyError::Str(
-            "ERR at least 1 MATCH series selector required",
-        ));
+        return Err(ValkeyError::Str(error_consts::MISSING_FILTER));
     }
 
     Ok(MetadataFunctionArgs {

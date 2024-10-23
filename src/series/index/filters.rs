@@ -2,9 +2,8 @@ use crate::series::index::index_key::format_key_for_label_prefix;
 use crate::series::index::timeseries_index::SetOperation;
 use super::{ARTBitmap, IdBitmap};
 use blart::AsBytes;
-use metricsql_common::prelude::StringMatchHandler;
-use metricsql_parser::label::{LabelFilterOp, Matchers};
-use metricsql_runtime::{create_label_filter_matchers, LabelFilterVec, TagFilter};
+use crate::common::types::{LabelFilterOp, Matchers, StringMatchHandler, TagFilter};
+use metricsql_runtime::{create_label_filter_matchers, LabelFilterVec};
 
 
 pub fn process_equals_match(label_index: &ARTBitmap, key: &String, dest: &mut IdBitmap, op: SetOperation) {

@@ -1,15 +1,12 @@
 use crate::query::get_query_context;
 use metricsql_runtime::types::{Timestamp, TimestampTrait};
 use std::collections::HashMap;
-use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use valkey_module::{Context, NextArg, ValkeyResult, ValkeyString, ValkeyValue};
 
 /// Returns currently running queries.
 pub fn active_queries(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1);
-    // signal not more args
-    if args.next().is_some() {
-        return Err(ValkeyError::WrongArity)
-    }
+    args.done()?;
 
     Ok(get_active_queries())
 }

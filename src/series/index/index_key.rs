@@ -3,7 +3,7 @@ use std::borrow::Borrow;
 use std::fmt::Display;
 use std::ops::Deref;
 use blart::{AsBytes};
-use metricsql_runtime::prelude::METRIC_NAME_LABEL;
+use crate::common::METRIC_NAME_LABEL;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IndexKey(Box<[u8]>);

@@ -35,8 +35,7 @@ pub fn delete_series(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
                     redis_key.delete()?;
                 }
                 Ok(None) => {
-                    let msg = format!("ERR series not found '{}'", key);
-                    return Err(ValkeyError::String(msg));
+                    return Err(ValkeyError::Str(error_consts::SERIES_NOT_FOUND));
                 }
                 Err(e) => {
                     return Err(e)

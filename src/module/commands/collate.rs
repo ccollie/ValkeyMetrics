@@ -12,6 +12,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use crate::error_consts;
 
 const REDUCER_KEY: &str = "__reducer__";
 const SOURCE_KEY: &str = "__source__";
@@ -66,7 +67,7 @@ fn handle_collate(ctx: &Context, options: CollateOptions) -> ValkeyResult {
     with_timeseries_index(ctx, move |index| {
         let keys = index.series_keys_by_matchers(ctx, &options.matchers);
         if keys.is_empty() {
-            return Err(ValkeyError::Str("VM: ERR no series found"));
+            return Err(ValkeyError::Str(error_consts::NO_SERIES_FOUND));
         }
 
         let mut metas: Vec<SeriesMeta> = Vec::with_capacity(keys.len());

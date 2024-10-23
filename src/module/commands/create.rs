@@ -88,8 +88,7 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
                 }
             }
             _ => {
-                let msg = format!("ERR invalid argument '{}'", arg);
-                return Err(ValkeyError::String(msg));
+                return Err(ValkeyError::Str(error_consts::INVALID_ARGUMENT));
             }
         };
     }
@@ -108,8 +107,7 @@ pub(crate) fn create_series(
         // will return an error if the series already exists
         let existing_id = index.get_id_by_name_and_labels(&ts.metric_name, &ts.labels)?;
         if let Some(_id) = existing_id {
-            let msg = format!("ERR: the series already exists : \"{}\"", ts.prometheus_metric_name());
-            return Err(ValkeyError::String(msg));
+            return Err(ValkeyError::Str(error_consts::DUPLICATE_SERIES));
         }
 
         index.index_time_series(&mut ts, key.iter().as_slice())?;

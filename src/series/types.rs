@@ -13,6 +13,42 @@ use std::str::FromStr;
 use std::time::Duration;
 use valkey_module::{ValkeyError, ValkeyResult, ValkeyString};
 
+#[non_exhaustive]
+#[derive(Clone, Debug, Default, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(GetSize)]
+pub enum ChunkEncoding {
+    #[default]
+    Compressed,
+    Uncompressed,
+}
+
+impl ChunkEncoding {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ChunkEncoding::Compressed => "COMPRESSED",
+            ChunkEncoding::Uncompressed => "UNCOMPRESSED",
+        }
+    }
+}
+
+impl Display for ChunkEncoding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl TryFrom<&str> for ChunkEncoding {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            s if s.eq_ignore_ascii_case("compressed") => Ok(ChunkEncoding::Compressed),
+            s if s.eq_ignore_ascii_case("uncompressed") => Ok(ChunkEncoding::Uncompressed),
+            _ => Err(format!("invalid encoding: {}", value)),
+        }
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Deserialize, Serialize, Clone, Copy)]
 #[derive(GetSize)]
 pub enum DuplicatePolicy {

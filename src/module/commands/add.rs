@@ -4,6 +4,7 @@ use crate::module::{get_timeseries_mut, VKM_SERIES_TYPE};
 use crate::series::TimeSeriesOptions;
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use crate::error_consts;
 
 const CMD_ARG_METRIC: &str = "METRIC";
 
@@ -50,8 +51,7 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
                 options.labels = parse_metric_name(args.next_str()?)?;
             }
             _ => {
-                let msg = format!("ERR invalid argument '{}'", arg);
-                return Err(ValkeyError::String(msg));
+                return Err(ValkeyError::Str(error_consts::INVALID_ARGUMENT));
             }
         };
     }

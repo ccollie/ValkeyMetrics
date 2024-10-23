@@ -1,18 +1,18 @@
 use super::{XOREncoder, XORIterator};
-use crate::common::current_time_millis;
-use crate::common::types::Timestamp;
+use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
 use crate::iter::SampleIter;
 use crate::series::chunks::chunk::Chunk;
 use crate::series::merge::merge_samples;
 use crate::series::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
-use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES};
+use crate::series::{DuplicatePolicy, DEFAULT_CHUNK_SIZE_BYTES};
 use get_size::GetSize;
 use std::cmp::Ordering;
 use std::mem::size_of;
 use std::ops::ControlFlow;
 use valkey_module::error::Error as ValkeyError;
 use valkey_module::raw;
+use crate::common::current_time_millis;
 
 /// `GorillaChunk` holds information about location and time range of a block of compressed data.
 #[derive(Debug, Clone, PartialEq)]
@@ -484,8 +484,9 @@ mod tests {
     use crate::series::chunks::chunk::Chunk;
     use crate::series::chunks::gorilla::gorilla_chunk::GorillaChunk;
     use crate::series::test_utils::generate_random_samples;
-    use crate::series::{DuplicatePolicy, Sample};
+    use crate::series::{DuplicatePolicy};
     use crate::tests::generators::GeneratorOptions;
+    use crate::common::types::{Sample};
 
     fn decompress(chunk: &GorillaChunk) -> Vec<Sample> {
         chunk.iter().collect()
