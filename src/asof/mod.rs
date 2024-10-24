@@ -22,8 +22,8 @@ mod default;
 
 pub type IdxSize = usize;
 
-trait AsofJoinState<T>: Default {
-    fn next<F: FnMut(IdxSize) -> Option<T>>(
+trait AsofJoinState<'a, T: 'a>: Default {
+    fn next<F: FnMut(IdxSize) -> Option<&'a T>>(
         &mut self,
         left_val: &T,
         right: F,
@@ -36,9 +36,9 @@ struct AsofJoinForwardState {
     scan_offset: IdxSize,
 }
 
-impl<T: PartialOrd> AsofJoinState<T> for AsofJoinForwardState {
+impl<'a, T: PartialOrd + 'a> AsofJoinState<'a, T> for AsofJoinForwardState {
     #[inline]
-    fn next<F: FnMut(IdxSize) -> Option<T>>(
+    fn next<F: FnMut(IdxSize) -> Option<&'a T>>(
         &mut self,
         left_val: &T,
         mut right: F,
@@ -63,9 +63,9 @@ struct AsofJoinBackwardState {
     scan_offset: IdxSize,
 }
 
-impl<T: PartialOrd> AsofJoinState<T> for AsofJoinBackwardState {
+impl<'a, T: PartialOrd + 'a> AsofJoinState<'a, T> for AsofJoinBackwardState {
     #[inline]
-    fn next<F: FnMut(IdxSize) -> Option<T>>(
+    fn next<F: FnMut(IdxSize) -> Option<&'a T>>(
         &mut self,
         left_val: &T,
         mut right: F,
@@ -92,9 +92,9 @@ struct AsofJoinNearestState {
     scan_offset: IdxSize,
 }
 
-impl<T> AsofJoinState<T> for AsofJoinNearestState {
+impl<'a, T: 'a + PartialEq> AsofJoinState<'a, T> for AsofJoinNearestState where &T: PartialOrd<T> {
     #[inline]
-    fn next<F: FnMut(IdxSize) -> Option<T>>(
+    fn next<F: FnMut(IdxSize) -> Option<&'a T>>(
         &mut self,
         left_val: &T,
         mut right: F,

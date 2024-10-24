@@ -19,7 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 // https://github.com/pola-rs/polars/blob/main/crates/polars-ops/src/frame/join/asof/default.rs
-use crate::common::types::{Sample, SampleLike};
+use crate::common::types::{Sample};
 use super::{
     AsofJoinBackwardState,
     AsofJoinForwardState,
@@ -32,8 +32,8 @@ use super::{
 
 fn join_asof_impl<'a, T, S, F>(left: &'a [T], right: &'a [T], mut filter: F) -> Vec<(&'a T, &'a T)>
 where
-    S: AsofJoinState<T>,
-    F: FnMut(T, T) -> bool,
+    S: AsofJoinState<'a, T>,
+    F: FnMut(&T, &T) -> bool,
 {
     let mut out = Vec::with_capacity(left.len());
     let mut state = S::default();
@@ -59,7 +59,7 @@ where
 pub fn join_asof_forward<'a, T, F>(left: &'a [T], right: &'a [T], filter: F) -> Vec<(&'a T, &'a T)>
 where
     T: PartialOrd,
-    F: FnMut(T, T) -> bool,
+    F: FnMut(&T, &T) -> bool,
 {
     join_asof_impl::<T, AsofJoinForwardState, _>(left, right, filter)
 }
@@ -67,14 +67,14 @@ where
 pub fn join_asof_backward<'a, T, F>(left: &'a [T], right: &'a [T], filter: F) -> Vec<(&'a T, &'a T)>
 where
     T: PartialOrd,
-    F: FnMut(T, T) -> bool,
+    F: FnMut(&T, &T) -> bool,
 {
     join_asof_impl::<T, AsofJoinBackwardState, _>(left, right, filter)
 }
 
 pub fn join_asof_nearest<'a, T, F>(left: &'a [T], right: &'a [T], filter: F) -> Vec<(&'a T, &'a T)>
 where
-    F: FnMut(T, T) -> bool,
+    F: FnMut(&T, &T) -> bool,
 {
     join_asof_impl::<T, AsofJoinNearestState, _>(left, right, filter)
 }
@@ -88,14 +88,14 @@ pub(crate) fn join_asof_samples<'a>(
 ) -> Vec<(&'a Sample, &'a Sample)> {
     if let Some(t) = tolerance {
         let abs_tolerance = t.abs_diff(0);
-        let filter = |l: Sample, r: Sample| l.timestamp.abs_diff(r.timestamp) <= abs_tolerance;
+        let filter = |l: &Sample, r: &Sample| l.timestamp.abs_diff(r.timestamp) <= abs_tolerance;
         match strategy {
             AsofStrategy::Forward => join_asof_forward::<Sample, _>(left, right, filter),
             AsofStrategy::Backward => join_asof_backward::<Sample, _>(left, right, filter),
             AsofStrategy::Nearest => join_asof_nearest::<Sample, _>(left, right, filter),
         }
     } else {
-        let filter = |_l: Sample, _r: Sample| true;
+        let filter = |_l: &Sample, _r: &Sample| true;
         match strategy {
             AsofStrategy::Forward => join_asof_forward::<Sample, _>(left, right, filter),
             AsofStrategy::Backward => join_asof_backward::<Sample, _>(left, right, filter),
