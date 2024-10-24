@@ -4,6 +4,7 @@ mod tests {
     use valkey_module::ValkeyError;
     use crate::common::current_time_millis;
     use crate::error_consts;
+    use crate::error_consts::INVALID_TIMESTAMP;
     use crate::series::timestamp_range::TimestampValue;
     use crate::series::{TimeSeries, TimestampRange};
 
@@ -64,7 +65,7 @@ mod tests {
     fn test_timestamp_range_value_try_from_invalid_timestamp() {
         let input = "invalid_timestamp";
         let result = TimestampValue::try_from(input);
-        assert!(matches!(result, Err(ValkeyError::Str(error_consts::INVALID_TIMESTAMP))));
+        assert!(matches!(result, Err(ValkeyError::Str(msg)) if msg == INVALID_TIMESTAMP));
     }
 
     #[test]

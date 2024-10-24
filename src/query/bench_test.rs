@@ -6,7 +6,7 @@ mod tests {
     use crate::query::test_metric_storage::TestMetricStorage;
     use crate::query::test_utils::{create_context, range_query_cases, setup_range_query_test_data};
     use criterion::Criterion;
-    use metricsql_runtime::execution::query::{query as base_query, QueryParams};
+
     fn benchmark_range_query(crit: &mut Criterion) {
         const TEN_SECONDS: usize = 10 * 1000; // in msec
         let mut stor = TestMetricStorage::new();

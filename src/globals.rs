@@ -13,12 +13,6 @@ pub unsafe fn get_current_db(ctx: *mut raw::RedisModuleCtx) -> u32 {
     db as u32
 }
 
-/// https://docs.rs/papaya/latest/papaya/#advanced-lifetimes
-fn get_timeseries_index<'guard>(ctx: &Context, guard: &'guard impl Guard) -> &'guard TimeSeriesIndex {
-    let db = unsafe { get_current_db(ctx.ctx) };
-    get_timeseries_index_for_db(db, guard)
-}
-
 #[inline]
 pub fn get_timeseries_index_for_db(db: u32, guard: &impl Guard) -> &TimeSeriesIndex {
     TIMESERIES_INDEX.get_or_insert_with(db, TimeSeriesIndex::new, guard)

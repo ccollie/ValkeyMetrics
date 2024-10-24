@@ -9,6 +9,7 @@ use smallvec::SmallVec;
 use std::io::Write;
 use valkey_module::error::Error as ValkeyError;
 use valkey_module::raw;
+use crate::series::chunks::gorilla::varbit::write_varbit;
 use crate::series::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
 use super::varbit_ts::write_varbit_ts;
 use super::varbit_xor::write_varbit_xor;
@@ -148,7 +149,8 @@ impl XOREncoder {
         }
         let timestamp_delta_of_delta = timestamp_delta - self.timestamp_delta;
 
-        write_varbit_ts(timestamp_delta_of_delta, &mut self.writer)?;
+        // write_varbit_ts(timestamp_delta_of_delta, &mut self.writer)?;
+        write_varbit(timestamp_delta_of_delta, &mut self.writer)?;
 
         let (leading_bits_count, trailing_bits_count) = write_varbit_xor(
             value,

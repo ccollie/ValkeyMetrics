@@ -6,6 +6,7 @@ use nom::{
     number::complete::be_f64,
     sequence::tuple
 };
+use crate::series::chunks::gorilla::varbit::read_varbit_int;
 use super::varbit_ts::read_varbit_ts;
 use super::varbit_xor::read_varbit_xor;
 use super::XOREncoder;
@@ -105,7 +106,8 @@ impl XORIterator<'_> {
             remaining_input,
             (timestamp_delta_of_delta, (value, new_leading_bits_count, new_trailing_bits_count)),
         ) = tuple((
-            read_varbit_ts,
+            read_varbit_int,
+            //read_varbit_ts,
             read_varbit_xor(
                 previous_value,
                 previous_leading_bits_count,

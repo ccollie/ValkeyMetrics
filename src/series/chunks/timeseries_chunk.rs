@@ -69,6 +69,9 @@ impl TimeSeriesChunk {
         }
         let remaining = total - used;
         let bytes_per_sample = self.bytes_per_sample();
+        if bytes_per_sample == 0 {
+            return 0;
+        }
         remaining / bytes_per_sample
     }
 

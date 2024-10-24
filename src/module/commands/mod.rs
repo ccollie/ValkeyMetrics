@@ -21,7 +21,6 @@ mod collate;
 mod info;
 mod mget;
 
-pub use crate::iter::aggregator::*;
 pub use alter::*;
 pub use delete_range::*;
 pub use create::*;

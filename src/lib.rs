@@ -29,12 +29,14 @@ mod query;
 use crate::globals::{clear_timeseries_index, with_timeseries_index};
 use crate::series::time_series::TimeSeries;
 use module::*;
+use crate::common::async_runtime::init_runtime;
 
 pub const VKMETRICS_VERSION: i32 = 1;
 pub const MODULE_NAME: &str = "VKMetrics";
 pub const MODULE_TYPE: &str = "vkmetrics";
 
 fn initialize(_ctx: &Context, _args: &[ValkeyString]) -> Status {
+    init_runtime();
     Status::Ok
 }
 

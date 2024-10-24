@@ -1,7 +1,6 @@
 pub use metricsql_common::prelude::{
     StringMatchHandler
 };
-pub use metricsql_common::pool::{PooledVecI64, PooledVecF64};
 pub use metricsql_runtime::types::{Label, Sample, Timestamp, TimestampTrait, MetricName};
 pub use metricsql_runtime::{TagFilter};
 pub use metricsql_parser::label::{ LabelFilter, LabelFilterOp, Matchers };

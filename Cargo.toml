@@ -50,6 +50,9 @@ tracing = "0.1"
 valkey-module = "0.1"
 valkey-module-macros = "0.1"
 async-trait = "0.1"
+async-std = { version = "1.13.0", optional = true }
+smol = { version = "2.0", optional = true }
+tokio = { version = "1", optional = true, features = ["macros", "rt", "rt-multi-thread"] }
 
 [dev-dependencies]
 anyhow = "1.0"
@@ -60,9 +63,9 @@ criterion = { version = "0.5", features = ["html_reports"] }
 default = ["tokio"]
 # Enable for u64 timeseries ids
 id64 = ["xxhash-rust/xxh3"]
-tokio = ["metricsql_common/tokio", "metricsql_runtime/tokio"]
-async-std = ["metricsql_common/async-std", "metricsql_runtime/async-std"]
-smol = ["metricsql_common/smol", "metricsql_runtime/smol"]
+tokio = ["dep:tokio", "metricsql_common/tokio", "metricsql_runtime/tokio"]
+async-std = ["dep:async-std", "metricsql_common/async-std", "metricsql_runtime/async-std"]
+smol = ["dep:smol", "metricsql_common/smol", "metricsql_runtime/smol"]
 
 [lib]
 crate-type=["rlib", "cdylib"]

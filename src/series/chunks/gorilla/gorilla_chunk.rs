@@ -1,4 +1,5 @@
 use super::{XOREncoder, XORIterator};
+use crate::common::current_time_millis;
 use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
 use crate::iter::SampleIter;
@@ -9,10 +10,8 @@ use crate::series::{DuplicatePolicy, DEFAULT_CHUNK_SIZE_BYTES};
 use get_size::GetSize;
 use std::cmp::Ordering;
 use std::mem::size_of;
-use std::ops::ControlFlow;
 use valkey_module::error::Error as ValkeyError;
 use valkey_module::raw;
-use crate::common::current_time_millis;
 
 /// `GorillaChunk` holds information about location and time range of a block of compressed data.
 #[derive(Debug, Clone, PartialEq)]
@@ -84,34 +83,15 @@ impl GorillaChunk {
         (uncompressed_size / compressed_size) as f64
     }
 
-    pub fn process_samples_in_range<F, State>(
-        &self,
-        state: &mut State,
-        start_ts: Timestamp,
-        end_ts: Timestamp,
-        mut f: F
-    ) -> TsdbResult<()>
-    where
-        F: FnMut(&mut State, &Sample) -> ControlFlow<()>,
-    {
-        for sample in self.range_iter(start_ts, end_ts) {
-            match f(state, &sample) {
-                ControlFlow::Break(_) => break,
-                ControlFlow::Continue(_) => continue,
-            }
-        }
-
-        Ok(())
-    }
-
     pub fn data_size(&self) -> usize {
         self.xor_encoder.get_size()
     }
 
     pub fn bytes_per_sample(&self) -> usize {
-        let count = self.len();
-        if  count == 0 {
-            return 0;
+        let mut count = self.len();
+        if count == 0 {
+            // estimate 50%
+            count = 2;
         }
         self.data_size() / count
     }
@@ -139,7 +119,7 @@ impl GorillaChunk {
     }
 
     pub fn iter(&self) -> SampleIter {
-        GorillaChunkIterator::new(self, i64::MIN, i64::MAX).into()
+        self.range_iter(i64::MIN, i64::MAX)
     }
 
     pub fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> SampleIter {
@@ -152,22 +132,29 @@ impl GorillaChunk {
         }
         let mut samples = Vec::with_capacity(timestamps.len());
         let mut timestamps = timestamps;
-        let first_timestamp = timestamps[0].max(self.first_timestamp);
+
+        let mut first_ts = timestamps[0];
+
+        let first_timestamp = first_ts.max(self.first_timestamp);
         let last_timestamp = timestamps[timestamps.len() - 1].min(self.last_timestamp());
 
         for sample in self.range_iter(first_timestamp, last_timestamp) {
-            let first_ts = timestamps[0];
             match sample.timestamp.cmp(&first_ts) {
                 Ordering::Less => continue,
                 Ordering::Equal => {
                     timestamps = &timestamps[1..];
                     samples.push(sample);
+                    if timestamps.is_empty() {
+                        break;
+                    }
+                    first_ts = timestamps[0];
                 }
                 Ordering::Greater => {
                     timestamps = &timestamps[1..];
                     if timestamps.is_empty() {
                         break;
                     }
+                    first_ts = timestamps[0];
                 }
             }
         }
@@ -464,15 +451,13 @@ impl<'a> Iterator for GorillaChunkIterator<'a> {
             self.init = true;
 
             while let Some(sample) = self.next_internal() {
-                if sample.timestamp > self.end {
-                    return None;
-                }
                 if sample.timestamp < self.start {
                     continue;
                 }
                 return Some(sample);
             }
 
+            return None;
         }
         self.next_internal()
     }
@@ -480,13 +465,13 @@ impl<'a> Iterator for GorillaChunkIterator<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::common::types::Sample;
     use crate::error::TsdbError;
     use crate::series::chunks::chunk::Chunk;
     use crate::series::chunks::gorilla::gorilla_chunk::GorillaChunk;
     use crate::series::test_utils::generate_random_samples;
-    use crate::series::{DuplicatePolicy};
+    use crate::series::DuplicatePolicy;
     use crate::tests::generators::GeneratorOptions;
-    use crate::common::types::{Sample};
 
     fn decompress(chunk: &GorillaChunk) -> Vec<Sample> {
         chunk.iter().collect()
@@ -637,4 +622,15 @@ mod tests {
         assert_eq!(left_decompressed, left_samples);
     }
 
+    #[test]
+    fn test_iter() {
+        let mut chunk = GorillaChunk::default();
+        let options = GeneratorOptions::default();
+        let data = generate_random_samples(0, 1000);
+
+        chunk.set_data(&data).unwrap();
+
+        let actual: Vec<_> = chunk.iter().collect();
+        assert_eq!(actual, data);
+    }
 }

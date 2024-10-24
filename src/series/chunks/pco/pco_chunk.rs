@@ -219,10 +219,13 @@ impl PcoChunk {
     }
 
     pub fn bytes_per_sample(&self) -> usize {
-        if self.count == 0 {
-            return 0;
-        }
-        self.data_size() / self.count
+        let count = if self.count == 0 {
+            // estimate 50%
+            2
+        } else {
+            self.count
+        };
+        self.data_size() / count
     }
 
     /// estimate remaining capacity based on the current data size and chunk max_size
@@ -275,22 +278,28 @@ impl PcoChunk {
         }
         let mut samples = Vec::with_capacity(timestamps.len());
         let mut timestamps = timestamps;
-        let first_timestamp = timestamps[0].max(self.min_time);
+
+        let mut first_ts = timestamps[0];
+        let first_timestamp = first_ts.max(self.min_time);
         let last_timestamp = timestamps[timestamps.len() - 1].min(self.max_time);
 
         for sample in self.range_iter(first_timestamp, last_timestamp) {
-            let first_ts = timestamps[0];
             match sample.timestamp.cmp(&first_ts) {
                 Ordering::Less => continue,
                 Ordering::Equal => {
-                    timestamps = &timestamps[1..];
                     samples.push(sample);
+                    timestamps = &timestamps[1..];
+                    if timestamps.is_empty() {
+                        break;
+                    }
+                    first_ts = timestamps[0];
                 }
                 Ordering::Greater => {
                     timestamps = &timestamps[1..];
                     if timestamps.is_empty() {
                         break;
                     }
+                    first_ts = timestamps[0];
                 }
             }
         }
@@ -360,6 +369,7 @@ impl Chunk for PcoChunk {
     }
 
     fn get_range(&self, start: Timestamp, end: Timestamp) -> TsdbResult<Vec<Sample>> {
+        // todo: use iterator instead
         if let Some((timestamps, values)) = self.decompress()? {
             if let Some((start_index, end_index)) = get_timestamp_index_bounds(&timestamps, start, end) {
                 let stamps = &timestamps[start_index..=end_index];

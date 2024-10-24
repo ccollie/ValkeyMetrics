@@ -21,7 +21,6 @@ const MAX_TS_VALUES_FILTER: usize = 16;
 pub const CMD_ARG_COUNT: &str = "COUNT";
 pub const CMD_PARAM_REDUCER: &str = "REDUCE";
 const CMD_PARAM_ALIGN: &str = "ALIGN";
-pub const CMD_ARG_ENCODING: &str = "ENCODING";
 pub const CMD_ARG_COMPRESSION: &str = "COMPRESSION";
 pub const CMD_ARG_FILTER_BY_VALUE: &str = "FILTER_BY_VALUE";
 pub const CMD_ARG_FILTER_BY_TS: &str = "FILTER_BY_TS";

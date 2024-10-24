@@ -12,20 +12,19 @@ use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 use std::ops::ControlFlow::Continue;
 use std::sync::{RwLock, RwLockReadGuard};
+use cfg_if::cfg_if;
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
-#[cfg(feature = "id64")]
-pub(crate) use croaring::Bitmap64 as IdBitmap;
-
-#[cfg(not(feature = "id64"))]
-pub(crate) use croaring::Bitmap as IdBitmap;
-
-#[cfg(feature = "id64")]
-use xxhash_rust::xxh3::Xxh3 as IdHasher;
-
-#[cfg(not(feature = "id64"))]
-use xxhash_rust::xxh32::Xxh32 as IdHasher;
+cfg_if! {
+    if #[cfg(feature = "id64")] {
+        use xxhash_rust::xxh3::Xxh3 as IdHasher;
+        pub(crate) use croaring::Bitmap64 as IdBitmap;
+    } else {
+        use xxhash_rust::xxh32::Xxh32 as IdHasher;
+        pub(crate) use croaring::Bitmap as IdBitmap;
+    }
+}
 
 /// Type for the key of the index. Use instead of `String` because Valkey keys are binary safe not utf8 safe.
 pub type KeyType = Box<[u8]>;

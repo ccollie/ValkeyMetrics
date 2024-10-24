@@ -614,8 +614,7 @@ fn binary_search_chunks_by_timestamp(chunks: &[TimeSeriesChunk], ts: Timestamp) 
 }
 
 /// Find the index of the first chunk in which the timestamp belongs. Assumes!chunks.is_empty()
-pub(super) fn find_start_chunk_index(arr: &[TimeSeriesChunk], ts: Timestamp) -> usize
-{
+pub(super) fn find_start_chunk_index(arr: &[TimeSeriesChunk], ts: Timestamp) -> usize {
     if arr.is_empty() {
         // If the vector is empty, return the first index.
         return 0;

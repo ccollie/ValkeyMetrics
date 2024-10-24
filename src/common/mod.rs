@@ -4,6 +4,7 @@ pub mod rounding;
 mod encoding;
 pub mod bitwriter;
 pub mod binary_search;
+pub mod async_runtime;
 
 pub use utils::*;
 

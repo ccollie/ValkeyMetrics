@@ -1,3 +1,5 @@
+use crate::series::PcoChunk;
+
 #[cfg(test)]
 mod tests {
     use crate::common::types::Sample;
@@ -430,7 +432,7 @@ mod tests {
 
     const ELEMENTS_PER_CHUNK: usize = 60;
 
-    fn saturate_chunk(chunk: &mut TimeSeriesChunk) {
+    fn saturate_chunk(chunk: &mut TimeSeriesChunk) -> Vec<Sample> {
         let estimated_capacity = chunk.estimate_remaining_sample_capacity();
         let samples = generate_random_samples(0, estimated_capacity * 2);
         let (normal, spillage) = samples.split_at(estimated_capacity);
@@ -444,6 +446,7 @@ mod tests {
                 _ => {}
             };
         }
+        normal.to_vec()
     }
 
     #[test]
@@ -502,7 +505,7 @@ mod tests {
         let dest_samples_count = dest_samples.len();
 
         // Fill the source chunk with samples
-        saturate_chunk(&mut src_chunk);
+        let _ = saturate_chunk(&mut src_chunk);
 
         let remaining_capacity = dest_chunk.estimate_remaining_sample_capacity();
 
@@ -622,5 +625,18 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Some(ELEMENTS_PER_CHUNK));
         assert!(src_chunk.is_empty());
+    }
+
+    #[test]
+    fn test_iter_all() {
+        for chunk_type in CHUNK_TYPES {
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 4096);
+            let expected_samples = saturate_chunk(&mut chunk);
+
+            let actual_samples  = chunk.iter().collect::<Vec<Sample>>();
+
+            assert_eq!(expected_samples.len(), actual_samples.len(), "{} : expected samples len", chunk_type);
+            assert_eq!(expected_samples, actual_samples);
+        }
     }
 }
