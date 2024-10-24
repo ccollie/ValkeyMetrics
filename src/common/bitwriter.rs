@@ -96,42 +96,6 @@ impl<W: io::Write, E: Endianness> BitWriter<W, E> {
         self.writer().map(ByteWriter::new)
     }
 
-    /// Consumes writer and returns any un-written partial byte
-    /// as a `(bits, value)` tuple.
-    ///
-    /// # Examples
-    /// ```
-    /// use std::io::Write;
-    /// use bitstream_io::{BigEndian, BitWriter, BitWrite};
-    /// let mut data = Vec::new();
-    /// let (bits, value) = {
-    ///     let mut writer = BitWriter::endian(&mut data, BigEndian);
-    ///     writer.write(15, 0b1010_0101_0101_101).unwrap();
-    ///     writer.into_unwritten()
-    /// };
-    /// assert_eq!(data, [0b1010_0101]);
-    /// assert_eq!(bits, 7);
-    /// assert_eq!(value, 0b0101_101);
-    /// ```
-    ///
-    /// ```
-    /// use std::io::Write;
-    /// use bitstream_io::{BigEndian, BitWriter, BitWrite};
-    /// let mut data = Vec::new();
-    /// let (bits, value) = {
-    ///     let mut writer = BitWriter::endian(&mut data, BigEndian);
-    ///     writer.write(8, 0b1010_0101).unwrap();
-    ///     writer.into_unwritten()
-    /// };
-    /// assert_eq!(data, [0b1010_0101]);
-    /// assert_eq!(bits, 0);
-    /// assert_eq!(value, 0);
-    /// ```
-    #[inline(always)]
-    pub fn into_unwritten(self) -> (u32, u8) {
-        (self.bit_queue.len(), self.bit_queue.value())
-    }
-
     /// Flushes output stream to disk, if necessary.
     /// Any partial bytes are not flushed.
     ///
@@ -553,33 +517,6 @@ pub trait ByteWrite {
     where
         V: Primitive;
 
-    /// Writes whole numeric value to stream in a potentially different endianness
-    ///
-    /// # Errors
-    ///
-    /// Passes along any I/O error from the underlying stream.
-    ///
-    /// # Examples
-    /// ```
-    /// use std::io::Write;
-    /// use bitstream_io::{BigEndian, ByteWriter, ByteWrite, LittleEndian};
-    /// let mut writer = ByteWriter::endian(Vec::new(), BigEndian);
-    /// writer.write_as::<LittleEndian, u16>(0b0000000011111111).unwrap();
-    /// assert_eq!(writer.into_writer(), [0b11111111, 0b00000000]);
-    /// ```
-    ///
-    /// ```
-    /// use std::io::Write;
-    /// use bitstream_io::{BigEndian, ByteWriter, ByteWrite, LittleEndian};
-    /// let mut writer = ByteWriter::endian(Vec::new(), LittleEndian);
-    /// writer.write_as::<BigEndian, u16>(0b0000000011111111).unwrap();
-    /// assert_eq!(writer.into_writer(), [0b00000000, 0b11111111]);
-    /// ```
-    fn write_as<F, V>(&mut self, value: V) -> io::Result<()>
-    where
-        F: Endianness,
-        V: Primitive;
-
     /// Writes the entirety of a byte buffer to the stream.
     ///
     /// # Errors
@@ -598,15 +535,6 @@ impl<W: io::Write, E: Endianness> ByteWrite for ByteWriter<W, E> {
         V: Primitive,
     {
         E::write_numeric(&mut self.writer, value)
-    }
-
-    #[inline]
-    fn write_as<F, V>(&mut self, value: V) -> io::Result<()>
-    where
-        F: Endianness,
-        V: Primitive,
-    {
-        F::write_numeric(&mut self.writer, value)
     }
 
     #[inline]
