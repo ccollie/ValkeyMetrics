@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use metricsql_parser::binaryop::get_scalar_binop_handler;
 use metricsql_parser::prelude::{BinopFunc, Operator as BaseOp};
 use phf::phf_map;
@@ -11,6 +12,7 @@ pub enum JoinReducer {
     Add,
     And,
     Avg,
+    Cmp,
     Default,
     Div,
     #[default]
@@ -29,6 +31,7 @@ pub enum JoinReducer {
     Min,
     NotEq,
     Or,
+    SgnDiff,
     Unless,
 }
 
@@ -50,6 +53,7 @@ pub static BINARY_OPS_MAP: phf::Map<&'static str, JoinReducer> = phf_map! {
 
     "absdiff" => JoinReducer::AbsDiff,
     "add" => JoinReducer::Add,
+    "cmp" => JoinReducer::Cmp,
     "eq" => JoinReducer::Eql,
     "gt" => JoinReducer::Gt,
     "gte" => JoinReducer::Gte,
@@ -61,6 +65,7 @@ pub static BINARY_OPS_MAP: phf::Map<&'static str, JoinReducer> = phf_map! {
     "lte" => JoinReducer::Lte,
     "div" => JoinReducer::Div,
     "pow" => JoinReducer::Pow,
+    "sgndiff" => JoinReducer::SgnDiff,
 
     // logic set ops
     "and" => JoinReducer::And,
@@ -83,6 +88,7 @@ impl JoinReducer {
             AbsDiff => "absDiff",
             Add => "+",
             And => "and",
+            Cmp => "cmp",
             Default => "default",
             Div => "/",
             Eql => "==",
@@ -97,6 +103,7 @@ impl JoinReducer {
             NotEq => "!=",
             Or => "or",
             Pow => "^",
+            SgnDiff => "sgnDiff",
             Sub => "-",
             Unless => "unless",
             Avg => "avg",
@@ -120,6 +127,7 @@ impl JoinReducer {
             AbsDiff => abs_diff,
             Add => h(BaseOp::Add),
             And => h(BaseOp::And),
+            Cmp => cmp,
             Default => h(BaseOp::Default),
             Div => h(BaseOp::Div),
             Eql => h(BaseOp::Eql),
@@ -135,6 +143,7 @@ impl JoinReducer {
             Lte => h(BaseOp::Lte),
             NotEq => h(BaseOp::NotEq),
             Or => h(BaseOp::Or),
+            SgnDiff => sgn_diff,
             Unless => h(BaseOp::Unless),
         }
 
@@ -178,6 +187,59 @@ impl fmt::Display for JoinReducer {
     }
 }
 
+#[inline]
+fn is_truthy(val: f64) -> f64 {
+    if val.is_nan() {
+        0.0 // NaN is considered false
+    } else {
+        val.signum().abs()
+    }
+}
+
+fn cmp(x: f64, y: f64) -> f64 {
+    if x.is_nan() && y.is_nan() {
+        return 1.0;
+    }
+    if x.is_nan() {
+        return -1.0;
+    }
+    if y.is_nan() {
+        return 1.0;
+    }
+    match x.partial_cmp(&y).unwrap_or(Ordering::Equal) {
+        Ordering::Less => -1.0,
+        Ordering::Equal => 0.0,
+        Ordering::Greater => 1.0,
+    }
+}
+
+
+fn compare(x: f64, y: f64, op: Ordering) -> f64 {
+    match op {
+        Ordering::Less => if x < y { -1.0 } else { 0.0 },
+        Ordering::Equal => {
+            if x.is_nan() {
+                if y.is_nan() {
+                    1.0
+                } else {
+                    0.0
+                }
+            } else {
+                if x == y {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+        },
+        Ordering::Greater => if x > y {
+                1.0
+            } else {
+                0.0
+        }
+    }
+}
+
 fn min(x: f64, y: f64) -> f64 {
     x.min(y)
 }
@@ -192,6 +254,10 @@ fn avg(x: f64, y: f64) -> f64 {
 
 fn abs_diff(x: f64, y: f64) -> f64 {
     (x - y).abs()
+}
+
+fn sgn_diff(x: f64, y: f64) -> f64 {
+    (x - y).signum()
 }
 
 #[cfg(test)]

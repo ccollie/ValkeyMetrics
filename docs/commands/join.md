@@ -101,7 +101,7 @@ The tolerance works in conjunction with the 'direction' parameter.
 Suppose we want to get the spreads between buy and sell trades in a trading application
 
 ```
-VM.JOIN trades:buy trades:sell -1hr * ASOF PRIOR 2ms TRANSFORM sub
+VM.JOIN trades:buy trades:sell -1hr * ASOF PRIOR 2ms REDUCE sub
 ```
 
 The result has all samples from the `buy` series joined with samples from the `sell` series. For each timestamp from the 
@@ -183,7 +183,7 @@ OK
 Next, run the join.
 
 ```
-127.0.0.1:6379> VM.JOIN temp:CDMX temp:TOR TRANSFORM min 
+127.0.0.1:6379> VM.JOIN temp:CDMX temp:TOR REDUCE min 
 ```
 
 </details>
