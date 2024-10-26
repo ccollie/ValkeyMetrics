@@ -1,8 +1,11 @@
-import unittest
+import os
 import json
 import datetime
 import calendar
 from datetime import datetime
+
+import redis
+
 def parse_timestamp(ts):
     date_time_obj = datetime.strptime(ts, '%Y-%m-%d')
     return calendar.timegm(date_time_obj.timetuple()) * 1000
@@ -45,14 +48,19 @@ def load_into_redis(redis_conn):
         split = key.split(':')
         region = split[0]
         location = split[1]
-        r.execute_command('TS.CREATE', key, 'LABELS', 'region', region, 'location_type', location)
+        metric = 'consumption\{region="{}",location_type="{}"\}'.format(region, location)
+        r.execute_command('VM.CREATE-SERIES', key,  metric)
 
     for key, values in data.items():
         for ts, consumption in values:
-            r.execute_command('TS.ADD', key, ts, consumption)
+            r.execute_command('VM.ADD', key, ts, consumption)
             count += 1
         r.execute()
 
+
+WORK_DIR = 'work'
+RDB_PATH = os.path.join(WORK_DIR, 'dump.rdb')
+PORT = 6379
 
 def main(version):
     if not os.path.exists(WORK_DIR):
@@ -60,18 +68,6 @@ def main(version):
     elif os.path.exists(RDB_PATH):
         os.unlink(RDB_PATH)
 
-    args = ['docker', 'run',
-            '-p', '{}:{}'.format(PORT, PORT),
-            '-v', '{}:{}'.format(WORK_DIR, WORK_DIR),
-            '--name', 'rdb_test',
-            '--rm', 'redislabs/redistimeseries:{}'.format(version),
-            'redis-server',
-            '--port', str(PORT),
-            '--dir', WORK_DIR,
-            '--dbfilename', OUTPUT_RDB,
-            '--loadmodule', '/usr/lib/redis/modules/redistimeseries.so']
-    print(args)
-    proc = subprocess.Popen(args)
     try:
         redis_conn = redis.StrictRedis(port=PORT)
 
@@ -90,7 +86,7 @@ def main(version):
 
         redis_conn.save()
         redis_conn.ping()
-        shutil.copyfile(RDB_PATH, os.path.join('rdbs', "{}.rdb".format(version)))
+        shutil.copyfile(RDB_PATH, os.path.join('rdb', "{}.rdb".format(version)))
 
     finally:
         proc.send_signal(15)

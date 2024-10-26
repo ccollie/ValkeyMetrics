@@ -17,6 +17,7 @@ use std::hash::Hash;
 use std::mem::size_of;
 use std::time::Duration;
 use std::vec;
+use ahash::HashMapExt;
 use valkey_module::{raw, ValkeyError, ValkeyResult};
 
 const TIMESTAMP_TYPE_U64: &str = "u64";
@@ -280,6 +281,30 @@ impl TimeSeries {
                 Err(ValkeyError::Str(error_consts::CANNOT_ADD_SAMPLE))
             },
         }
+    }
+
+    pub fn merge_samples(
+        &mut self,
+        samples: &[Sample],
+        dp_policy: Option<DuplicatePolicy>,
+    ) -> TsdbResult<usize> {
+        let dp_policy = dp_policy.unwrap_or(self.duplicate_policy);
+
+        let mut grouping: IntMap<usize, SmallVec<Sample, 4>> = IntMap::new();
+
+        let earliest_ts = self.get_min_timestamp();
+        for sample in samples.filter(|sample| sample.timestamp >= earliest_ts) {
+            let (chunk_index, _) = find_last_ge_index(&self.chunks, sample.timestamp);
+            grouping.entry(chunk_index).or_insert_with(SmallVec::new).push(sample);
+        }
+
+        let mut size = 0;
+        for (chunk_index, mut samples) in grouping {
+            let mut chunk = self.chunks.get_mut(chunk_index).unwrap();
+            size += chunk.merge_samples(&mut samples, dp_policy)?;
+        }
+
+        Ok(size)
     }
 
 
@@ -647,6 +672,26 @@ fn get_chunk_index(chunks: &[TimeSeriesChunk], timestamp: Timestamp) -> (usize, 
     }
 
     binary_search_chunks_by_timestamp(chunks, timestamp)
+}
+
+fn find_last_ge_index(chunks: &[TimeSeriesChunk], ts: Timestamp) -> (usize, bool) {
+    if chunks.len() <= 16 {
+        return match chunks.iter().rposition(|x| ts >= x.last_timestamp()) {
+            Some(idx) => {
+                // todo: use get_unchecked
+                let chunk = &chunks[idx];
+                if chunk.is_timestamp_in_range(ts) {
+                    (idx, true)
+                } else if chunk.last_timestamp() > ts {
+                    (idx.saturating_sub(1), false)
+                } else {
+                    (idx, false)
+                }
+            },
+            None => (0, false)
+        }
+    }
+    binary_search_chunks_by_timestamp(chunks, ts)
 }
 
 pub struct SeriesSampleIterator<'a> {
