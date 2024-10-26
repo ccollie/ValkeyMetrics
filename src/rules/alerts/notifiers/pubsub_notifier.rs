@@ -1,8 +1,10 @@
 use crate::rules::alerts::{Alert, Notifier};
 use crate::rules::AlertsResult;
 use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 use valkey_module::Context;
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PubSubNotifier {
     pub topic: String,
 }
@@ -35,6 +37,7 @@ impl Notifier for PubSubNotifier {
         let mut msg = String::with_capacity(128);
         for alert in alerts {
             // PUBLISH channel alert:<alert_name>:<alert_state>
+            let tmp = format!("{ALERT_PREFIX}:{}:{}", alert.state.name(), alert.name);
             msg.push_str(ALERT_PREFIX);
             msg.push(':');
             msg.push_str(&alert.name);

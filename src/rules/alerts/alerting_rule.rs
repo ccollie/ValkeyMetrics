@@ -101,20 +101,20 @@ struct LabelSet {
 }
 
 impl AlertingRule {
-    pub fn new(rule: &RuleConfig, group: &Group) -> Self {
+    pub fn new(group: &Group, rule: RuleConfig) -> Self {
         let updates_limit = rule.update_entries_limit();
         let mut ar: AlertingRule = Default::default();
         ar.rule_type = rule.rule_type();
         ar.rule_id = rule.hash();
         ar.name = rule.name().to_string();
-        ar.expr = rule.expr.to_string();
+        ar.expr = rule.expr;
         ar.group_id = group.id();
         ar.group_name = group.name.clone();
         ar.eval_interval = group.interval.clone();
         ar.r#for = rule.r#for.clone();
-        ar.keep_firing_for = rule.keep_firing_for.clone();
-        ar.labels = rule.labels.clone();
-        ar.annotations = rule.annotations.clone();
+        ar.keep_firing_for = rule.keep_firing_for;
+        ar.labels = rule.labels;
+        ar.annotations = rule.annotations;
         ar.debug = rule.debug;
         ar.alerts = Default::default();
         ar.metrics = AlertingRuleMetrics::default();

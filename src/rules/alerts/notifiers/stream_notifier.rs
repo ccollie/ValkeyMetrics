@@ -4,18 +4,22 @@ use crate::rules::{AlertsError, AlertsResult};
 use ahash::AHashMap;
 use std::collections::HashMap;
 use std::time::Duration;
+use serde::{Deserialize, Serialize};
 use valkey_module::{Context, ValkeyValue};
 
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct StreamNotifier {
     pub key: String,
-    pub max_messages: Option<usize>
+    pub max_messages: Option<usize>,
+    compact: bool,
 }
 
 impl StreamNotifier {
     pub fn new(key: String, max_messages: Option<usize>) -> Self {
         StreamNotifier {
             key,
-            max_messages
+            max_messages,
+            compact: false,
         }
     }
 
@@ -55,23 +59,25 @@ impl StreamNotifier {
 
         // Serialize the alert to a list of key value pairs encoded as strings
         add_key_value_pair("id", &alert.id.to_string(), serialized_alert);
+        add_key_value_pair("group_id", &alert.group_id.to_string(), serialized_alert);
         add_key_value_pair("name", &alert.name, serialized_alert);
         add_key_value_pair("state", &alert.state.to_string(), serialized_alert);
         add_key_value_pair("value", &alert.value.to_string(), serialized_alert);
-        add_key_value_pair("expr", &alert.expr, serialized_alert);
-
         add_timestamp("active_at", &alert.active_at, serialized_alert);
-        add_timestamp("start", &alert.start, serialized_alert);
-        add_timestamp("end", &alert.end, serialized_alert);
         add_timestamp("resolved_at", &alert.resolved_at, serialized_alert);
-        add_timestamp("last_sent", &alert.last_sent, serialized_alert);
-        add_timestamp("resolved_at", &alert.keep_firing_since, serialized_alert);
 
-        add_duration("for", &alert.r#for, serialized_alert);
-        add_key_value_pair("group_id", &alert.group_id.to_string(), serialized_alert);
-        add_ahash_map("labels", &alert.labels, serialized_alert);
-        add_ahash_map("annotations", &alert.annotations, serialized_alert);
-        add_key_value_pair("restored", &alert.restored.to_string(), serialized_alert);
+        if !self.compact {
+            add_key_value_pair("expr", &alert.expr, serialized_alert);
+
+            add_timestamp("start", &alert.start, serialized_alert);
+            add_timestamp("end", &alert.end, serialized_alert);
+            add_timestamp("last_sent", &alert.last_sent, serialized_alert);
+
+            add_duration("for", &alert.r#for, serialized_alert);
+            add_ahash_map("labels", &alert.labels, serialized_alert);
+            add_ahash_map("annotations", &alert.annotations, serialized_alert);
+            add_key_value_pair("restored", &alert.restored.to_string(), serialized_alert);
+        }
     }
 
     fn trim_stream(&self, ctx: &Context) -> AlertsResult<()> {

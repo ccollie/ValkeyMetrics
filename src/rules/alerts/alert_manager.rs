@@ -221,7 +221,7 @@ impl AlertManager {
     pub fn handle_group_start(&mut self, ctx: &Context, group_id: u64) {
         let mut groups = self.groups.write().unwrap();
         if let Some(meta) = groups.get_mut(&group_id) {
-            self.start_group_internal(ctx, meta)?;
+            self.start_group_internal(ctx, meta);
         }
     }
 

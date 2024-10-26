@@ -1,9 +1,11 @@
 use crate::rules::alerts::{Alert, Notifier};
 use crate::rules::AlertsResult;
 use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 use valkey_module::Context;
 
 /// NullNotifier is a notifier that does nothing.
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct NullNotifier {
     addr: String,
 }
@@ -25,6 +27,10 @@ impl Notifier for NullNotifier {
     }
 
     fn addr(&self) -> String {
-        self.addr.clone()
+        if self.addr.is_empty() {
+            "null".to_string()
+        } else {
+            self.addr.clone()
+        }
     }
 }

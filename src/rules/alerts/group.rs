@@ -93,8 +93,6 @@ impl Clone for GroupMetrics {
 
 impl Group {
     pub fn from_config(cfg: GroupConfig, default_interval: Duration, labels: Vec<Label>) -> Group {
-        let mut cfg = cfg;
-
         let labels_empty = cfg.labels.is_empty();
         let mut g = Group {
             name: cfg.name,
@@ -131,16 +129,18 @@ impl Group {
         }
         g.metrics = new_group_metrics(&g);
 
-        for r in cfg.rules.iter_mut() {
-            let mut extra_labels: Vec<Label> = Default::default();
+        for mut r in cfg.rules.into_iter() {
+            let mut extra_labels: AHashMap<String, String> = Default::default();
             let name = r.name();
             // apply external labels
             if !labels.is_empty() {
-                extra_labels = labels.clone();
+                for (k, v) in r.labels.iter() {
+                    extra_labels.insert(k.clone(), v.clone());
+                }
             }
             // apply group labels, it has priority on external labels
             if !labels_empty {
-                extra_labels = merge_labels(&g.name, name, &extra_labels, &g.labels)
+                merge_hashes(&g.name, name, &mut extra_labels, &g.labels);
             }
             // apply rules labels, it has priority on other labels
             if !extra_labels.is_empty() {
@@ -151,16 +151,16 @@ impl Group {
                         value: v.clone(),
                     });
                 }
-                let labels = merge_labels(&g.name, name, &extra_labels, &rule_labels);
-                r.labels = labels.into();
-            }
+                merge_hashes(&g.name, name, &mut extra_labels, &r.labels);
+                r.labels = extra_labels;
 
-            if matches!(r.rule_type(), RuleType::Alerting) {
-                let ar = AlertingRule::new(&r, &g);
-                g.alerting_rules.push(ar);
-            } else {
-                let rr = RecordingRule::new(&g, &r);
-                g.recording_rules.push(rr);
+                if matches!(r.rule_type(), RuleType::Alerting) {
+                    let ar = AlertingRule::new(&g, r);
+                    g.alerting_rules.push(ar);
+                } else {
+                    let rr = RecordingRule::new(&g, r);
+                    g.recording_rules.push(rr);
+                }
             }
         }
         g
@@ -408,7 +408,7 @@ fn new_group_metrics(g: &Group) -> GroupMetrics {
 
 // merges group rule labels into result map
 // set2 has priority over set1.
-pub(crate) fn merge_labels(group_name: &str, rule_name: &str, set1: &Vec<Label>, set2: &Vec<Label>) -> Vec<Label> {
+fn merge_labels(group_name: &str, rule_name: &str, set1: &Vec<Label>, set2: &Vec<Label>) -> Vec<Label> {
     let mut r: Vec<Label> = set1.clone();
 
     for label in set2.iter() {
@@ -425,6 +425,22 @@ pub(crate) fn merge_labels(group_name: &str, rule_name: &str, set1: &Vec<Label>,
     r
 }
 
+fn merge_hashes(group_name: &str, rule_name: &str, dest: &mut AHashMap<String, String>, set2: &AHashMap<String, String>) {
+    for (k, v) in set2.iter() {
+        use std::collections::hash_map::Entry;
+        match dest.entry(k.clone()) {
+            Entry::Occupied(mut entry) => {
+                info!("hash {k} for rule {}.{} overwritten with external hash {k}={v}",
+                      group_name,
+                      rule_name);
+                *entry.get_mut() = v.clone();
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(k.clone());
+            }
+        }
+    }
+}
 
 /// get_resolve_duration returns the duration after which firing alert can be considered as resolved.
 fn get_resolve_duration(group_interval: Duration,
