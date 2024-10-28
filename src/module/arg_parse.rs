@@ -1,3 +1,4 @@
+use std::ascii::AsciiExt;
 use crate::aggregators::Aggregator;
 use crate::common::current_time_millis;
 use crate::common::types::{Label, Timestamp};
@@ -129,6 +130,16 @@ pub fn parse_number_with_unit(arg: &str) -> TsdbResult<f64> {
     parse_number(arg).map_err(|_e| {
         TsdbError::InvalidNumber(arg.to_string())
     })
+}
+
+pub fn parse_boolean(arg: &str) -> ValkeyResult<bool> {
+    match arg {
+        arg if arg.eq_ignore_ascii_case("true") => Ok(true),
+        arg if arg.eq_ignore_ascii_case("false") => Ok(false),
+        "1" => Ok(true),
+        "0" => Ok(false),
+        _ => Err(ValkeyError::Str("ERR: invalid boolean value")),
+    }
 }
 
 pub fn parse_series_selector(arg: &str) -> TsdbResult<Matchers> {
