@@ -1,0 +1,194 @@
+use crate::alerts::types::RawTimeSeries;
+use crate::alerts::{AlertsError, AlertsResult};
+use crate::module::commands::create_and_store_series;
+use crate::module::get_timeseries_mut;
+use crate::series::{TimeSeries, TimeSeriesOptions};
+use std::sync::{Arc, RwLock, RwLockWriteGuard};
+use std::time::Duration;
+use valkey_module::{ContextGuard, ThreadSafeContext, ValkeyString};
+
+/// a queue for writing timeseries back to valkey.
+/// todo: have an output list, so that flushing does not block adding new series.
+/// Essentially on flush, we just swap data and output
+pub struct WriteQueue {
+    data: RwLock<Vec<RawTimeSeries>>,
+    pub(crate) flush_interval: Duration,
+    max_batch_size: usize,
+    max_queue_size: usize,
+}
+
+impl Default for WriteQueue {
+    fn default() -> Self {
+        Self {
+            data: RwLock::new(Vec::new()),
+            flush_interval: Duration::from_millis(DEFAULT_FLUSH_INTERVAL as u64),
+            max_batch_size: DEFAULT_MAX_BATCH_SIZE,
+            max_queue_size: DEFAULT_MAX_QUEUE_SIZE,
+        }
+    }
+}
+pub type WriteQueueRef = Arc<WriteQueue>;
+
+/// `WriteQueueConfig` is config for remote write.
+#[derive(Clone, Default, Debug)]
+pub struct WriteQueueConfig {
+    /// max_batch_size defines max number of series to be flushed at once
+    max_batch_size: usize,
+    /// max_queue_size defines max length of input queue populated by push method.
+    /// push will be rejected once queue is full.
+    max_queue_size: usize,
+    /// flush_interval defines time interval for flushing batches
+    flush_interval: Duration,
+}
+
+const DEFAULT_CONCURRENCY: usize   = 4;
+const DEFAULT_MAX_BATCH_SIZE: usize  = 1000usize;
+const DEFAULT_MAX_QUEUE_SIZE: usize  = 100_000usize;
+const DEFAULT_FLUSH_INTERVAL: usize = 5 * 1000;
+const DEFAULT_WRITE_TIMEOUT: usize  = 30 * 1000;
+
+impl WriteQueue {
+    /// new returns asynchronous client for writing timeseries via remotewrite protocol.
+    pub fn new(cfg: WriteQueueConfig) -> AlertsResult<WriteQueue> {
+        let max_batch_size = if cfg.max_batch_size == 0 {
+            DEFAULT_MAX_BATCH_SIZE
+        } else {
+            cfg.max_batch_size
+        };
+        let max_queue_size = if cfg.max_queue_size == 0 {
+            DEFAULT_MAX_QUEUE_SIZE
+        } else {
+            cfg.max_queue_size
+        };
+        let flush_interval = if cfg.flush_interval.is_zero() {
+            Duration::from_millis(DEFAULT_FLUSH_INTERVAL as u64)
+        } else {
+            cfg.flush_interval
+        };
+
+        let storage: Vec<RawTimeSeries> = Vec::with_capacity(cfg.max_queue_size);
+        let c = WriteQueue {
+            flush_interval,
+            max_batch_size,
+            max_queue_size,
+            data: RwLock::new(storage),
+        };
+
+        Ok(c)
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.read().unwrap().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn clear(&self) {
+        let mut data = self.data.write().unwrap();
+        data.clear();
+    }
+
+    fn add_internal<F>(&self, f: F)
+    where F: FnOnce(&mut RwLockWriteGuard<Vec<RawTimeSeries>>)
+    {
+        let mut writer = self.data.write().unwrap();
+        if writer.len() >= self.max_queue_size {
+            self.flush();
+            // Err()
+        }
+        f(&mut writer);
+    }
+
+    pub fn add(&self, ts: RawTimeSeries) {
+        self.add_internal(|writer| {
+            writer.push(ts);
+        })
+    }
+
+    /// push adds timeseries into queue for writing into storage.
+    /// Push returns and error if client is stopped or if queue is full.
+    pub fn push(&self, s: Vec<RawTimeSeries>) {
+        self.add_internal(|writer| {
+            writer.extend(s.into_iter());
+        })
+    }
+
+    /// flush is a blocking function that marshals WriteRequest and sends it to remote-write endpoint.
+    pub fn flush(&self) {
+        let mut writer = self.data.write().unwrap();
+        let thread_ctx = ThreadSafeContext::new();
+
+        let mut iter = writer.chunks_exact_mut(self.max_batch_size);
+        while let Some(mut batch) = iter.next() {
+            let ctx = thread_ctx.lock();
+            match self.send(&ctx, &mut batch) {
+                Ok(_) => {
+                    ctx.log_debug(&*format!("successfully sent {} series to remote storage", batch.len()));
+                    drop(ctx)
+                }
+                Err(err) => {
+                    let msg = format!("failed to store series data: {:?}", err);
+                    ctx.log_warning(&msg);
+                    drop(ctx);
+                    continue
+                }
+            }
+        }
+
+        let mut remainder = iter.into_remainder().to_vec();
+        writer.clear();
+        writer.append(&mut remainder);
+    }
+
+    fn create_series<'a>(&self, ctx: &'a ContextGuard, key: &ValkeyString) -> AlertsResult<&'a mut TimeSeries> {
+        let options = TimeSeriesOptions::default();
+        create_and_store_series(ctx, key, options)
+            .map_err(|e| AlertsError::Generic(format!("failed to create series: {:?}", e)))?;
+        let series = get_timeseries_mut(ctx, key, true)
+            .map_err(|e| AlertsError::Generic(format!("failed to get series: {:?}", e)))?
+            .unwrap();
+        Ok(series)
+    }
+
+    fn series_exists(&self, ctx: &ContextGuard, key: &ValkeyString) -> bool {
+        let series = get_timeseries_mut(ctx, key, false);
+        if let Ok(value) = series {
+            value.is_some()
+        } else {
+            false
+        }
+    }
+
+    fn create_series_if_not_exists<'a>(&self, ctx: &'a ContextGuard, key: &str) -> AlertsResult<&'a mut TimeSeries> {
+        let key = ctx.create_string(key);
+        let series = get_timeseries_mut(ctx, &key, false)
+            .map_err(|e| AlertsError::Generic(format!("failed to get series: {:?}", e)))?;
+
+        if series.is_none() {
+            self.create_series(ctx, &key)
+        } else {
+            Ok(series.unwrap())
+        }
+    }
+
+    fn send(&self, ctx: &ContextGuard, series: &mut [RawTimeSeries]) -> AlertsResult<()> {
+        if series.is_empty() {
+            return Ok(())
+        }
+        for ts in series.iter_mut() {
+            let series = self.create_series_if_not_exists(&ctx, &ts.key)?;
+            series.merge_samples(&ts.samples, None)
+                .map_err(|e| AlertsError::Generic(format!("failed to merge samples: {:?}", e)))?;
+        }
+        Ok(())
+    }
+
+}
+
+impl Drop for WriteQueue {
+    fn drop(&mut self) {
+        self.flush();
+    }
+}

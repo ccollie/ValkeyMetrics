@@ -1,8 +1,8 @@
+use crate::series::{DuplicatePolicy, DEFAULT_CHUNK_SIZE_BYTES};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use std::time::Duration;
-use crate::series::{DEFAULT_CHUNK_SIZE_BYTES, DuplicatePolicy};
 
 pub const DEFAULT_RULE_UPDATE_ENTRIES_LIMIT: usize = 10;
 pub const DEFAULT_MAX_SERIES_LIMIT: usize = 30_000;
@@ -32,13 +32,18 @@ pub struct Settings {
     /// Minimum amount of time to wait before resending an alert to notifier
     pub resend_delay: Duration,
 
-    /// Optional label in the form 'Name=value' to add to all generated recording rules and alerts.
+    /// Optional label in the form 'Name=value' to add to all generated recording rule and alerts.
     /// Pass multiple -label flags in order to add multiple label sets.
     pub external_labels: HashMap<String, String>,
 
     /// look_back defines how far to look into past for alerts timeseries.
     /// For example, if look_back=1h then range from now() to now()-1h will be scanned.
     pub look_back: Duration,
+
+    /// Adjustment of the `time` parameter for rule evaluation requests to compensate for intentional data delay
+    /// from the datasource.
+    /// Normally, should be equal to `-search.latencyOffset`
+    pub eval_delay: Duration,
 
     /// Synonym to -search.lookback-delta from Prometheus.
     /// The value is dynamically detected from interval between time series data points if not set.
@@ -50,17 +55,17 @@ pub struct Settings {
     /// Whether to disable adding group's Name as label to generated alerts and time series.
     pub disable_alert_group_labels: bool,
 
-    /// How often to evaluate the rules
+    /// How often to evaluate the rule
     pub evaluation_interval: Duration,
 
-    /// Rule's updates are available for debugging purposes.
+    ///  Defines the max number of rule's state updates stored in-memory.
     /// The number of stored updates can be overridden per rule via update_entries_limit param.
     pub rule_update_entries_limit: usize,
 
     /// Whether to align "time" parameter with evaluation interval.
     pub query_time_alignment: bool,
 
-    /// Delay between rules evaluation within the group. Could be important if there are chained rules
+    /// Delay between rule evaluation within the group. Could be important if there are chained rule
     /// inside the group and processing need to wait for previous rule results to be persisted by
     /// remote series before evaluating the next rule.
     /// Keep it equal or bigger than -remoteWrite.flushInterval.
@@ -68,7 +73,8 @@ pub struct Settings {
 
     /// Adds "round_digits" to datasource requests. This limits the number of
     /// digits after the decimal point in response values.
-    pub round_digits: Option<u8>
+    pub round_digits: Option<u8>,
+
 }
 
 static ONE_HOUR_MILLIS: u64 = 60 * 60 * 1000;
@@ -86,6 +92,7 @@ impl Default for Settings {
             resend_delay: Default::default(),
             external_labels: Default::default(),
             look_back: Duration::from_millis(ONE_HOUR_MILLIS),
+            eval_delay: Default::default(),
             max_look_back: Default::default(),
             default_step: DEFAULT_STEP,
             disable_alert_group_labels: false,
@@ -98,8 +105,13 @@ impl Default for Settings {
     }
 }
 
-pub static mut GLOBAL_SETTINGS: OnceLock<Settings> = OnceLock::new();
+pub static GLOBAL_SETTINGS: LazyLock<Settings> = LazyLock::new(load_setings);
 
 pub fn get_global_settings() -> &'static Settings {
-    unsafe { GLOBAL_SETTINGS.get_or_init(Settings::default) }
+    &GLOBAL_SETTINGS
+}
+
+fn load_setings() -> Settings {
+    // todo: load settings from config file
+    Settings::default()
 }

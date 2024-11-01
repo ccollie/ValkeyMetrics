@@ -25,6 +25,7 @@ mod iter;
 mod error_consts;
 pub mod join;
 mod query;
+mod alerts;
 
 use crate::globals::{clear_timeseries_index, with_timeseries_index};
 use crate::series::time_series::TimeSeries;

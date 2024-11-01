@@ -1,18 +1,17 @@
-use std::mem::size_of_val;
+use super::varbit_xor::write_varbit_xor;
 use crate::common::bitwriter::{BigEndian, BitWrite, BitWriter};
 use crate::common::types::Sample;
 use crate::common::{write_uvarint, write_varint};
+use crate::series::chunks::gorilla::varbit::write_varbit;
 use crate::series::chunks::gorilla::xor_iterator::XORIterator;
+use crate::series::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
 use bitstream_io::BitQueue;
 use get_size::GetSize;
 use smallvec::SmallVec;
 use std::io::Write;
+use std::mem::size_of_val;
 use valkey_module::error::Error as ValkeyError;
 use valkey_module::raw;
-use crate::series::chunks::gorilla::varbit::write_varbit;
-use crate::series::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
-use super::varbit_ts::write_varbit_ts;
-use super::varbit_xor::write_varbit_xor;
 
 #[derive(Debug)]
 pub struct XOREncoder {

@@ -12,7 +12,6 @@ description = "A Prometheus-like metric solution on top of Valkey"
 
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }
-binary-merge = "0.1"
 blart = "0.3"
 bitstream-io = "2.5.3"
 cfg-if = "1.0"
@@ -21,6 +20,10 @@ croaring = "2.1"
 dynamic-lru-cache = "0.2"
 enquote = "1.1"
 get-size = { version = "^0.1", features = ["derive"] }
+gtmpl = "0.7.1"
+gtmpl_derive = "0.5"
+gtmpl_value = "0.5"
+htmlescape = "0.3"
 integer-encoding = "4.0"
 linkme = "0.3"
 lru_time_cache = "0.11"
@@ -42,7 +45,7 @@ thiserror = "1"
 rayon = "1.10"
 regex = "1"
 regex-syntax = { version = "0.8", features = [] }
-timer = "0.2"
+titlecase = "3.3"
 xxhash-rust = { version = "0.8", features = ["xxh3", "xxh32", "std"] }
 rand = "0.8"
 rand_distr = "0.4"
@@ -53,6 +56,8 @@ async-trait = "0.1"
 async-std = { version = "1.13.0", optional = true }
 smol = { version = "2.0", optional = true }
 tokio = { version = "1", optional = true, features = ["macros", "rt", "rt-multi-thread"] }
+url = "2.5.2"
+num_cpus = "1.16.0"
 
 [dev-dependencies]
 anyhow = "1.0"

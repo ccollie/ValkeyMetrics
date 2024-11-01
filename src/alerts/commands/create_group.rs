@@ -1,0 +1,110 @@
+use crate::alerts::group_data_type::VKM_RULE_GROUP;
+use crate::alerts::rule::{Group, GroupConfig};
+use crate::error_consts;
+use crate::module::arg_parse::*;
+use std::time::Duration;
+use valkey_module::key::ValkeyKeyWritable;
+use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
+
+const INTERVAL: &str = "INTERVAL";
+const EVAL_OFFSET: &str = "EVAL_OFFSET";
+const EVAL_DELAY: &str = "EVAL_DELAY";
+const CONCURRENCY: &str = "CONCURRENCY";
+const EVAL_ALIGNMENT: &str = "EVAL_ALIGNMENT";
+const LIMIT: &str = "LIMIT";
+const LABELS: &str = "LABELS";
+
+
+
+/// Create a new Group
+///
+/// VM.CREATE-RULE-GROUP key name
+///   [INTERVAL interval]
+///   [EVAL_OFFSET evalOffset]
+///   [EVAL_DELAY evalDelay]
+///   [CONCURRENCY concurrency]
+///   [EVAL_ALIGNMENT isAligned]
+///   [LIMIT limit]
+///   [LABELS name value ...]
+///   [NOTIFIER pubsub key]
+pub fn create_group_function(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
+    let (parsed_key, options) = parse_create_options(args)?;
+
+    create_group(ctx, &parsed_key, options)?;
+
+    VALKEY_OK
+}
+
+pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyString, GroupConfig)> {
+    let mut args = args.into_iter().skip(1).peekable();
+
+    let mut options = GroupConfig::default();
+
+    let key = args.next().ok_or(ValkeyError::Str("Err missing key argument"))?;
+    options.name = args.next_string()?;
+
+    const CREATE_TOKENS: [&str; 7] = [
+        EVAL_ALIGNMENT,
+        EVAL_DELAY,
+        EVAL_OFFSET,
+        CONCURRENCY,
+        INTERVAL,
+        LIMIT,
+        LABELS
+    ];
+
+    fn is_command_keyword(arg: &str) -> bool {
+        CREATE_TOKENS.contains(&arg)
+    }
+
+    while let Ok(arg) = args.next_str() {
+        let arg_upper = arg.to_ascii_uppercase();
+        match arg_upper.as_str() {
+            EVAL_OFFSET => {
+                options.eval_offset = Some(parse_duration(args.next_str()?)?);
+            }
+            EVAL_DELAY => {
+                options.eval_delay = Some(parse_duration(args.next_str()?)?);
+            }
+            EVAL_ALIGNMENT => {
+                let is_aligned = parse_boolean(args.next_str()?)?;
+                options.eval_alignment = Some(is_aligned);
+            }
+            CONCURRENCY => {
+                let value = args.next_u64()?;
+                // todo: should we expose this ??? the executor will handle this internally
+                options.concurrency = value as usize;
+            }
+            LIMIT => {
+                let value = args.next_u64()?;
+                // TODO
+                options.limit = value as usize;
+            }
+            LABELS => {
+                options.labels = parse_key_value_pairs(&mut args, is_command_keyword)?;
+            }
+            _ => {
+                return Err(ValkeyError::Str(error_consts::INVALID_ARGUMENT));
+            }
+        };
+    }
+
+    Ok((key, options))
+}
+
+
+pub(crate) fn create_group(ctx: &Context, key: &ValkeyString, options: GroupConfig) -> ValkeyResult<()> {
+    let _key = ValkeyKeyWritable::open(ctx.ctx, key);
+    // check if this refers to an existing series
+    if !_key.is_empty() {
+        return Err(ValkeyError::Str("ERR: the key already exists"));
+    }
+    let group = Group::from_config(options, Duration::from_millis(0), vec![]);
+    _key.set_value(&VKM_RULE_GROUP, group)?;
+
+    ctx.replicate_verbatim();
+    ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.CREATE-RULE-GROUP", key);
+    ctx.log_verbose("group created");
+
+    Ok(())
+}

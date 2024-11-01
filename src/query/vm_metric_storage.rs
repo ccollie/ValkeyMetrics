@@ -9,7 +9,7 @@ use metricsql_runtime::types::MetricName;
 use valkey_module::{Context, ValkeyString};
 
 /// Interface between the time series database and the metricsql runtime.
-pub(super) struct VMMetricStorage {}
+pub struct VMMetricStorage {}
 
 impl VMMetricStorage {
 

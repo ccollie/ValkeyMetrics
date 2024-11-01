@@ -1,13 +1,20 @@
-use std::ascii::AsciiExt;
 use crate::aggregators::Aggregator;
 use crate::common::current_time_millis;
 use crate::common::types::{Label, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
+use crate::error_consts;
 use crate::series::join_reducer::JoinReducer;
 use crate::series::types::*;
 use crate::series::{DuplicatePolicy, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
+use crate::series::{TimestampRange, TimestampValue};
+use ahash::AHashMap;
 use chrono::DateTime;
-use metricsql_parser::parser::{parse_duration_value, parse_metric_name as parse_metric, parse_number};
+use metricsql_parser::parser::{
+    parse_duration_value,
+    parse_metric_name as parse_metric,
+    parse_number, 
+    parse as parse_expr
+};
 use metricsql_parser::prelude::Matchers;
 use metricsql_runtime::parse_metric_selector;
 use std::collections::BTreeSet;
@@ -15,29 +22,30 @@ use std::iter::{Peekable, Skip};
 use std::time::Duration;
 use std::vec::IntoIter;
 use valkey_module::{NextArg, ValkeyError, ValkeyResult, ValkeyString};
-use crate::error_consts;
-use crate::series::{TimestampRange, TimestampValue};
 
 const MAX_TS_VALUES_FILTER: usize = 16;
-pub const CMD_ARG_COUNT: &str = "COUNT";
-pub const CMD_PARAM_REDUCER: &str = "REDUCE";
-const CMD_PARAM_ALIGN: &str = "ALIGN";
-pub const CMD_ARG_COMPRESSION: &str = "COMPRESSION";
-pub const CMD_ARG_FILTER_BY_VALUE: &str = "FILTER_BY_VALUE";
-pub const CMD_ARG_FILTER_BY_TS: &str = "FILTER_BY_TS";
-pub const CMD_ARG_AGGREGATION: &str = "AGGREGATION";
-pub const CMD_ARG_FILTER: &str = "FILTER";
-pub const CMD_ARG_EMPTY: &str = "EMPTY";
-pub const CMD_ARG_GROUP_BY: &str = "GROUPBY";
-pub const CMD_ARG_BUCKET_TIMESTAMP: &str = "BUCKETTIMESTAMP";
-pub const CMD_ARG_RETENTION: &str = "RETENTION";
-pub const CMD_ARG_DUPLICATE_POLICY: &str = "DUPLICATE_POLICY";
-pub const CMD_ARG_CHUNK_SIZE: &str = "CHUNK_SIZE";
-pub const CMD_ARG_DEDUPE_INTERVAL: &str = "DEDUPE_INTERVAL";
-pub const CMD_ARG_WITH_LABELS: &str = "WITHLABELS";
-pub const CMD_ARG_SELECTED_LABELS: &str = "SELECTED_LABELS";
-pub const CMD_ARG_SIGNIFICANT_DIGITS: &str = "SIGNIFICANT_DIGITS";
-pub const CMD_ARG_DECIMAL_DIGITS: &str = "DECIMAL_DIGITS";
+pub const CMD_ARG_COUNT: &'static str = "COUNT";
+pub const CMD_PARAM_REDUCER: &'static str = "REDUCE";
+const CMD_PARAM_ALIGN: &'static str = "ALIGN";
+pub const CMD_ARG_COMPRESSION: &'static str = "COMPRESSION";
+pub const CMD_ARG_FILTER_BY_VALUE: &'static str = "FILTER_BY_VALUE";
+pub const CMD_ARG_FILTER_BY_TS: &'static str = "FILTER_BY_TS";
+pub const CMD_ARG_AGGREGATION: &'static str = "AGGREGATION";
+pub const CMD_ARG_FILTER: &'static str = "FILTER";
+pub const CMD_ARG_EMPTY: &'static str = "EMPTY";
+pub const CMD_ARG_GROUP_BY: &'static str = "GROUPBY";
+pub const CMD_ARG_BUCKET_TIMESTAMP: &'static str = "BUCKETTIMESTAMP";
+pub const CMD_ARG_RETENTION: &'static str = "RETENTION";
+pub const CMD_ARG_DUPLICATE_POLICY: &'static str = "DUPLICATE_POLICY";
+pub const CMD_ARG_CHUNK_SIZE: &'static str = "CHUNK_SIZE";
+pub const CMD_ARG_DEDUPE_INTERVAL: &'static str = "DEDUPE_INTERVAL";
+pub const CMD_ARG_WITH_LABELS: &'static str = "WITHLABELS";
+pub const CMD_ARG_SELECTED_LABELS: &'static str = "SELECTED_LABELS";
+pub const CMD_ARG_SIGNIFICANT_DIGITS: &'static str = "SIGNIFICANT_DIGITS";
+pub const CMD_ARG_DECIMAL_DIGITS: &'static str = "DECIMAL_DIGITS";
+pub const CMD_ARG_EXPR: &'static str = "EXPR";
+pub const CMD_ARG_NAME: &'static str = "NAME";
+pub const CMD_ARG_LABELS: &'static str = "LABELS";
 
 
 pub type CommandArgIterator = Peekable<Skip<IntoIter<ValkeyString>>>;
@@ -329,6 +337,41 @@ pub fn parse_label_list(args: &mut CommandArgIterator, is_cmd_token: fn(&str) ->
     Ok(temp)
 }
 
+pub fn parse_key_value_pairs(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool) -> ValkeyResult<AHashMap<String, String>> {
+    let mut labels: AHashMap<String, String> = AHashMap::new();
+
+    loop {
+        let label = args.next_string()?;
+
+        if label.is_empty() {
+            return Err(ValkeyError::Str("ERR invalid label key"));
+        }
+
+        if labels.contains_key(&label) {
+            let msg = format!("ERR: duplicate label: {label}");
+            return Err(ValkeyError::String(msg));
+        }
+
+        let value = args.next_string()
+            .map_err(|_| ValkeyError::Str("ERR invalid label value"))?;
+
+        labels.insert(label, value);
+
+        if is_token_or_end(args, is_cmd_token) {
+            break;
+        }
+    }
+
+    Ok(labels)
+}
+
+pub fn parse_labels(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool) -> ValkeyResult<Vec<Label>> {
+    let map = parse_key_value_pairs(args, is_cmd_token)?;
+    let labels = map.into_iter().map(|(k, v)| Label::new(k, v)).collect();
+    Ok(labels)
+}
+
+
 pub fn parse_dedupe_interval(args: &mut CommandArgIterator) -> ValkeyResult<Duration> {
     let next = args.next_arg()?;
     if let Ok(val) = parse_duration_arg(&next) {
@@ -447,4 +490,11 @@ pub fn parse_grouping_params(args: &mut CommandArgIterator) -> ValkeyResult<Rang
             aggregator
         }
     )
+}
+
+pub fn parse_promql_expr(args: &mut CommandArgIterator) -> ValkeyResult<String> {
+    let expr = args.next_string()?;
+    parse_expr(&expr)
+        .map_err(|_| ValkeyError::Str("ERR: invalid PromQL expression"))?;
+    Ok(expr)
 }

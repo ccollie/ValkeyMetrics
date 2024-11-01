@@ -1,5 +1,5 @@
+use std::fmt::Display;
 use crate::common::types::{Label, Sample};
-use crate::query::vm_metric_storage::VMMetricStorage;
 use crate::series::TimeSeries;
 use crate::common::async_runtime::block_on;
 use metricsql_runtime::execution::query::{query, query_range};
@@ -11,14 +11,22 @@ pub use common::types::QueryParams;
 
 use crate::common;
 
+#[derive(Debug)]
 pub struct InstantQueryResult {
     pub metric: MetricName,
     pub sample: Sample
 }
 
+#[derive(Debug, Clone)]
 pub struct RangeQueryResult {
     pub metric: MetricName,
     pub samples: Vec<Sample>
+}
+
+impl Display for RangeQueryResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RangeQueryResult {{ metric: {}, samples: {:?} }}", self.metric, self.samples)
+    }
 }
 
 mod vm_metric_storage;
@@ -30,6 +38,8 @@ cfg_if::cfg_if! {
         mod query_tests;
 
         pub(super) use test_metric_storage::*;
+    } else {
+        pub use vm_metric_storage::VMMetricStorage;
     }
 }
 
