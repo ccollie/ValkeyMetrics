@@ -18,7 +18,7 @@ const ERR_DUPLICATE: &str =
 /// `RecordingRule` is a Rule that evaluates a configured expression and returns a timeseries as result.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct RecordingRule {
-    pub rule_id: u64,
+    pub id: u64,
     /// The valkey db key of the time series to output to. Optional.
     /// TODO: Box<[u8]>
     pub key: String,
@@ -40,8 +40,8 @@ pub struct RecordingRule {
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct RecordingRuleMetrics {
-    errors: AtomicU64,
-    samples: AtomicU64,
+    pub(crate) errors: AtomicU64,
+    pub(crate) samples: AtomicU64,
 }
 
 impl Clone for RecordingRuleMetrics {
@@ -56,7 +56,7 @@ impl Clone for RecordingRuleMetrics {
 impl RecordingRule {
     pub fn new(group: &Group, cfg: RuleConfig) -> Self {
         RecordingRule {
-            rule_id: cfg.id,
+            id: cfg.id,
             key: Default::default(),
             name: cfg.record,
             expr: cfg.expr,
@@ -132,7 +132,7 @@ impl RecordingRule {
 
 impl Rule for RecordingRule {
     fn id(&self) -> u64 {
-        self.rule_id
+        self.id
     }
 
     fn rule_type(&self) -> RuleType {

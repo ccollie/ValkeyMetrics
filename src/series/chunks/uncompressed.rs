@@ -3,7 +3,7 @@ use crate::error::{TsdbError, TsdbResult};
 use crate::iter::SampleIter;
 use crate::series::merge::merge_samples;
 use crate::series::chunks::Chunk;
-use crate::series::serialization::{rdb_load_usize, rdb_save_usize};
+use crate::common::serialization::{rdb_load_usize, rdb_save_usize};
 use crate::series::utils::get_sample_index_bounds;
 use crate::series::{DuplicatePolicy, SAMPLE_SIZE};
 use core::mem::size_of;

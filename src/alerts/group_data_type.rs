@@ -1,11 +1,13 @@
+use crate::alerts::dispatcher::GROUP_MANAGER;
 use crate::alerts::rule::Group;
-use crate::module::ValkeyDataType;
+use crate::alerts::serialization::{load_group, save_group};
+use crate::common::current_time_millis;
 use std::ffi::c_int;
 use std::os::raw::c_void;
 use std::ptr::null_mut;
 use std::sync::LazyLock;
 use valkey_module::native_types::ValkeyType;
-use valkey_module::{raw, RedisModuleString, ValkeyString};
+use valkey_module::{raw, RedisModuleDefragCtx, RedisModuleString, ValkeyString};
 
 const VM_GROUP_VERSION: i32 = 0;
 
@@ -14,8 +16,8 @@ pub static VKM_RULE_GROUP: ValkeyType = ValkeyType::new(
         VM_GROUP_VERSION,
     raw::RedisModuleTypeMethods {
         version: raw::REDISMODULE_TYPE_METHOD_VERSION as u64,
-        rdb_load: None,
-        rdb_save: None,
+        rdb_load: Some(group_rdb_load),
+        rdb_save: Some(group_rdb_save),
         aof_rewrite: None,
         free: Some(free),
 
@@ -32,7 +34,7 @@ pub static VKM_RULE_GROUP: ValkeyType = ValkeyType::new(
         free_effort: None,
         unlink: Some(unlink),
         copy: Some(copy),
-        defrag: None,
+        defrag: Some(defrag),
 
         copy2: None,
         free_effort2: None,
@@ -47,9 +49,9 @@ pub static GROUP_KEYS: LazyLock<Vec<Box<[u8]>>> = LazyLock::new(|| vec![]);
 
 
 /// # Safety
-pub unsafe extern "C" fn group_rdb_save(_rdb: *mut raw::RedisModuleIO, value: *mut c_void) {
+pub unsafe extern "C" fn group_rdb_save(rdb: *mut raw::RedisModuleIO, value: *mut c_void) {
     let v = &*value.cast::<Group>();
-    // todo: !!!!
+    save_group(rdb, v);
 }
 
 /// # Safety
@@ -57,8 +59,8 @@ pub unsafe extern "C" fn group_rdb_load(
     rdb: *mut raw::RedisModuleIO,
     encver: c_int,
 ) -> *mut c_void {
-    if let Some(item) = <Group as ValkeyDataType<Group>>::load_from_rdb(rdb, encver) {
-        let bb = Box::new(item);
+    if let Ok(group) = load_group(rdb, encver) {
+        let bb = Box::new(group);
         Box::into_raw(bb).cast::<c_void>()
     } else {
         null_mut()
@@ -78,6 +80,11 @@ unsafe extern "C" fn copy(
     Box::into_raw(Box::new(new_group)).cast::<c_void>()
 }
 
+fn remove_group_from_manager(group: &Group) {
+    let guard = valkey_module::MODULE_CONTEXT.lock();
+    (&GROUP_MANAGER).delete_group(&guard.ctx, group);
+}
+
 #[allow(unused)]
 unsafe extern "C" fn free(value: *mut c_void) {
     if value.is_null() {
@@ -89,12 +96,30 @@ unsafe extern "C" fn free(value: *mut c_void) {
 
 
 unsafe extern "C" fn unlink(_key: *mut RedisModuleString, value: *const c_void) {
-    let series = &*(value as *mut Group);
-    if value.is_null() {
+    let group = &*(value as *mut Group);
+    if group.is_null() {
         return;
     }
     let guard = valkey_module::MODULE_CONTEXT.lock();
-    todo!("unlink. TODO: remove from group_manager")
+    (&GROUP_MANAGER).delete_group(guard.ctx, group);
 }
 
 // todo: defrag - remove stale series
+unsafe extern "C" fn defrag(
+    _ctx: *mut RedisModuleDefragCtx,
+    _key: *mut RedisModuleString,
+    value: *mut *mut c_void,
+) -> std::os::raw::c_int {
+    let group = &mut *(value as *mut Group);
+    if group.is_null() {
+        return 0;
+    }
+    
+    let now = current_time_millis();
+    
+    let alert_count = group.alerting_rules
+        .iter_mut()
+        .map(|rule| rule.remove_inactive_alerts(now)).sum();
+
+    alert_count as std::os::raw::c_int
+}

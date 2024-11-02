@@ -11,6 +11,7 @@ mod group_data_type;
 mod commands;
 mod group_manager;
 mod dispatcher;
+mod serialization;
 
 pub(crate) use datasource::*;
 pub use alerts_error::*;

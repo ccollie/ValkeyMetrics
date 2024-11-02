@@ -156,13 +156,8 @@ pub struct GroupConfig {
     /// Labels is a set of label value pairs, that will be added to every rule.
     /// It has priority over the external labels.
     pub labels: AHashMap<String, String>,
-    /// Checksum stores the hash of yaml definition for this group.
-    /// May be used to detect any changes like rules re-ordering etc.
-    pub checksum: String,
     /// Optional parameters added to each rule request
     pub params: Option<AHashMap<String, String>>,
-    /// Headers contains optional headers added to each rule request
-    pub(crate) headers: Headers,
     /// optional headers sent to notifiers for generated notifications
     pub notifier_headers: Vec<Header>,
     /// eval_alignment will make the timestamp of group query requests be aligned with interval

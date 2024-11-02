@@ -49,12 +49,9 @@ pub struct Group {
     pub last_evaluation: Timestamp,
     pub labels: AHashMap<String, String>,
     pub params: AHashMap<String, String>,
-    pub headers: Vec<Label>,
     pub notifier_headers: HashMap<String, String>,
     pub notifiers: Vec<AlertNotifier>,
     pub metrics: GroupMetrics,
-    concurrency: usize,
-    pub(crate) checksum: String,
     pub disabled: bool,
 }
 
@@ -85,8 +82,6 @@ impl Group {
             interval: Duration::default(),
             eval_offset: Duration::default(),
             limit: cfg.limit,
-            concurrency: cfg.concurrency.min(1),
-            checksum: cfg.checksum,
             params: cfg.params.unwrap_or_default().clone(),
             labels: cfg.labels.into(),
             eval_alignment: cfg.eval_alignment,
@@ -97,12 +92,6 @@ impl Group {
         }
         if let Some(eval_offset) = cfg.eval_offset {
             g.eval_offset = eval_offset.clone()
-        }
-        for h in cfg.headers.iter() {
-            g.headers.push(Label {
-                name: h.key.clone(),
-                value: h.value.clone(),
-            });
         }
         for h in cfg.notifier_headers.iter() {
             g.notifier_headers.insert(h.key.clone(), h.value.clone());
@@ -171,10 +160,6 @@ impl Group {
             if ar.r#for.is_zero() {
                 continue;
             }
-            let mut headers: HashMap<String, String> = HashMap::with_capacity(self.headers.len());
-            for header in self.headers.iter() {
-                headers.insert(header.name.clone(), header.value.clone());
-            }
             let querier = qb.build_with_params(QuerierParams {
                 evaluation_interval: self.interval.clone(),
                 eval_offset: Default::default(),
@@ -236,13 +221,10 @@ impl Group {
 
         // note that self.interval is not updated here so the value can be compared later in
         // group.start function
-        self.concurrency = new_group.concurrency;
         self.params = new_group.params.clone();
-        self.headers = new_group.headers.clone();
         self.notifier_headers = new_group.notifier_headers.clone();
         self.labels = new_group.labels.clone();
         self.limit = new_group.limit;
-        self.checksum = new_group.checksum.to_string();
         Ok(())
     }
 

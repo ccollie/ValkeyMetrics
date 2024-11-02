@@ -4,7 +4,7 @@ use crate::common::types::Sample;
 use crate::common::{write_uvarint, write_varint};
 use crate::series::chunks::gorilla::varbit::write_varbit;
 use crate::series::chunks::gorilla::xor_iterator::XORIterator;
-use crate::series::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
+use crate::common::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
 use bitstream_io::BitQueue;
 use get_size::GetSize;
 use smallvec::SmallVec;

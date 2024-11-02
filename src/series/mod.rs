@@ -5,7 +5,6 @@ pub(crate) mod utils;
 mod defrag;
 pub mod index;
 pub mod chunks;
-mod serialization;
 pub mod types;
 pub(crate) mod join_reducer;
 mod series_storage;

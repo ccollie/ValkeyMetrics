@@ -5,7 +5,7 @@ use crate::error::{TsdbError, TsdbResult};
 use crate::iter::SampleIter;
 use crate::series::chunks::chunk::Chunk;
 use crate::series::merge::merge_samples;
-use crate::series::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
+use crate::common::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
 use crate::series::{DuplicatePolicy, DEFAULT_CHUNK_SIZE_BYTES};
 use get_size::GetSize;
 use std::cmp::Ordering;

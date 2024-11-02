@@ -30,11 +30,11 @@ const DISABLE_ALERT_GROUP_LABEL: bool = false;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct AlertingRuleMetrics {
-    errors: AtomicU64,
-    pending: AtomicU64,
-    active: AtomicU64,
-    sample: AtomicU64,
-    series_fetched: AtomicU64,
+    pub(crate) errors: AtomicU64,
+    pub(crate) pending: AtomicU64,
+    pub(crate) active: AtomicU64,
+    pub(crate) samples: AtomicU64,
+    pub(crate) series_fetched: AtomicU64,
 }
 
 impl Clone for AlertingRuleMetrics {
@@ -43,7 +43,7 @@ impl Clone for AlertingRuleMetrics {
             errors: AtomicU64::new(self.errors.load(Ordering::Relaxed)),
             pending: AtomicU64::new(self.pending.load(Ordering::Relaxed)),
             active: AtomicU64::new(self.active.load(Ordering::Relaxed)),
-            sample: AtomicU64::new(self.sample.load(Ordering::Relaxed)),
+            samples: AtomicU64::new(self.samples.load(Ordering::Relaxed)),
             series_fetched: AtomicU64::new(self.series_fetched.load(Ordering::Relaxed)),
         }
     }
@@ -55,7 +55,7 @@ impl PartialEq for AlertingRuleMetrics {
         self.errors.load(Ordering::Relaxed) == other.errors.load(Ordering::Relaxed)
             && self.pending.load(Ordering::Relaxed) == other.pending.load(Ordering::Relaxed)
             && self.active.load(Ordering::Relaxed) == other.active.load(Ordering::Relaxed)
-            && self.sample.load(Ordering::Relaxed) == other.sample.load(Ordering::Relaxed)
+            && self.samples.load(Ordering::Relaxed) == other.samples.load(Ordering::Relaxed)
             && self.series_fetched.load(Ordering::Relaxed) == other.series_fetched.load(Ordering::Relaxed)
     }
 }
@@ -63,7 +63,7 @@ impl PartialEq for AlertingRuleMetrics {
 /// AlertingRule is basic alert entity
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AlertingRule {
-    rule_id: u64,
+    pub rule_id: u64,
     pub name: String,
     pub expr: String,
     #[serde(rename = "for_duration")]
@@ -76,10 +76,11 @@ pub struct AlertingRule {
     pub eval_interval: Duration,
     pub debug: bool,
 
-    /// stores list of active alerts
-    pub alerts: AHashMap<u64, Alert>,
     /// state stores recent state changes during evaluations
     pub state: RuleState,
+
+    /// stores list of active alerts
+    pub alerts: AHashMap<u64, Alert>,
 
     pub metrics: AlertingRuleMetrics,
 }
@@ -313,7 +314,7 @@ impl AlertingRule {
         }
 
         let mut ids: Vec<u64> = Vec::new();
-        
+
         let resolve_duration = resolve_duration.as_millis() as i64;
 
         for (_, alert) in self.alerts.iter_mut() {
@@ -327,7 +328,7 @@ impl AlertingRule {
             alert.last_sent = ts;
             ids.push(alert.id);
         }
-        
+
         let to_send = ids.iter().filter_map(|id| self.alerts.get(id)).collect::<Vec<_>>();
         f(to_send)
     }
@@ -361,9 +362,11 @@ impl AlertingRule {
             .filter(|(_, alert)| alert.state == state)
             .count()
     }
+    
     pub fn count_active_alerts(&self) -> usize {
         self.count_alerts_in_state(AlertState::Firing)
     }
+    
     pub fn count_pending_alerts(&self) -> usize {
         self.count_alerts_in_state(AlertState::Pending)
     }
@@ -382,7 +385,7 @@ impl AlertingRule {
         0usize
     }
 
-    fn remove_inactive_alerts(&mut self, ts: Timestamp) -> usize {
+    pub fn remove_inactive_alerts(&mut self, ts: Timestamp) -> usize {
         let to_delete: Vec<u64> = self.alerts.iter()
             .filter_map(|(h, alert)| {
                 if alert.state == AlertState::Inactive

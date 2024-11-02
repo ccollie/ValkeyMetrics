@@ -72,14 +72,14 @@ pub struct Alert {
     pub group_id: u64,
     /// name represents Alert name
     pub name: String,
+    /// the expression that was executed to generate the Alert
+    pub expr: String,
     /// labels is the list of label-value pairs attached to the Alert
     pub labels: AHashMap<String, String>,
     /// Annotations is the list of annotations generated on Alert evaluation
     pub annotations: AHashMap<String, String>,
     /// state represents the current state of the Alert
     pub state: AlertState,
-    /// the expression that was executed to generate the Alert
-    pub expr: String,
     /// the moment of time when the Alert has become active
     pub active_at: Timestamp,
     /// the moment of time when the alert starts firing

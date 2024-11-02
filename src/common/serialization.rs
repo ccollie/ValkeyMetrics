@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::time::Duration;
+use ahash::AHashMap;
 use metricsql_runtime::types::Timestamp;
 use valkey_module::{raw, ValkeyError, ValkeyResult, ValkeyString};
 use valkey_module::error::Error;
@@ -54,6 +56,7 @@ pub(crate) fn rdb_load_optional_duration(rdb: *mut raw::RedisModuleIO) -> Valkey
     }
 }
 
+#[inline]
 pub(crate) fn rdb_save_usize(rdb: *mut raw::RedisModuleIO, value: usize) {
     raw::save_unsigned(rdb, value as u64)
 }
@@ -63,6 +66,7 @@ pub(crate) fn rdb_load_usize(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<usize
     Ok(value as usize)
 }
 
+#[inline]
 pub(crate) fn rdb_save_timestamp(rdb: *mut raw::RedisModuleIO, value: Timestamp) {
     raw::save_signed(rdb, value)
 }
@@ -167,4 +171,56 @@ pub(crate) fn rdb_load_string(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<Stri
 #[inline]
 pub(crate) fn rdb_load_valkey_string(rdb: *mut raw::RedisModuleIO) -> Result<ValkeyString, Error> {
     raw::load_string(rdb)
+}
+
+pub(crate) fn rdb_save_bool(rdb: *mut raw::RedisModuleIO, val: bool) {
+    let bool_val = if val { 1 } else { 0 };
+    rdb_save_u8(rdb, bool_val)
+}
+
+pub(crate) fn rdb_load_bool(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<bool> {
+    let bool_val = rdb_load_u8(rdb)?;
+    Ok(bool_val!= 0)
+}
+
+fn rdb_save_string_hashmap_iter(rdb: *mut raw::RedisModuleIO, iter: impl Iterator<Item = (String,String)>) {
+    for (key, val) in iter  {
+        rdb_save_string(rdb, &key);
+        rdb_save_string(rdb, &val);
+    }
+}
+
+pub(crate) fn rdb_save_string_hashmap(rdb: *mut raw::RedisModuleIO, map: &HashMap<String, String>) {
+    rdb_save_usize(rdb, map.len());
+    rdb_save_string_hashmap_iter(rdb, map.iter())
+}
+
+pub(crate) fn rdb_load_string_hashmap(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<HashMap<String, String>> {
+    let len = rdb_load_usize(rdb)?;
+    // todo: check available mem first
+    let mut map = HashMap::with_capacity(len);
+    for _ in 0..len {
+        let key = rdb_load_string(rdb)?;
+        let val = rdb_load_string(rdb)?;
+        map.insert(key, val);
+    }
+    Ok(map)
+}
+
+pub(crate) fn rdb_save_ahashmap(rdb: *mut raw::RedisModuleIO, map: &AHashMap<String, String>) {
+    rdb_save_usize(rdb, map.len());
+    rdb_save_string_hashmap_iter(rdb, map.iter())
+}
+
+
+pub(crate) fn rdb_load_ahashmap(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<AHashMap<String, String>> {
+    let len = rdb_load_usize(rdb)?;
+    // todo: check available mem first
+    let mut map = AHashMap::with_capacity(len);
+    for _ in 0..len {
+        let key = rdb_load_string(rdb)?;
+        let val = rdb_load_string(rdb)?;
+        map.insert(key, val);
+    }
+    Ok(map)
 }

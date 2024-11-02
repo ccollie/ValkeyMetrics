@@ -5,7 +5,7 @@ use crate::iter::SampleIter;
 use crate::series::chunks::pco::pco_utils::{compress_timestamps, compress_values, decompress_timestamps, decompress_values};
 use crate::series::chunks::pco::PcoSampleIterator;
 use crate::series::chunks::Chunk;
-use crate::series::serialization::{rdb_load_usize, rdb_save_usize};
+use crate::common::serialization::{rdb_load_usize, rdb_save_usize};
 use crate::series::utils::{get_timestamp_index_bounds};
 use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
 use get_size::GetSize;

@@ -6,7 +6,7 @@ use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
 use crate::series::constants::DEFAULT_CHUNK_SIZE_BYTES;
 use crate::series::merge::merge_by_capacity;
-use crate::series::serialization::*;
+use crate::common::serialization::*;
 use crate::series::types::ValueFilter;
 use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value, format_prometheus_metric_name};
 use crate::series::DuplicatePolicy;
