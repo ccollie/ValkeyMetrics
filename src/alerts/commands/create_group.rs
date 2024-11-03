@@ -4,25 +4,28 @@ use crate::error_consts;
 use crate::module::arg_parse::*;
 use std::time::Duration;
 use valkey_module::key::ValkeyKeyWritable;
-use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
+use valkey_module::{
+    Context,
+    NextArg,
+    NotifyEvent,
+    ValkeyError,
+    ValkeyResult,
+    ValkeyString, 
+    VALKEY_OK
+};
 
 const INTERVAL: &str = "INTERVAL";
 const EVAL_OFFSET: &str = "EVAL_OFFSET";
 const EVAL_DELAY: &str = "EVAL_DELAY";
-const CONCURRENCY: &str = "CONCURRENCY";
 const EVAL_ALIGNMENT: &str = "EVAL_ALIGNMENT";
-const LIMIT: &str = "LIMIT";
-const LABELS: &str = "LABELS";
-
 
 
 /// Create a new Group
 ///
-/// VM.CREATE-RULE-GROUP key name
+/// VM.CREATE-RULE-GROUP groupKey groupName
 ///   [INTERVAL interval]
 ///   [EVAL_OFFSET evalOffset]
 ///   [EVAL_DELAY evalDelay]
-///   [CONCURRENCY concurrency]
 ///   [EVAL_ALIGNMENT isAligned]
 ///   [LIMIT limit]
 ///   [LABELS name value ...]
@@ -43,14 +46,13 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
     let key = args.next().ok_or(ValkeyError::Str("Err missing key argument"))?;
     options.name = args.next_string()?;
 
-    const CREATE_TOKENS: [&str; 7] = [
+    const CREATE_TOKENS: [&str; 6] = [
         EVAL_ALIGNMENT,
         EVAL_DELAY,
         EVAL_OFFSET,
-        CONCURRENCY,
         INTERVAL,
-        LIMIT,
-        LABELS
+        CMD_ARG_LIMIT,
+        CMD_ARG_LABELS
     ];
 
     fn is_command_keyword(arg: &str) -> bool {
@@ -70,17 +72,12 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
                 let is_aligned = parse_boolean(args.next_str()?)?;
                 options.eval_alignment = Some(is_aligned);
             }
-            CONCURRENCY => {
-                let value = args.next_u64()?;
-                // todo: should we expose this ??? the executor will handle this internally
-                options.concurrency = value as usize;
-            }
-            LIMIT => {
+            CMD_ARG_LIMIT => {
                 let value = args.next_u64()?;
                 // TODO
                 options.limit = value as usize;
             }
-            LABELS => {
+            CMD_ARG_LABELS => {
                 options.labels = parse_key_value_pairs(&mut args, is_command_keyword)?;
             }
             _ => {

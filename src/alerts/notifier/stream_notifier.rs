@@ -10,19 +10,16 @@ use valkey_module::{Context, ValkeyValue};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StreamNotifier {
     /// The notification stream key
-    /// typed this way because valkey keys are binary safe (as opposed to utf-8).
-    /// Investigate using ValkeyString instead (initially had issues with thread safety)
-    pub key: Box<[u8]>,
+    pub key: String,
     pub max_messages: Option<usize>,
     // todo: should this be an enum ? (Standard, Compact, JSON)
     pub compact: bool,
 }
 
 impl StreamNotifier {
-    pub fn new<K: for<'a> Into<&'a [u8]>>(key: K, max_messages: Option<usize>) -> Self {
-        let key_buf = key.into().to_vec().into_boxed_slice();
+    pub fn new(key: &str, max_messages: Option<usize>) -> Self { ;
         StreamNotifier {
-            key: key_buf,
+            key: key.into(),
             max_messages,
             compact: false,
         }

@@ -58,7 +58,7 @@ fn parse_rule_config(mut args: CommandArgIterator) -> ValkeyResult<RecordingRule
             arg if arg.eq_ignore_ascii_case(CMD_ARG_KEY) => {
                 let key = args.next_string()?;
                 // todo: validate
-                rule.key = key;
+                rule.dest_key = key;
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_EXPR) => {
                 rule.expr = parse_promql_expr(&mut args)?;

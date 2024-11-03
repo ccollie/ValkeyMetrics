@@ -21,7 +21,7 @@ pub struct RecordingRule {
     pub id: u64,
     /// The valkey db key of the time series to output to. Optional.
     /// TODO: Box<[u8]>
-    pub key: String,
+    pub dest_key: String,
     /// The name of the time series to output to. Must be a valid metric name.
     pub name: String,
     /// The PromQL expression to evaluate. Every evaluation cycle this is
@@ -57,7 +57,7 @@ impl RecordingRule {
     pub fn new(group: &Group, cfg: RuleConfig) -> Self {
         RecordingRule {
             id: cfg.id,
-            key: Default::default(),
+            dest_key: Default::default(),
             name: cfg.record,
             expr: cfg.expr,
             labels: cfg.labels,
@@ -104,13 +104,13 @@ impl RecordingRule {
 
     fn to_instant_time_series(&mut self, r: InstantQueryResult) -> RawTimeSeries {
         // TODO: properly construct name
-        let key = self.key.clone();
+        let key = self.dest_key.clone();
         self.to_time_series(key, r.metric, &[r.sample])
     }
 
     fn to_range_time_series(&mut self, r: RangeQueryResult) -> RawTimeSeries {
         // TODO: properly construct name
-        let key = self.key.clone();
+        let key = self.dest_key.clone();
         // todo: generate key for range query
         self.to_time_series(key, r.metric, &r.samples)
     }

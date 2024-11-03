@@ -30,6 +30,7 @@ mod alerts;
 use crate::globals::{clear_timeseries_index, with_timeseries_index};
 use crate::series::time_series::TimeSeries;
 use module::*;
+use crate::alerts::VKM_RULE_GROUP;
 use crate::common::async_runtime::init_runtime;
 
 pub const VKMETRICS_VERSION: i32 = 1;
@@ -73,6 +74,7 @@ fn loading_event_handler(_ctx: &ValkeyContext, values: LoadingSubevent) {
 }
 
 fn remove_key_from_index(ctx: &ValkeyContext, key: &[u8]) {
+    // todo: rewrite this to account for groups
     with_timeseries_index(ctx, |ts_index| {
         let key: ValkeyString = ctx.create_string(key);
         ts_index.remove_series_by_key(ctx, &key);
@@ -80,6 +82,7 @@ fn remove_key_from_index(ctx: &ValkeyContext, key: &[u8]) {
 }
 
 fn index_timeseries_by_key(ctx: &ValkeyContext, key: &[u8]) {
+    // todo: rewrite this to account for groups
     with_timeseries_index(ctx, |ts_index| {
         let _key: ValkeyString = ctx.create_string(key);
         let redis_key = ctx.open_key_writable(&_key);
@@ -135,7 +138,7 @@ valkey_module! {
     name: MODULE_NAME,
     version: VKMETRICS_VERSION,
     allocator: (get_allocator!(), get_allocator!()),
-    data_types: [VKM_SERIES_TYPE],
+    data_types: [VKM_SERIES_TYPE, VKM_RULE_GROUP],
     init: initialize,
     deinit: deinitialize,
     commands: [

@@ -162,9 +162,9 @@ impl Executor {
         rule.process_alerts_to_send(ts, resolve_duration, resend_delay, |alerts| {
             let thread_ctx = ThreadSafeContext::new();
             let context_guard = thread_ctx.lock();
-            let alerts_slice = alerts.iter().map(|x| &**x).collect();
+            let alert_slice = alerts.as_slice();
             for nt in group.notifiers.iter() {
-                if let Err(err) = nt.send(&context_guard, alerts_slice, &group.notifier_headers) {
+                if let Err(err) = nt.send(&context_guard, alert_slice, &group.notifier_headers) {
                     let msg = format!("failed to send alerts to addr {}: {:?}", nt.addr(), err);
                     return Err(AlertsError::Generic(msg));
                 }

@@ -183,16 +183,12 @@ pub(crate) fn rdb_load_bool(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<bool> 
     Ok(bool_val!= 0)
 }
 
-fn rdb_save_string_hashmap_iter(rdb: *mut raw::RedisModuleIO, iter: impl Iterator<Item = (String,String)>) {
-    for (key, val) in iter  {
+pub(crate) fn rdb_save_string_hashmap(rdb: *mut raw::RedisModuleIO, map: &HashMap<String, String>) {
+    rdb_save_usize(rdb, map.len());
+    for (key, val) in map.iter()  {
         rdb_save_string(rdb, &key);
         rdb_save_string(rdb, &val);
     }
-}
-
-pub(crate) fn rdb_save_string_hashmap(rdb: *mut raw::RedisModuleIO, map: &HashMap<String, String>) {
-    rdb_save_usize(rdb, map.len());
-    rdb_save_string_hashmap_iter(rdb, map.iter())
 }
 
 pub(crate) fn rdb_load_string_hashmap(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<HashMap<String, String>> {
@@ -209,7 +205,10 @@ pub(crate) fn rdb_load_string_hashmap(rdb: *mut raw::RedisModuleIO) -> ValkeyRes
 
 pub(crate) fn rdb_save_ahashmap(rdb: *mut raw::RedisModuleIO, map: &AHashMap<String, String>) {
     rdb_save_usize(rdb, map.len());
-    rdb_save_string_hashmap_iter(rdb, map.iter())
+    for (key, val) in map.iter()  {
+        rdb_save_string(rdb, &key);
+        rdb_save_string(rdb, &val);
+    }
 }
 
 

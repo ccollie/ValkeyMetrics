@@ -26,8 +26,9 @@ use valkey_module::{NextArg, ValkeyError, ValkeyResult, ValkeyString};
 const MAX_TS_VALUES_FILTER: usize = 16;
 pub const CMD_ARG_COUNT: &'static str = "COUNT";
 pub const CMD_PARAM_REDUCER: &'static str = "REDUCE";
-const CMD_PARAM_ALIGN: &'static str = "ALIGN";
+pub const CMD_PARAM_ALIGN: &'static str = "ALIGN";
 pub const CMD_ARG_COMPRESSION: &'static str = "COMPRESSION";
+pub const CMD_ARG_DISABLED: &'static str = "DISABLED";
 pub const CMD_ARG_FILTER_BY_VALUE: &'static str = "FILTER_BY_VALUE";
 pub const CMD_ARG_FILTER_BY_TS: &'static str = "FILTER_BY_TS";
 pub const CMD_ARG_AGGREGATION: &'static str = "AGGREGATION";
@@ -46,7 +47,7 @@ pub const CMD_ARG_DECIMAL_DIGITS: &'static str = "DECIMAL_DIGITS";
 pub const CMD_ARG_EXPR: &'static str = "EXPR";
 pub const CMD_ARG_NAME: &'static str = "NAME";
 pub const CMD_ARG_LABELS: &'static str = "LABELS";
-
+pub const CMD_ARG_LIMIT: &'static str = "LIMIT";
 
 pub type CommandArgIterator = Peekable<Skip<IntoIter<ValkeyString>>>;
 

@@ -7,7 +7,7 @@ use std::os::raw::c_void;
 use std::ptr::null_mut;
 use std::sync::LazyLock;
 use valkey_module::native_types::ValkeyType;
-use valkey_module::{raw, RedisModuleDefragCtx, RedisModuleString, ValkeyString};
+use valkey_module::{raw, Context, RedisModuleDefragCtx, RedisModuleString, ValkeyString};
 
 const VM_GROUP_VERSION: i32 = 0;
 
@@ -76,13 +76,16 @@ unsafe extern "C" fn copy(
     let guard = valkey_module::MODULE_CONTEXT.lock();
     let group = &*(value as *mut Group);
     let mut new_group = group.clone();
+    // todo: new id.
     let key = ValkeyString::from_redis_module_string(guard.ctx, tokey);
+    // TODO: schedule group or set to disabled
     Box::into_raw(Box::new(new_group)).cast::<c_void>()
 }
 
 fn remove_group_from_manager(group: &Group) {
     let guard = valkey_module::MODULE_CONTEXT.lock();
-    (&GROUP_MANAGER).delete_group(&guard.ctx, group);
+    let ctx = Context { ctx: guard.ctx };
+    (&GROUP_MANAGER).delete_group(&ctx, group);
 }
 
 #[allow(unused)]
@@ -91,17 +94,17 @@ unsafe extern "C" fn free(value: *mut c_void) {
         return;
     }
     let sm = value as *mut Group;
+    {
+        let group = &*(sm);
+        remove_group_from_manager(group);
+    }
     Box::from_raw(sm);
 }
 
 
 unsafe extern "C" fn unlink(_key: *mut RedisModuleString, value: *const c_void) {
     let group = &*(value as *mut Group);
-    if group.is_null() {
-        return;
-    }
-    let guard = valkey_module::MODULE_CONTEXT.lock();
-    (&GROUP_MANAGER).delete_group(guard.ctx, group);
+    remove_group_from_manager(group);
 }
 
 // todo: defrag - remove stale series
@@ -111,15 +114,11 @@ unsafe extern "C" fn defrag(
     value: *mut *mut c_void,
 ) -> std::os::raw::c_int {
     let group = &mut *(value as *mut Group);
-    if group.is_null() {
-        return 0;
-    }
-    
     let now = current_time_millis();
     
-    let alert_count = group.alerting_rules
-        .iter_mut()
-        .map(|rule| rule.remove_inactive_alerts(now)).sum();
+    for rule in group.alerting_rules.iter_mut() {
+        rule.remove_inactive_alerts(now);        
+    }
 
-    alert_count as std::os::raw::c_int
+    0
 }

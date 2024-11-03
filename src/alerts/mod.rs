@@ -15,3 +15,4 @@ mod serialization;
 
 pub(crate) use datasource::*;
 pub use alerts_error::*;
+pub use group_data_type::VKM_RULE_GROUP;

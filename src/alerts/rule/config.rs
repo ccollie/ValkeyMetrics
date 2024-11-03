@@ -162,6 +162,7 @@ pub struct GroupConfig {
     pub notifier_headers: Vec<Header>,
     /// eval_alignment will make the timestamp of group query requests be aligned with interval
     pub eval_alignment: Option<bool>,
+    pub disabled: bool // change to paused ????
 }
 
 /// Header is a Key - Value struct for holding an HTTP header.

@@ -1,8 +1,8 @@
 use super::{Alert, Notifier};
-use crate::alerts::AlertsResult;
+use crate::alerts::{AlertsError, AlertsResult};
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use valkey_module::Context;
+use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyValue};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PubSubNotifier {
@@ -13,8 +13,8 @@ impl PubSubNotifier {
     pub fn new(topic: String) -> Self {
         PubSubNotifier { topic }
     }
-    fn publish(&self, ctx: &Context, msg: &str) {
-        match ctx.call("PUBLISH", &[&self.topic, msg]) {
+    fn publish(&self, ctx: &Context, channel: &str, payload: &str) {
+        match ctx.call("PUBLISH", &[channel, payload]) {
             Ok(_) => {}
             Err(e) => {
                 let msg = format!("failed to publish message to pubsub: {:?}", e);
@@ -22,7 +22,6 @@ impl PubSubNotifier {
             }
         }
     }
-
 }
 
 const ALERT_PREFIX: &str = "alert";
@@ -34,28 +33,37 @@ impl Notifier for PubSubNotifier {
         alerts: &[Alert],
         _notifier_headers: &HashMap<String, String>,
     ) -> AlertsResult<()> {
-        let mut msg = String::with_capacity(128);
+        let mut channel = String::with_capacity(128);
         for alert in alerts {
+            let payload = match serde_json::to_string(alert) {
+                Ok(json) => json,
+                Err(e) => {
+                    let msg = format!("failed to serialize alert to JSON: {:?}", e);
+                    ctx.log_warning(&msg);
+                    return Err(AlertsError::Generic(msg));
+                }
+            };
+                
             // PUBLISH alert:<alert_name>:<alert_state> state
             //let tmp = format!("{ALERT_PREFIX}:{}:{}", alert.state.name(), alert.name);
-            msg.push_str(ALERT_PREFIX);
-            msg.push(':');
-            msg.push_str(&alert.name);
-            msg.push(':');
-            msg.push_str(&alert.state.name());
+            channel.push_str(ALERT_PREFIX);
+            channel.push(':');
+            channel.push_str(&alert.name);
+            channel.push(':');
+            channel.push_str(&alert.state.name());
 
-            self.publish(ctx, &msg);
-            msg.clear();
+            self.publish(ctx, &channel, &payload);
+            channel.clear();
 
             // PUBLISH channel alert:<alert_state>:<alert_name>
-            msg.push_str(ALERT_PREFIX);
-            msg.push(':');
-            msg.push_str(&alert.state.name());
-            msg.push(':');
-            msg.push_str(&alert.name);
+            channel.push_str(ALERT_PREFIX);
+            channel.push(':');
+            channel.push_str(&alert.state.name());
+            channel.push(':');
+            channel.push_str(&alert.name);
 
-            self.publish(ctx, &msg);
-            msg.clear();
+            self.publish(ctx, &channel, &payload);
+            channel.clear();
         }
         Ok(())
     }
@@ -63,4 +71,27 @@ impl Notifier for PubSubNotifier {
     fn addr(&self) -> String {
         self.topic.clone()
     }
+}
+
+pub(crate) fn channel_subscriber_count(ctx: &Context, channel: &str) -> ValkeyResult<u32> {
+    // Check the number of subscribers for the given channel
+    // todo: figure out what type this actually returns to simplify the match below
+    let response = ctx.call("PUBSUB", &["NUMSUB", channel])?;
+    let count = match response { 
+        ValkeyValue::Float(value) => value as u32,
+        ValkeyValue::Integer(value) => value as u32,
+        ValkeyValue::Array(values) => {
+            let num_str: String = values[0].to_string();
+            match num_str.parse::<u32>() {
+                Ok(value) => value,
+                Err(_) => return Err(ValkeyError::Str("ERR: invalid subscriber count")),
+            }
+        }
+        Err(e) => {
+            ctx.log_warning(&format!("failed to get subscriber count for channel {}: {:?}", channel, e));
+            0
+        }
+    };
+
+    Ok(count)
 }

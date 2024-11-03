@@ -97,7 +97,7 @@ fn load_recording_rule_metrics(rdb: *mut RedisModuleIO) -> ValkeyResult<Recordin
 pub(crate) fn save_recording_rule(rdb: *mut RedisModuleIO, rule: &RecordingRule) {
     raw::save_unsigned(rdb, rule.id);
     raw::save_string(rdb, &rule.name);
-    raw::save_string(rdb, &rule.key);
+    raw::save_string(rdb, &rule.dest_key);
     raw::save_string(rdb, &rule.expr);
     rdb_save_ahashmap(rdb, &rule.labels);
     raw::save_unsigned(rdb, rule.group_id);
@@ -124,7 +124,7 @@ pub(crate) fn load_recording_rule(rdb: *mut RedisModuleIO) -> ValkeyResult<Recor
     let metrics = load_recording_rule_metrics(rdb)?;
     Ok(RecordingRule {
         id,
-        key: key.to_string_lossy(),
+        dest_key: key.to_string_lossy(),
         name,
         expr,
         labels,
