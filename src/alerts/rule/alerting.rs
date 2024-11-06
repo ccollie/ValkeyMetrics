@@ -1,3 +1,4 @@
+use std::any::Any;
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::alerts::{AlertsError, AlertsResult, Querier};
 use crate::common::types::{Label, Sample, Timestamp, TimestampTrait};
@@ -7,8 +8,9 @@ use std::hash::{Hash, Hasher};
 use std::ops::{Sub};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration};
-use ahash::{AHashMap, AHasher};
+use ahash::{AHasher};
 use enquote::enquote;
+use get_size::GetSize;
 use metricsql_common::hash::FastHasher;
 use metricsql_common::prelude::humanize_duration;
 use metricsql_runtime::prelude::MetricName;
@@ -29,6 +31,7 @@ const RESOLVED_RETENTION: Duration = Duration::from_micros(15 * 60 * 1000);
 const DISABLE_ALERT_GROUP_LABEL: bool = false;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(GetSize)]
 pub struct AlertingRuleMetrics {
     pub(crate) errors: AtomicU64,
     pub(crate) pending: AtomicU64,
@@ -60,17 +63,19 @@ impl PartialEq for AlertingRuleMetrics {
     }
 }
 
-/// AlertingRule is basic alert entity
+/// `AlertingRule` is basic alert entity
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(GetSize)]
 pub struct AlertingRule {
     pub rule_id: u64,
     pub name: String,
+    /// The PromQL expression to evaluate.
     pub expr: String,
     #[serde(rename = "for_duration")]
     pub r#for: Duration,
     pub keep_firing_for: Duration,
-    pub labels: AHashMap<String, String>,
-    pub annotations: AHashMap<String, String>,
+    pub labels: HashMap<String, String>,
+    pub annotations: HashMap<String, String>,
     pub group_id: u64, // I don't think this needs to be stored
     pub group_name: String,
     pub eval_interval: Duration,
@@ -80,7 +85,7 @@ pub struct AlertingRule {
     pub state: RuleState,
 
     /// stores list of active alerts
-    pub alerts: AHashMap<u64, Alert>,
+    pub alerts: HashMap<u64, Alert>,
 
     pub metrics: AlertingRuleMetrics,
 }
@@ -94,7 +99,7 @@ struct LabelSet {
     /// `processed` labels includes origin labels plus extra labels (group labels, service labels
     /// like `ALERT_NAME_LABEL`). In case of conflicts, extra labels are preferred.
     /// Used as labels attached to notifier.Alert and ALERTS series written to remote storage.
-    processed: AHashMap<String, String>,
+    processed: HashMap<String, String>,
 }
 
 impl AlertingRule {
@@ -257,7 +262,7 @@ impl AlertingRule {
         ts: Timestamp,
         value: f64,
         ctx: TemplateQueryContext,
-    ) -> AlertsResult<(LabelSet, AHashMap<String, String>)> {
+    ) -> AlertsResult<(LabelSet, HashMap<String, String>)> {
         let ls = self.to_labels(metric, value, ctx.clone())?;
         let tpl_data = AlertTplData {
             value,
@@ -302,29 +307,21 @@ impl AlertingRule {
     {
         let delay = resend_delay.as_millis() as i64;
 
-        #[inline]
-        fn needs_sending(a: &Alert, ts: Timestamp, delay: i64) -> bool {
-            if a.state == AlertState::Pending {
-                return false;
-            }
-            if a.resolved_at > a.last_sent {
-                return true;
-            }
-            a.last_sent.saturating_add(delay) < ts
-        }
-
         let mut ids: Vec<u64> = Vec::new();
 
         let resolve_duration = resolve_duration.as_millis() as i64;
 
         for (_, alert) in self.alerts.iter_mut() {
-            if !needs_sending(alert, ts, delay) {
+            if !alert.needs_sending(ts, delay) {
                 continue;
             }
-            alert.end = ts.saturating_add(resolve_duration);
-            if alert.state == AlertState::Inactive {
-                alert.end = alert.resolved_at;
-            }
+            
+            alert.end = if alert.state == AlertState::Inactive {
+                alert.resolved_at
+            } else {
+                ts.saturating_add(resolve_duration) 
+            };
+            
             alert.last_sent = ts;
             ids.push(alert.id);
         }
@@ -338,8 +335,8 @@ impl AlertingRule {
         &mut self,
         start: Timestamp,
         value: f64,
-        labels: AHashMap<String, String>,
-        annotations: AHashMap<String, String>
+        labels: HashMap<String, String>,
+        annotations: HashMap<String, String>
     ) -> Alert {
         Alert {
             group_id: self.group_id,
@@ -480,11 +477,19 @@ impl Rule for AlertingRule {
         self.rule_id
     }
 
+    fn name(&self) -> &str {
+        &self.name
+    }
+
     fn rule_type(&self) -> RuleType {
         RuleType::Alerting
     }
 
-    fn exec(&mut self, querier: &impl Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn expr(&self) -> &str {
+        &self.expr
+    }
+
+    fn exec(&mut self, querier: &dyn Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
         let start = current_time_millis();
 
         let mut cur_state = RuleStateEntry {
@@ -524,7 +529,7 @@ impl Rule for AlertingRule {
         // since they could use `query` function which takes a while to execute,
         // see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/6079.
         let mut expanded_labels: Vec<LabelSet> = Vec::with_capacity(res.len());
-        let mut expanded_annotations: Vec<AHashMap<String, String>> = Vec::with_capacity(res.len());
+        let mut expanded_annotations: Vec<HashMap<String, String>> = Vec::with_capacity(res.len());
         for m in res.iter() {
             let value = m.sample.value;
             match self.expand_templates(&m.metric, ts, value, query_ctx.clone()) {
@@ -642,10 +647,10 @@ impl Rule for AlertingRule {
     /// It doesn't update internal states of the Rule and is meant to be used just to get time series
     /// for back-filling.
     /// It returns `ALERT` and `ALERT_FOR_STATE` time series as a result.
-    fn exec_range(&mut self, querier: &impl Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec_range(&mut self, querier: &dyn Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
         let res = querier.query_range(&self.expr, start, end)?;
         let mut result = Vec::new();
-        let mut hold_alert_state = AHashMap::new();
+        let mut hold_alert_state = HashMap::new();
 
         let query_ctx = TemplateQueryContext::Error("`query` template function isn't supported in replay mode".to_string());
 
@@ -704,9 +709,17 @@ impl Rule for AlertingRule {
         self.alerts = hold_alert_state;
         Ok(result)
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
-fn hash_map(labels: &AHashMap<String, String>) -> u64 {
+fn hash_map(labels: &HashMap<String, String>) -> u64 {
     let mut hasher = AHasher::default();
 
     let mut labels = labels.iter()

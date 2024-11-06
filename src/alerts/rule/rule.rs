@@ -1,3 +1,4 @@
+use std::any::Any;
 use crate::alerts::rule::{AlertingRule, RecordingRule};
 use crate::alerts::types::RawTimeSeries;
 use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, Querier};
@@ -7,7 +8,10 @@ use std::collections::VecDeque;
 use std::fmt::{Debug, Display};
 use std::str::FromStr;
 use std::time::Duration;
+use get_size::GetSize;
 use valkey_module::Context as ValkeyContext;
+
+pub type RuleId = u64;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum RuleType {
@@ -83,18 +87,29 @@ impl<'a> EvalContext<'a> {
 
 /// Rule represents alerting or recording rule that has unique id, can be executed
 /// and updated with other Rule.
-pub trait Rule: Debug + Clone {
+pub trait Rule: Debug + Any {
     /// id returns unique id that may be used for identifying this Rule among others.
     fn id(&self) -> u64;
+    
+    fn name(&self) -> &str;
+    
     fn rule_type(&self) -> RuleType;
+    
+    fn expr(&self) -> &str;
+    
     /// exec executes the rule with given context at the given timestamp and limit.
     /// returns an err if number of resulting time series exceeds the limit.
-    fn exec(&mut self, querier: &impl Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>>;
+    fn exec(&mut self, querier: &dyn Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>>;
     /// exec_range executes the rule on the given time range.
-    fn exec_range(&mut self, querier: &impl Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>>;
+    fn exec_range(&mut self, querier: &dyn Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>>;
+    
+    fn as_any(&self) -> &dyn Any;
+    
+    fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(GetSize)]
 pub struct RuleStateEntry {
     /// stores last moment of time rule.exec() was called
     pub time: Timestamp,
@@ -114,43 +129,67 @@ pub struct RuleStateEntry {
 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum PromRule {
-    AlertRule(AlertingRule), // possibly box this to conserve space
-    RecordRule(RecordingRule),
+#[derive(GetSize)]
+pub enum MetricRule {
+    AlertingRule(AlertingRule), // possibly box this to conserve space
+    RecordingRule(RecordingRule),
 }
 
-impl Rule for PromRule {
+impl Rule for MetricRule {
     fn id(&self) -> u64 {
         match self {
-            PromRule::AlertRule(rule) => rule.id(),
-            PromRule::RecordRule(rule) => rule.id(),
+            MetricRule::AlertingRule(rule) => rule.id(),
+            MetricRule::RecordingRule(rule) => rule.id(),
         }
     }
 
+    fn name(&self) -> &str {
+        match self {
+            MetricRule::AlertingRule(rule) => rule.name(),
+            MetricRule::RecordingRule(rule) => rule.name(),
+        }
+    }
+    
     fn rule_type(&self) -> RuleType {
         match self {
-            PromRule::AlertRule(rule) => rule.rule_type(),
-            PromRule::RecordRule(rule) => rule.rule_type(),
+            MetricRule::AlertingRule(rule) => rule.rule_type(),
+            MetricRule::RecordingRule(rule) => rule.rule_type(),
         }
     }
 
-    fn exec(&mut self, querier: &impl Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn expr(&self) -> &str {
         match self {
-            PromRule::AlertRule(rule) => rule.exec(querier, ts, limit),
-            PromRule::RecordRule(rule) => rule.exec(querier, ts, limit),
+            MetricRule::AlertingRule(rule) => rule.expr(),
+            MetricRule::RecordingRule(rule) => rule.expr(),
         }
     }
 
-    fn exec_range(&mut self, querier: &impl Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec(&mut self, querier: &dyn Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
         match self {
-            PromRule::AlertRule(rule) => rule.exec_range(querier, start, end),
-            PromRule::RecordRule(rule) => rule.exec_range(querier, start, end),
+            MetricRule::AlertingRule(rule) => rule.exec(querier, ts, limit),
+            MetricRule::RecordingRule(rule) => rule.exec(querier, ts, limit),
         }
+    }
+
+    fn exec_range(&mut self, querier: &dyn Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
+        match self {
+            MetricRule::AlertingRule(rule) => rule.exec_range(querier, start, end),
+            MetricRule::RecordingRule(rule) => rule.exec_range(querier, start, end),
+        }
+    }
+    
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 // var errDuplicate = "result contains metrics with the same labelset after applying rule labels. See https://docs.victoriametrics.com/vmalert.html#series-with-the-same-labelset for details";
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(GetSize)]
 pub struct RuleState(pub VecDeque<RuleStateEntry>);
 
 impl RuleState {

@@ -3,15 +3,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::alerts::constants::STALE_NAN;
-use crate::alerts::notifier::Notifier;
+use crate::alerts::notifier::{AlertNotifier, Notifier};
 use crate::alerts::rule::group::labels_to_string;
-use crate::alerts::rule::{make_series_key, AlertingRule, Group, RecordingRule, Rule};
+use crate::alerts::rule::{make_series_key, AlertingRule, Group, MetricRule, Rule, RuleType};
 use crate::alerts::types::RawTimeSeries;
 use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, WriteQueue};
 use crate::common::types::{Label, Sample, Timestamp, TimestampTrait};
 use crate::config::get_global_settings;
-use ahash::{AHashMap, AHashSet};
-use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+use ahash::AHashMap;
+use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
 use valkey_module::ThreadSafeContext;
 
 pub type PreviouslySentSeries = HashMap<u64, AHashMap<String, Vec<Label>>>;
@@ -20,6 +20,7 @@ pub type PreviouslySentSeries = HashMap<u64, AHashMap<String, Vec<Label>>>;
 pub struct Executor {
     pub rw: Arc<WriteQueue>,
     pub querier: AlertDatasource,
+    pub notifiers: Arc<Vec<AlertNotifier>>,
 
     /// `previously_sent_series` stores series sent to the write queue on previous iteration
     /// HashMap<RuleID, HashMap<ruleLabels, Vec<Label>>
@@ -42,6 +43,7 @@ impl Executor {
             querier,
             previously_sent_series: Arc::new(Mutex::new(HashMap::new())),
             last_evaluation: Timestamp::now(),
+            notifiers: Arc::new(Vec::new()),
         }
     }
 
@@ -86,21 +88,64 @@ impl Executor {
     /// which aren't present in the given active_rules list. The method is used when the list
     /// of loaded rules has changed and executor has to remove references to non-existing rules.
     pub(super) fn purge_stale_series(&mut self, active_rules: &[impl Rule]) {
-        let id_hash_set: AHashSet<u64> = active_rules.iter().map(|r| r.id()).collect();
-
         let mut map = self.previously_sent_series.lock().unwrap();
-
-        map.retain(|id, _| id_hash_set.contains(id));
+        let mut new_series = PreviouslySentSeries::new();
+        for rule in active_rules.iter() {
+            let id = rule.id();
+            if let Some(prev) = map.get_mut(&id) {
+                // keep previous series for staleness detection
+                new_series.insert(id, prev.clone());
+            }
+        }
+        *map = new_series;
     }
 
-    pub(super) fn exec_concurrently(&self,
-                                    group: &mut Group,
-                                    ts: Timestamp,
-                                    resolve_duration: Duration,
-                                    limit: usize) -> AlertsResult<()> {
-        // todo: rayon::join!
+    pub(super) fn exec_rules(&self,
+                             group: &mut Group,
+                             ts: Timestamp,
+                             resolve_duration: Duration,
+                             limit: usize) -> AlertsResult<()> {
+
+        if group.dependencies.is_some() {
+            return self.exec_dag(group, ts, resolve_duration, limit);
+        }
+
         self.exec_recording_rules(group, ts, limit)?;
-        self.exec_alerting_rules(group, ts, resolve_duration, limit)
+        self.exec_alerting_rules(group, ts, resolve_duration, limit)?;
+
+        Ok(())
+    }
+    
+    fn exec_dag(&self, group: &mut Group, ts: Timestamp, resolve_duration: Duration, limit: usize) -> AlertsResult<()> {
+        // Ugly Hack to avoid borrow checker issues to allow parallelism
+        let mut rules = std::mem::take(&mut group.rules);
+        let dag = std::mem::take(&mut group.dependencies).unwrap();
+        
+        for dependencies in dag.iter() {
+            let results: Vec<AlertsResult<()>> = dependencies
+                .par_iter()
+                .map(|rule_id| {
+                    let rule_option = rules.iter_mut().find(|x| x.id() == *rule_id);
+                    match rule_option {
+                        Some(rule) => self.exec_rule(group, rule, ts, resolve_duration, limit),
+                        None => {
+                            // todo: should not happen, but log it
+                            Ok(())
+                        }
+                    }
+                })
+                .collect();
+
+            // Handle errors if needed
+            for result in results {
+                result?;
+            }
+        }
+        
+        group.dependencies = Some(dag);
+        group.rules = rules;
+        
+        Ok(())
     }
 
     pub(super) fn exec_alerting_rules(&self,
@@ -108,19 +153,33 @@ impl Executor {
                                       ts: Timestamp,
                                       resolve_duration: Duration,
                                       limit: usize) -> AlertsResult<()> {
-        group.alerting_rules
+        group.rules
             .par_iter_mut()
-            .try_for_each(|rule| self.exec_alerting_rule(group, rule, ts, limit, resolve_duration))
+            .try_for_each(|rule| {
+                if rule.rule_type() == RuleType::Alerting {
+                    self.exec_rule(group, rule, ts, resolve_duration, limit)
+                } else {
+                    // todo: log it out
+                    Ok(())
+                }
+            })
     }
 
     pub fn exec_recording_rules(&self, group: &mut Group, ts: Timestamp, limit: usize) -> AlertsResult<()> {
         group
-            .recording_rules
+            .rules
             .par_iter_mut()
-            .try_for_each(|rule| self.exec_recording_rule(rule, ts, limit))
+            .try_for_each(|rule| {
+                if rule.rule_type() == RuleType::Recording {
+                    self.exec_internal(rule, ts, limit)
+                } else {
+                    // todo: log it out
+                    Ok(())
+                }
+            })
     }
 
-    fn exec_internal(&self, rule: &mut impl Rule, ts: Timestamp, limit: usize) -> AlertsResult<()> {
+    fn exec_internal(&self, rule: &mut MetricRule, ts: Timestamp, limit: usize) -> AlertsResult<()> {
         let tss = rule.exec(&self.querier, ts, limit)
             .map_err(|err| {
                 // todo: log it out
@@ -134,19 +193,24 @@ impl Executor {
         Ok(())
     }
 
-    fn exec_recording_rule(&self, rule: &mut RecordingRule, ts: Timestamp, limit: usize) -> AlertsResult<()> {
-        self.exec_internal(rule, ts, limit)
-    }
-
-    fn exec_alerting_rule(&self,
-                          group: &Group,
-                          rule: &mut AlertingRule,
-                          ts: Timestamp,
-                          limit: usize,
-                          resolve_duration: Duration) -> AlertsResult<()> {
-        self.exec_internal(rule, ts, limit)?;
-        let settings = get_global_settings();
-        self.send_notifications(group, rule, ts, resolve_duration, settings.resend_delay)
+    fn exec_rule(&self,
+               group: &Group,
+               rule: &mut MetricRule,
+               ts: Timestamp, 
+               resolve_duration: Duration,
+               limit: usize) -> AlertsResult<()> {
+        let res = self.exec_internal(rule, ts, limit);
+        if res.is_ok() {
+            match rule { 
+                MetricRule::AlertingRule(alerting_rule) => {
+                    let settings = get_global_settings();
+                    return self.send_notifications(group, alerting_rule, ts, resolve_duration, settings.resend_delay)
+                },
+                _ => {}, // not applicable for recording rules
+            }
+        }
+        
+        res
     }
 
     fn push_to_rw(&self, tss: Vec<RawTimeSeries>) {
@@ -163,7 +227,7 @@ impl Executor {
             let thread_ctx = ThreadSafeContext::new();
             let context_guard = thread_ctx.lock();
             let alert_slice = alerts.as_slice();
-            for nt in group.notifiers.iter() {
+            for nt in self.notifiers.iter() {
                 if let Err(err) = nt.send(&context_guard, alert_slice, &group.notifier_headers) {
                     let msg = format!("failed to send alerts to addr {}: {:?}", nt.addr(), err);
                     return Err(AlertsError::Generic(msg));

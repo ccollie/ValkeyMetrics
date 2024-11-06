@@ -17,7 +17,7 @@ pub struct StreamNotifier {
 }
 
 impl StreamNotifier {
-    pub fn new(key: &str, max_messages: Option<usize>) -> Self { ;
+    pub fn new(key: &str, max_messages: Option<usize>) -> Self { 
         StreamNotifier {
             key: key.into(),
             max_messages,
@@ -76,8 +76,8 @@ impl StreamNotifier {
             add_timestamp("last_sent", &alert.last_sent, serialized_alert);
 
             add_duration("for", &alert.r#for, serialized_alert);
-            add_ahash_map("labels", &alert.labels, serialized_alert);
-            add_ahash_map("annotations", &alert.annotations, serialized_alert);
+            add_hash_map("labels", &alert.labels, serialized_alert);
+            add_hash_map("annotations", &alert.annotations, serialized_alert);
             add_key_value_pair("restored", &alert.restored.to_string(), serialized_alert);
         }
     }

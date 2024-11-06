@@ -1,19 +1,18 @@
 use std::fmt::Display;
 use std::str::FromStr;
+use get_size::GetSize;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Enum for various alert errors.
 #[derive(Debug, Clone, Error, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(GetSize)]
 pub enum AlertsError {
     #[error("Invalid configuration. {0}")]
     InvalidConfiguration(String),
 
     #[error("Invalid rule. {0}")]
     InvalidRule(String),
-
-    #[error("Configuration error. {0}")]
-    Configuration(String),
 
     #[error("Serialization error. {0}")]
     CannotSerialize(String),
@@ -26,12 +25,12 @@ pub enum AlertsError {
 
     #[error("Duplicate series. {0}")] // need better error
     DuplicateSeries(String),
+    
+    #[error("A rule named \"{0}\" already exists")]
+    RuleAlreadyExists(String),
 
     #[error("Invalid series selector: {0}")]
     InvalidSeriesSelector(String),
-
-    #[error("Invalid timestamp: {0}")]
-    MaxActivePendingExceeded(String),
 
     #[error("Failed to expand labels: {0}")]
     FailedToExpandLabels(String),
@@ -62,6 +61,7 @@ pub enum AlertsError {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq)]
+#[derive(GetSize)]
 pub struct ErrorGroup(pub Vec<String>);
 
 impl ErrorGroup {

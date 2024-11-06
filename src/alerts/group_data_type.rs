@@ -116,9 +116,7 @@ unsafe extern "C" fn defrag(
     let group = &mut *(value as *mut Group);
     let now = current_time_millis();
     
-    for rule in group.alerting_rules.iter_mut() {
-        rule.remove_inactive_alerts(now);        
-    }
+    group.remove_inactive_alerts(now);
 
     0
 }

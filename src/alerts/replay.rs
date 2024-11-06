@@ -76,7 +76,6 @@ fn replay_group<'a>(
     let ReplayOptions {
         from: start,
         to: end,
-        rules_delay,
         rule_retry_attempts,
         max_data_points,
         ..
@@ -105,11 +104,7 @@ fn replay_group<'a>(
     }
     // todo: rayon::join
 
-    for rule in group.recording_rules.iter_mut() {
-        total += replay_range(ctx, rule, start, *end, step, *rule_retry_attempts, rw)?;
-    }
-
-    for rule in group.alerting_rules.iter_mut() {
+    for rule in group.rules.iter_mut() {
         total += replay_range(ctx, rule, start, *end, step, *rule_retry_attempts, rw)?;
     }
 

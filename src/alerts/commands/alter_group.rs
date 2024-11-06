@@ -1,7 +1,7 @@
+use std::collections::HashMap;
 use crate::alerts::utils::with_group_mut;
 use crate::error_consts;
 use crate::module::arg_parse::*;
-use ahash::AHashMap;
 use metricsql_parser::parser::is_valid_identifier;
 use std::time::Duration;
 use valkey_module::{
@@ -27,7 +27,7 @@ struct AlterGroupOptions {
     eval_delay: Option<Duration>,
     eval_alignment: Option<bool>,
     disabled: Option<bool>,
-    labels: Option<AHashMap<String, String>>,
+    labels: Option<HashMap<String, String>>,
     interval: Option<Duration>,
     limit: Option<usize>,
 }

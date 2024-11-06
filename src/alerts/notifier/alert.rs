@@ -1,5 +1,4 @@
 use crate::common::types::Timestamp;
-use ahash::AHashMap;
 use gtmpl::{Context, Template};
 use gtmpl_derive::Gtmpl;
 use serde::{Deserialize, Serialize};
@@ -7,7 +6,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
-
+use get_size::GetSize;
 use crate::alerts::templates::{
     clone_template,
     funcs_with_query,
@@ -20,6 +19,7 @@ use crate::alerts::{AlertsError, AlertsResult, ErrorGroup};
 
 /// AlertState is the state of an alert.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, Eq)]
+#[derive(GetSize)]
 pub enum AlertState {
     #[default]
     /// `Inactive` is the state of an alert that is neither firing nor pending.
@@ -33,9 +33,9 @@ pub enum AlertState {
 impl AlertState {
     pub fn name(&self) -> &'static str {
         match self {
-            AlertState::Inactive => "inactive",
-            AlertState::Pending => "pending",
-            AlertState::Firing => "firing",
+            AlertState::Inactive => "Inactive",
+            AlertState::Pending => "Pending",
+            AlertState::Firing => "Firing",
         }
     }
     pub fn is_firing(&self) -> bool {
@@ -65,6 +65,7 @@ impl FromStr for AlertState {
 /// the triggered alert
 // TODO: Looks like alert name isn't unique
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(GetSize)]
 pub struct Alert {
     /// id is the unique identifier for the Alert
     pub id: u64,
@@ -75,9 +76,9 @@ pub struct Alert {
     /// the expression that was executed to generate the Alert
     pub expr: String,
     /// labels is the list of label-value pairs attached to the Alert
-    pub labels: AHashMap<String, String>,
+    pub labels: HashMap<String, String>,
     /// Annotations is the list of annotations generated on Alert evaluation
-    pub annotations: AHashMap<String, String>,
+    pub annotations: HashMap<String, String>,
     /// state represents the current state of the Alert
     pub state: AlertState,
     /// the moment of time when the Alert has become active
@@ -132,8 +133,8 @@ impl Alert {
         &mut self,
         ctx: TemplateQueryContext,
         labels: &HashMap<String, String>,
-        annotations: &AHashMap<String, String>,
-    ) -> AlertsResult<AHashMap<String, String>> {
+        annotations: &HashMap<String, String>,
+    ) -> AlertsResult<HashMap<String, String>> {
         let tpl_data = AlertTplData {
             value: self.value,
             labels: labels.clone(),  // ??? why not use ref ?
@@ -160,20 +161,30 @@ impl Alert {
     //     labels.sort();
     //     labels
     // }
+    
+    pub fn needs_sending(&self, ts: Timestamp, resend_delay: i64) -> bool {
+        if self.state == AlertState::Pending {
+            return false;
+        }
+        if self.resolved_at > self.last_sent {
+            return true;
+        }
+        self.last_sent.saturating_add(resend_delay) < ts
+    }
 }
 
 /// exec_template executes the given template for given annotations map.
 pub fn exec_template(
     ctx: TemplateQueryContext,
-    annotations: &AHashMap<String, String>,
+    annotations: &HashMap<String, String>,
     tpl_data: AlertTplData,
-) -> AlertsResult<AHashMap<String, String>> {
+) -> AlertsResult<HashMap<String, String>> {
     let tmpl = get_with_funcs(funcs_with_query(ctx))?;
     template_annotations(annotations, tpl_data, &tmpl)
 }
 
 /// validate annotations for possible template error, uses empty data for template population
-pub(crate) fn validate_templates(annotations: &AHashMap<String, String>) -> AlertsResult<()> {
+pub(crate) fn validate_templates(annotations: &HashMap<String, String>) -> AlertsResult<()> {
     let tmpl = get_template()?;
     let labels = HashMap::new();
     let _ = template_annotations(
@@ -193,12 +204,12 @@ pub(crate) fn validate_templates(annotations: &AHashMap<String, String>) -> Aler
 }
 
 fn template_annotations(
-    annotations: &AHashMap<String, String>,
+    annotations: &HashMap<String, String>,
     template_data: AlertTplData,
     tmpl: &Template,
-) -> AlertsResult<AHashMap<String, String>> {
+) -> AlertsResult<HashMap<String, String>> {
     let mut builder = String::with_capacity(256);
-    let mut r = AHashMap::with_capacity(annotations.len());
+    let mut r = HashMap::with_capacity(annotations.len());
     let mut err_group = Vec::with_capacity(annotations.len());
 
     let header_len = TPL_HEADERS.len();

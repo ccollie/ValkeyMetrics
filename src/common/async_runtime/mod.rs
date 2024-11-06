@@ -2,7 +2,7 @@ mod smol;
 mod async_std;
 
 use std::future::Future;
-pub use metricsql_common::async_runtime::{JoinHandle, ASYNC_RUNTIME};
+pub use metricsql_common::async_runtime::{JoinHandle};
 use cfg_if::cfg_if;
 
 cfg_if! {

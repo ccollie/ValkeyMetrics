@@ -2,30 +2,37 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::hash::Hasher;
 use std::ops::Add;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::Duration;
 use std::vec;
-use ahash::AHashMap;
 use enquote::enquote;
+use get_size::GetSize;
+use metricsql_parser::ast::{Expr, MetricExpr};
+use metricsql_parser::parser::parse as parse_expr;
 use crate::common::types::{Label, Timestamp, TimestampTrait};
 use serde::{Deserialize, Serialize};
+use topologic::AcyclicDependencyGraph;
 use tracing::info;
 use valkey_module::Context;
 use xxhash_rust::xxh3::Xxh3;
 use crate::alerts::{AlertsError, AlertsResult, QuerierBuilder, QuerierParams};
-use crate::alerts::notifier::{AlertNotifier, Notifier};
-use crate::alerts::rule::{AlertingRule, GroupConfig, RecordingRule, Rule, RuleType};
+use crate::alerts::rule::{AlertingRule, GroupConfig, MetricRule, RecordingRule, Rule, RuleId, RuleType};
 use crate::alerts::rule::executor::Executor;
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::config::get_global_settings;
 
+
+// `DependencyMap` describes the dependency associations between rules in a group whereby one rule uses the
+// output metric produced by another rule in its expression (i.e. as its "input"). Basically an adjacency list
+pub type DependencyMap = Vec<Vec<RuleId>>;
+
 /// Group is an entity for grouping rules
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Default)]
+#[derive(GetSize)]
 pub struct Group {
     pub id: u64,
     pub name: String,
-    pub alerting_rules: Vec<AlertingRule>,
-    pub recording_rules: Vec<RecordingRule>,
+    pub rules: Vec<MetricRule>,
     pub interval: Duration,
     pub eval_offset: Duration,
     /// Adjusts the `time` parameter of group evaluation requests to compensate for intentional query delay from the datasource.
@@ -46,16 +53,40 @@ pub struct Group {
     /// On exceeding the limit, rule will be marked with an error and all its results will be discarded.
     /// 0 is no limit.
     pub limit: usize,
-    pub last_evaluation: Timestamp,
-    pub labels: AHashMap<String, String>,
-    pub params: AHashMap<String, String>,
+    pub last_evaluation: AtomicI64,
+    pub labels: HashMap<String, String>,
+    pub params: HashMap<String, String>,
     pub notifier_headers: HashMap<String, String>,
-    pub notifiers: Vec<AlertNotifier>,
+    /// A DAG of rule ids represented as an adjacency list
+    pub dependencies: Option<DependencyMap>,
     pub metrics: GroupMetrics,
     pub disabled: bool,
 }
 
+impl Clone for Group {
+    fn clone(&self) -> Self {
+        Group {
+            id: self.id,
+            name: self.name.clone(),
+            rules: self.rules.clone(),
+            interval: self.interval,
+            eval_offset: self.eval_offset,
+            eval_delay: self.eval_delay.clone(),
+            eval_alignment: self.eval_alignment.clone(),
+            limit: self.limit,
+            last_evaluation: AtomicI64::new(self.last_evaluation.load(Ordering::Relaxed)),
+            labels: self.labels.clone(),
+            params: self.params.clone(),
+            notifier_headers: self.notifier_headers.clone(),
+            dependencies: self.dependencies.clone(),
+            metrics: self.metrics.clone(),
+            disabled: self.disabled,
+        }
+    }
+} 
+
 #[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(GetSize)]
 pub struct GroupMetrics {
     pub iteration_total: AtomicU64,
     pub iteration_duration: AtomicU64,
@@ -99,7 +130,7 @@ impl Group {
         g.metrics = new_group_metrics(&g);
 
         for mut r in cfg.rules.into_iter() {
-            let mut extra_labels: AHashMap<String, String> = Default::default();
+            let mut extra_labels: HashMap<String, String> = Default::default();
             let name = r.name();
             // apply external labels
             if !labels.is_empty() {
@@ -124,11 +155,11 @@ impl Group {
                 r.labels = extra_labels;
 
                 if matches!(r.rule_type(), RuleType::Alerting) {
-                    let ar = AlertingRule::new(&g, r);
-                    g.alerting_rules.push(ar);
+                    let ar = MetricRule::AlertingRule(AlertingRule::new(&g, r));
+                    g.rules.push(ar);
                 } else {
-                    let rr = RecordingRule::new(&g, r);
-                    g.recording_rules.push(rr);
+                    let rr = MetricRule::RecordingRule(RecordingRule::new(&g, r));
+                    g.rules.push(rr);
                 }
             }
         }
@@ -147,7 +178,7 @@ impl Group {
     }
 
     pub fn rule_count(&self) -> usize {
-        self.alerting_rules.len() + self.recording_rules.len()
+        self.rules.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -156,19 +187,24 @@ impl Group {
 
     /// restores alerts state for group rules
     pub fn restore(&mut self, ctx: &Context, qb: impl QuerierBuilder, ts: Timestamp, look_back: Duration) -> AlertsResult<()> {
-        for ar in self.alerting_rules.iter_mut() {
-            if ar.r#for.is_zero() {
-                continue;
-            }
-            let querier = qb.build_with_params(QuerierParams {
-                evaluation_interval: self.interval.clone(),
-                eval_offset: Default::default(),
-                query_params: self.params.clone(),
-                debug: ar.debug,
-            });
+        for ar in self.rules.iter_mut() {
+            match ar {
+                MetricRule::AlertingRule(alerting_rule)  => {
+                    if alerting_rule.r#for.is_zero() {
+                        continue;
+                    }
+                    let querier = qb.build_with_params(QuerierParams {
+                        evaluation_interval: self.interval.clone(),
+                        eval_offset: Default::default(),
+                        query_params: self.params.clone(),
+                        debug: alerting_rule.debug,
+                    });
 
-            ar.restore(ctx, &querier, ts, look_back)
-                .map_err(|e| AlertsError::RuleRestoreError(format!("{}: {:?}", ar.expr, e)))?;
+                    alerting_rule.restore(ctx, &querier, ts, look_back)
+                        .map_err(|e| AlertsError::RuleRestoreError(format!("{}: {:?}", alerting_rule.expr, e)))?;
+                }
+                _ => {}
+            }
         }
         Ok(())
     }
@@ -177,46 +213,32 @@ impl Group {
     /// evaluation interval change. It supposed to be updated in group.start function.
     /// Not thread-safe.
     pub fn update_with(&mut self, new_group: &Group) -> AlertsResult<()> {
-        let mut alert_rules_registry: HashMap<u64, &AlertingRule> = HashMap::with_capacity(new_group.alerting_rules.len());
-        let mut recording_rules_registry: HashMap<u64, &RecordingRule> = HashMap::with_capacity(new_group.recording_rules.len());
-
-        let mut to_delete: Vec<usize> = vec![];
-
-        for ar in new_group.alerting_rules.iter() {
-            alert_rules_registry.insert(ar.id(), ar);
+        let mut rules_registry = HashMap::new();
+        
+        for rule in new_group.rules.iter() {
+            rules_registry.insert(rule.id(), rule);
         }
-
-        for rr in new_group.recording_rules.iter() {
-            recording_rules_registry.insert(rr.id(), rr);
-        }
-
-        for (i, ar) in self.alerting_rules.iter_mut().enumerate() {
-            let id = ar.id();
-            if let Some(rule) = alert_rules_registry.get(&id) {
-                ar.update_with(rule);
-                continue;
+        
+        let mut to_delete = vec![];
+        
+        for (i, or) in self.rules.iter().enumerate() {
+            let id = or.id();
+            if let Some(rule) = rules_registry.get(&id) {
+                or.update_with(rule)?;
+            } else {
+                to_delete.push(i);   
             }
-            to_delete.push(i);
         }
 
         // need to do this more efficiently
         for ofs in to_delete.iter().rev() {
-            self.alerting_rules.remove(*ofs);
+            self.rules.remove(*ofs);
         }
         to_delete.clear();
-
-        for (i, rr) in self.recording_rules.iter_mut().enumerate() {
-            let id = rr.id();
-            if let Some(rule) = recording_rules_registry.get(&id) {
-                rr.update_with(rule);
-                continue;
-            }
-            to_delete.push(i);
-        }
-
-        // need to do this more efficiently
-        for ofs in to_delete.iter().rev() {
-            self.recording_rules.remove(*ofs);
+        
+        for rule in rules_registry.values() {
+            let rule = (*rule).clone();
+            self.rules.push(rule);
         }
 
         // note that self.interval is not updated here so the value can be compared later in
@@ -233,42 +255,127 @@ impl Group {
         self.metrics.iteration_duration.store(0, Ordering::Relaxed);
         self.metrics.iteration_missed.store(0, Ordering::Relaxed);
         self.metrics.iteration_interval.store(0, Ordering::Relaxed);
-        self.last_evaluation = 0;
+        self.last_evaluation = AtomicI64::new(0);
     }
 
-    pub fn get_alerting_rule(&self, name: &str) -> Option<&AlertingRule> {
-        self.alerting_rules.iter().find(|ar| ar.name == name)
+    pub fn add_rule(&mut self, rule: MetricRule) -> AlertsResult<()> {
+        let name = rule.name();
+        if self.contains_rule(name) {
+            return Err(AlertsError::RuleAlreadyExists(name.to_string()));
+        }
+        self.rules.push(rule);
+        Ok(())
     }
 
-    pub fn get_recording_rule(&self, name: &str) -> Option<&RecordingRule> {
-        self.recording_rules.iter().find(|ar| ar.name == name)
+    pub fn get_rule_by_name(&self, name: &str) -> Option<&MetricRule> {
+        self.rules.iter().find(|r| r.name() == name)
     }
 
     pub fn contains_rule(&self, name: &str) -> bool {
-        self.alerting_rules.iter().find(|ar| ar.name == name).is_some() ||
-            self.recording_rules.iter().find(|rr| rr.name == name).is_some()
+        self.get_rule_by_name(name).is_some()
     }
 
     pub fn remove_rule(&mut self, name: &str) -> bool {
-        let rule = self.alerting_rules
-            .iter()
-            .position(|ar| ar.name == name)
-            .map(|i| self.alerting_rules.remove(i));
+        let len = self.rules.len();
+        self.rules.retain(|x| x.name() != name);
+        len != self.rules.len()
+    }
 
-        if rule.is_none() {
-            return false;
+    /// `build_dependencies` builds an adjacency list based DAG of the relationships between rules within a group.
+    ///
+    /// Alert rules, by definition, cannot have any dependents - but they can have dependencies. Any recording rule on whose
+    /// output an Alert rule depends will not be able to run concurrently.
+    ///
+    /// There is a class of rule expressions which are considered "indeterminate", because either relationships cannot be
+    /// inferred, or concurrent evaluation of rules depending on these series would produce undefined/unexpected behaviour:
+    ///   - wildcard queries like {cluster="prod1"} which would match every series with that label selector
+    ///   - any "meta" series (series produced by Prometheus itself) like ALERTS, ALERTS_FOR_STATE
+    ///
+    /// Rules which are independent can run concurrently without side effects.
+    ///
+    /// Returns an adjacency list of rule ids which represents the topologically sorted execution order
+    /// of rules within the group. The first index contains rules that have no dependencies.
+    /// Each subsequent element contains the rules that depend on the rules in the previous layer.
+    ///
+    /// None is returned if the group contains "indeterminate" rule expressions
+    fn build_dependencies(&self) -> Option<DependencyMap> {
+        if self.rules.is_empty() {
+            // No relationships if group has 1 or fewer rules.
+            return None;
         }
 
-        self.recording_rules.iter()
-            .position(|rr| rr.name == name)
-            .map(|i| self.recording_rules.remove(i))
-            .is_some()
+        let mut name_id_map: HashMap<String, RuleId> = HashMap::new();
+        let mut graph: AcyclicDependencyGraph<String> = AcyclicDependencyGraph::new();
+        
+        
+        let mut is_indeterminate = false;
+
+        for rule in self.rules.iter() {
+            let rule_name = rule.name().to_string();
+            name_id_map.insert(rule_name.clone(), rule.id());
+
+            if let Some(vector_selector) = inspect_query(rule) {
+                if vector_selector.name.is_none() && !vector_selector.matchers.is_empty() {
+                    // indeterminate
+                    is_indeterminate = true;
+                    break;
+                }
+
+                let name = vector_selector.name.unwrap_or_default();
+
+                if name == "ALERTS" || name == "ALERTS_FOR_STATE" {
+                    // indeterminate
+                    is_indeterminate = true;
+                    break;
+                }
+
+                // only include a metric if it's related to one of our rules
+                if self.contains_rule(&name) {
+                    graph.depends_on(&rule_name, &name);
+                }
+            }
+        }
+
+        if is_indeterminate {
+            return None;
+        }
+        // collect rules which haven't added any dependencies to the graph. This would realistically
+        // only happen for NumberLiteral nodes
+        let mut no_dependents: Vec<RuleId> = Vec::new();
+        for (key, _) in name_id_map.iter() {
+            // Get the set of nodes that a given node depends on.
+            let dependencies = graph.get_forward_dependencies(key);
+            if dependencies.is_empty() {
+                if let Some(id) = name_id_map.get(key) {
+                    no_dependents.push(*id);
+                }
+            }
+        }
+
+        let mut result: Vec<Vec<RuleId>> = Vec::new();
+        let deps = graph.get_forward_dependency_topological_layers();
+        for (i, dependency) in deps.iter().enumerate() {
+            let mut layer = Vec::with_capacity(dependency.len());
+            for rule_name in dependency {
+                if let Some(rule_id) = name_id_map.get(rule_name) {
+                    layer.push(*rule_id);
+                }
+            }
+            if i == 0 {
+                layer.append(&mut no_dependents);
+            }
+            result.push(layer);
+        }
+
+        Some(result)
     }
     
-    pub(crate) fn remove_notifier(&mut self, name: &str) -> bool {
-        let count = self.notifiers.len();
-        self.notifiers.retain(|notifier| notifier.addr() != name);
-        count != self.notifiers.len()
+    pub fn get_last_evaluation(&self) -> Timestamp {
+        self.last_evaluation.load(Ordering::Relaxed)
+    }
+    
+    pub fn set_last_evaluation(&self, ts: Timestamp) {
+        self.last_evaluation.store(ts, Ordering::Relaxed);
     }
     
     pub(crate) fn eval(&mut self, e: &Executor, ts: Timestamp) {
@@ -277,14 +384,14 @@ impl Group {
         let start = current_time_millis();
 
         if self.is_empty() {
-            self.last_evaluation = start;
+            self.set_last_evaluation(start);
             return;
         }
 
         let resolve_duration = self.resolve_duration();
         let ts = self.adjust_req_timestamp(ts);
 
-        let errs = e.exec_concurrently(self, ts, resolve_duration, self.limit);
+        let errs = e.exec_rules(self, ts, resolve_duration, self.limit);
 
         for err in errs {
             if err != nil {
@@ -292,13 +399,15 @@ impl Group {
                 tracing::warn!("{}", msg);
             }
         }
-        self.last_evaluation = start
+        
+        self.set_last_evaluation(start);
     }
 
-    pub(crate) fn on_tick(&self, e: &Executor, eval_ts: Timestamp) {
+
+    pub(crate) fn on_tick(&mut self, e: &Executor, eval_ts: Timestamp) {
         self.metrics.iteration_interval.fetch_add(1, Ordering::Relaxed);
         let current = current_time_millis();
-        let elapsed = eval_ts - self.last_evaluation;
+        let elapsed = eval_ts - self.get_last_evaluation();
         let interval_millis = self.interval.as_millis() as i64;
         let mut missed = elapsed / (interval_millis - 1) as u64 as i64;
         if missed < 0 {
@@ -319,8 +428,7 @@ impl Group {
         })?;
 
         // ensure that staleness is tracked for existing rules only
-        // e.purge_stale_results(&self.alerting_rules);
-        e.purge_stale_series(&self.recording_rules);
+        e.purge_stale_series(&self.rules);
 
         let mut headers = HashMap::new();
         for (key, value) in self.notifier_headers.iter() {
@@ -365,7 +473,30 @@ impl Group {
         }
         timestamp
     }
+    
+    pub fn remove_inactive_alerts(&mut self, ts: Timestamp) -> usize {
+        let mut count = 0;
+        for rule in self.rules.iter_mut() {
+            if let MetricRule::AlertingRule(ar) = rule {
+                count += ar.remove_inactive_alerts(ts);
+            }
+        }
+        count
+    }
 }
+
+fn inspect_query(rule: &impl Rule) -> Option<MetricExpr> {
+    match parse_expr(rule.expr()) {
+        Ok(expr) => {
+            match expr {
+                Expr::MetricExpression(me) => Some(me),
+                _ => None,
+            }
+        },
+        Err(_) => None, // Handle parsing errors here
+    }
+}
+
 
 fn new_group_metrics(_g: &Group) -> GroupMetrics {
     let m = GroupMetrics::default();
@@ -391,7 +522,7 @@ fn merge_labels(group_name: &str, rule_name: &str, set1: &Vec<Label>, set2: &Vec
     r
 }
 
-fn merge_hashes(group_name: &str, rule_name: &str, dest: &mut AHashMap<String, String>, set2: &AHashMap<String, String>) {
+fn merge_hashes(group_name: &str, rule_name: &str, dest: &mut HashMap<String, String>, set2: &HashMap<String, String>) {
     for (k, v) in set2.iter() {
         use std::collections::hash_map::Entry;
         match dest.entry(k.clone()) {

@@ -81,14 +81,14 @@ pub(crate) fn channel_subscriber_count(ctx: &Context, channel: &str) -> ValkeyRe
         ValkeyValue::Float(value) => value as u32,
         ValkeyValue::Integer(value) => value as u32,
         ValkeyValue::Array(values) => {
-            let num_str: String = values[0].to_string();
-            match num_str.parse::<u32>() {
-                Ok(value) => value,
-                Err(_) => return Err(ValkeyError::Str("ERR: invalid subscriber count")),
+            match values[0] {
+                ValkeyValue::Float(value) => value as u32,
+                ValkeyValue::Integer(value) => value as u32,
+                _ => return Err(ValkeyError::Str("ERR: invalid subscriber count")),
             }
         }
-        Err(e) => {
-            ctx.log_warning(&format!("failed to get subscriber count for channel {}: {:?}", channel, e));
+        _ => {
+            ctx.log_warning(&format!("failed to get subscriber count for channel {}", channel));
             0
         }
     };

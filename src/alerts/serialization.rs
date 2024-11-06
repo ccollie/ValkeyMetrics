@@ -1,22 +1,15 @@
 use crate::alerts::notifier::{Alert, AlertState};
-use crate::alerts::rule::{
-    AlertingRule,
-    AlertingRuleMetrics, 
-    Group,
-    GroupMetrics,
-    RecordingRule,
-    RecordingRuleMetrics,
-    RuleState,
-    RuleStateEntry
-};
+use crate::alerts::rule::{AlertingRule, AlertingRuleMetrics, Group, GroupMetrics, MetricRule, RecordingRule, RecordingRuleMetrics, RuleState, RuleStateEntry};
 use crate::alerts::AlertsError;
 use crate::common::serialization::*;
-use ahash::AHashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::c_int;
 use std::str::FromStr;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicI64, AtomicU64};
 use valkey_module::{raw, RedisModuleIO, ValkeyError, ValkeyResult};
+
+const RULE_TYPE_ALERTING: u8 = 1;
+const RULE_TYPE_RECORDING: u8 = 2;
 
 fn save_atomic_u64(rdb: *mut RedisModuleIO, value: &AtomicU64) {
     raw::save_unsigned(rdb, value.load(std::sync::atomic::Ordering::Relaxed))
@@ -99,7 +92,7 @@ pub(crate) fn save_recording_rule(rdb: *mut RedisModuleIO, rule: &RecordingRule)
     raw::save_string(rdb, &rule.name);
     raw::save_string(rdb, &rule.dest_key);
     raw::save_string(rdb, &rule.expr);
-    rdb_save_ahashmap(rdb, &rule.labels);
+    rdb_save_string_hashmap(rdb, &rule.labels);
     raw::save_unsigned(rdb, rule.group_id);
     // save rule state entries
     rdb_save_usize(rdb, rule.state.len());
@@ -114,7 +107,7 @@ pub(crate) fn load_recording_rule(rdb: *mut RedisModuleIO) -> ValkeyResult<Recor
     let name = rdb_load_string(rdb)?;
     let key = raw::load_string(rdb)?;
     let expr = rdb_load_string(rdb)?;
-    let labels = rdb_load_ahashmap(rdb)?;
+    let labels = rdb_load_string_hashmap(rdb)?;
     let group_id = raw::load_unsigned(rdb)?;
     let state_count = rdb_load_usize(rdb)?;
     let mut state = Vec::with_capacity(state_count);
@@ -165,8 +158,8 @@ pub(crate) fn save_alerting_rule(rdb: *mut RedisModuleIO, rule: &AlertingRule) {
     rdb_save_duration(rdb, &rule.r#for);
     rdb_save_duration(rdb, &rule.keep_firing_for);
     rdb_save_duration(rdb, &rule.eval_interval);
-    rdb_save_ahashmap(rdb, &rule.labels);
-    rdb_save_ahashmap(rdb, &rule.annotations);
+    rdb_save_string_hashmap(rdb, &rule.labels);
+    rdb_save_string_hashmap(rdb, &rule.annotations);
     
     raw::save_unsigned(rdb, rule.group_id);
     rdb_save_string(rdb, &rule.group_name);
@@ -190,15 +183,15 @@ pub(crate) fn load_alerting_rule(rdb: *mut RedisModuleIO) -> ValkeyResult<Alerti
     let r#for = rdb_load_duration(rdb)?;
     let keep_firing_for = rdb_load_duration(rdb)?;
     let eval_interval = rdb_load_duration(rdb)?;
-    let labels = rdb_load_ahashmap(rdb)?;
-    let annotations = rdb_load_ahashmap(rdb)?;
+    let labels = rdb_load_string_hashmap(rdb)?;
+    let annotations = rdb_load_string_hashmap(rdb)?;
     let group_id = raw::load_unsigned(rdb)?;
     let group_name = rdb_load_string(rdb)?;
     
     let state = load_rule_state(rdb)?;
     
     let alerts_count = rdb_load_usize(rdb)?;
-    let mut alerts = AHashMap::new();
+    let mut alerts = HashMap::new();
     
     for _ in 0..alerts_count {
         let alert = load_alert(rdb)?;
@@ -224,13 +217,36 @@ pub(crate) fn load_alerting_rule(rdb: *mut RedisModuleIO) -> ValkeyResult<Alerti
     })
 }
 
+pub fn save_metric_rule(rdb: *mut RedisModuleIO, rule: &MetricRule) {
+    match rule {
+        MetricRule::AlertingRule(alert_rule) => {
+            rdb_save_u8(rdb, RULE_TYPE_ALERTING);
+            save_alerting_rule(rdb, alert_rule);
+        }
+        MetricRule::RecordingRule(recording_rule) => {
+            rdb_save_u8(rdb, RULE_TYPE_RECORDING);
+            save_recording_rule(rdb, recording_rule);
+        }
+    }    
+}
+
+pub fn load_metric_rule(rdb: *mut RedisModuleIO) -> ValkeyResult<MetricRule> {
+    let rule_type = rdb_load_u8(rdb)?;
+    match rule_type {
+        RULE_TYPE_ALERTING => Ok(MetricRule::AlertingRule(load_alerting_rule(rdb)?)),
+        RULE_TYPE_RECORDING => Ok(MetricRule::RecordingRule(load_recording_rule(rdb)?)),
+        _ => Err(ValkeyError::Str("Invalid rule type")),
+    }
+}
+
+
 pub(crate) fn save_alert(rdb: *mut RedisModuleIO, alert: &Alert) {
     raw::save_unsigned(rdb, alert.id);
     raw::save_unsigned(rdb, alert.group_id);
     raw::save_string(rdb, &alert.name);
     raw::save_string(rdb, &alert.expr);
-    rdb_save_ahashmap(rdb, &alert.labels);
-    rdb_save_ahashmap(rdb, &alert.annotations);
+    rdb_save_string_hashmap(rdb, &alert.labels);
+    rdb_save_string_hashmap(rdb, &alert.annotations);
     
     let state = alert.state.name();
     raw::save_string(rdb, state);
@@ -251,8 +267,8 @@ pub(crate) fn load_alert(rdb: *mut RedisModuleIO) -> ValkeyResult<Alert> {
     let group_id = raw::load_unsigned(rdb)?;
     let name = rdb_load_string(rdb)?;
     let expr = rdb_load_string(rdb)?;
-    let labels = rdb_load_ahashmap(rdb)?;
-    let annotations = rdb_load_ahashmap(rdb)?;
+    let labels = rdb_load_string_hashmap(rdb)?;
+    let annotations = rdb_load_string_hashmap(rdb)?;
     let state_str = rdb_load_string(rdb)?;
     let state = AlertState::from_str(&state_str)
         .map_err(|_| ValkeyError::Str("Invalid alert state"))?;
@@ -306,19 +322,27 @@ fn load_group_metrics(rdb: *mut RedisModuleIO) -> ValkeyResult<GroupMetrics> {
     })
 }
 
+fn save_group_rules(rdb: *mut RedisModuleIO, group: &Group) {
+    rdb_save_usize(rdb, group.rules.len());
+    for rule in group.rules.iter() {
+        save_metric_rule(rdb, rule);
+    }
+}
+
+fn load_group_rules(rdb: *mut RedisModuleIO) -> ValkeyResult<Vec<MetricRule>> {
+    let rule_count = rdb_load_usize(rdb)?;
+    let mut rules = Vec::with_capacity(rule_count);
+    for _ in 0..rule_count {
+        rules.push(load_metric_rule(rdb)?);
+    }
+    Ok(rules)
+}
+
 pub(crate) fn save_group(rdb: *mut RedisModuleIO, group: &Group) {
     raw::save_unsigned(rdb, group.id);
     rdb_save_string(rdb, &group.name);
     
-    rdb_save_usize(rdb, group.alerting_rules.len());
-    for rule in &group.alerting_rules {
-        save_alerting_rule(rdb, rule);
-    }
-
-    rdb_save_usize(rdb, group.recording_rules.len());
-    for rule in &group.recording_rules {
-        save_recording_rule(rdb, rule);
-    }
+    save_group_rules(rdb, &group);
     
     rdb_save_duration(rdb, &group.interval);
     rdb_save_duration(rdb, &group.eval_offset);
@@ -330,11 +354,12 @@ pub(crate) fn save_group(rdb: *mut RedisModuleIO, group: &Group) {
         2 // null marker
     };
     
+    let last_evaluation = group.get_last_evaluation();
     rdb_save_u8(rdb, eval_alignment);
     rdb_save_usize(rdb, group.limit);
-    rdb_save_timestamp(rdb, group.last_evaluation);
-    rdb_save_ahashmap(rdb, &group.labels);
-    rdb_save_ahashmap(rdb, &group.params);
+    rdb_save_timestamp(rdb, last_evaluation);
+    rdb_save_string_hashmap(rdb, &group.labels);
+    rdb_save_string_hashmap(rdb, &group.params);
     rdb_save_string_hashmap(rdb, &group.notifier_headers);
     save_group_metrics(rdb, &group.metrics);
     // todo: notifiers
@@ -345,17 +370,7 @@ pub(crate) fn load_group(rdb: *mut RedisModuleIO, _encver: c_int) -> ValkeyResul
     let id = raw::load_unsigned(rdb)?;
     let name = rdb_load_string(rdb)?;
     
-    let alerting_rules_count = rdb_load_usize(rdb)?;
-    let mut alerting_rules = Vec::with_capacity(alerting_rules_count);
-    for _ in 0..alerting_rules_count {
-        alerting_rules.push(load_alerting_rule(rdb)?);
-    }
-
-    let recording_rules_count = rdb_load_usize(rdb)?;
-    let mut recording_rules = Vec::with_capacity(recording_rules_count);
-    for _ in 0..recording_rules_count {
-        recording_rules.push(load_recording_rule(rdb)?);
-    }
+    let rules = load_group_rules(rdb)?;
     
     let interval = rdb_load_duration(rdb)?;
     let eval_offset = rdb_load_duration(rdb)?;
@@ -369,8 +384,8 @@ pub(crate) fn load_group(rdb: *mut RedisModuleIO, _encver: c_int) -> ValkeyResul
     };
     let limit = rdb_load_usize(rdb)?;
     let last_evaluation = rdb_load_timestamp(rdb)?;
-    let labels = rdb_load_ahashmap(rdb)?;
-    let params = rdb_load_ahashmap(rdb)?;
+    let labels = rdb_load_string_hashmap(rdb)?;
+    let params = rdb_load_string_hashmap(rdb)?;
     let notifier_headers = rdb_load_string_hashmap(rdb)?;
     let metrics = load_group_metrics(rdb)?;
     // todo: notifiers
@@ -379,18 +394,17 @@ pub(crate) fn load_group(rdb: *mut RedisModuleIO, _encver: c_int) -> ValkeyResul
     Ok(Group {
         id,
         name,
-        alerting_rules,
-        recording_rules,
+        rules,
         interval,
         eval_offset,
         eval_delay,
         eval_alignment,
         limit,
-        last_evaluation,
+        last_evaluation: AtomicI64::new(last_evaluation),
         labels,
         params,
         notifier_headers,
-        notifiers: vec![],
+        dependencies: None,
         metrics,
         disabled,
     })

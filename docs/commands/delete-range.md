@@ -3,7 +3,7 @@
 #### Syntax
 
 ```
-VM.DELETE-RANGE selector.. [START timestamp|rfc3339|+|*] [END timestamp|rfc3339|+|*]
+VM.DELETE-RANGE selector.. [START fromTimestamp] [END toTimestamp]
 ```
 
 **VM.DELETE-RANGE** deletes data for a selection of series in a time range. The timeseries itself is not deleted even if all samples are removed.

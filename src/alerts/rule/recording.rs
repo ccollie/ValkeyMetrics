@@ -1,3 +1,5 @@
+use std::any::Any;
+use std::collections::HashMap;
 use crate::alerts::rule::config::RuleConfig;
 use crate::alerts::rule::{Group, Rule, RuleStateEntry, RuleType};
 use crate::alerts::types::RawTimeSeries;
@@ -6,21 +8,23 @@ use crate::common::types::{Label, MetricName, Sample, Timestamp};
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
 use crate::query::{InstantQueryResult, RangeQueryResult};
-use ahash::{AHashMap, AHashSet};
 use enquote::enquote;
+use get_size::GetSize;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+use ahash::AHashSet;
 
 const ERR_DUPLICATE: &str =
     "result contains metrics with the same labelset after applying rule labels.";
 
-/// `RecordingRule` is a Rule that evaluates a configured expression and returns a timeseries as result.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+/// `RecordingRule` is a Rule that evaluates a configured vector expression and records 
+/// the result into new timeseries.timeseries.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(GetSize)]
 pub struct RecordingRule {
     pub id: u64,
     /// The valkey db key of the time series to output to. Optional.
-    /// TODO: Box<[u8]>
     pub dest_key: String,
     /// The name of the time series to output to. Must be a valid metric name.
     pub name: String,
@@ -29,7 +33,7 @@ pub struct RecordingRule {
     /// time series with the metric name as given by 'record'.
     pub expr: String,
     /// Labels to add or overwrite before storing the result.
-    pub labels: AHashMap<String, String>,
+    pub labels: HashMap<String, String>,
     pub group_id: u64,
     /// The maximum number of state entries to store.
     pub max_entries_limit: Option<usize>,
@@ -39,6 +43,7 @@ pub struct RecordingRule {
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
+#[derive(GetSize)]
 pub struct RecordingRuleMetrics {
     pub(crate) errors: AtomicU64,
     pub(crate) samples: AtomicU64,
@@ -135,11 +140,19 @@ impl Rule for RecordingRule {
         self.id
     }
 
+    fn name(&self) -> &str {
+        &self.name
+    }
+
     fn rule_type(&self) -> RuleType {
         RuleType::Recording
     }
 
-    fn exec(&mut self, querier: &impl Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn expr(&self) -> &str {
+        &self.expr
+    }
+
+    fn exec(&mut self, querier: &dyn Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
         let start = current_time_millis();
 
         let mut cur_state = RuleStateEntry::default();
@@ -195,7 +208,7 @@ impl Rule for RecordingRule {
     /// `exec_range` executes recording rule on the given time range similarly to Exec.
     /// It doesn't update internal states of the Rule and meant to be used just to get time series
     /// for backfilling.
-    fn exec_range(&mut self, querier: &impl Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec_range(&mut self, querier: &dyn Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
         let res = querier
             .query_range(&self.expr, start, end)
             .map_err(|e| AlertsError::QueryExecutionError(format!("{}: {:?}", self.expr, e)))?;
@@ -216,6 +229,14 @@ impl Rule for RecordingRule {
             tss.push(ts)
         }
         Ok(tss)
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 

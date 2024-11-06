@@ -1,19 +1,18 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::hash::Hasher;
 use std::sync::OnceLock;
 use std::time::Duration;
-use ahash::AHashMap;
-use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
-use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
-use crate::alerts::{AlertsError, AlertsResult};
 use super::rule::RuleType;
+use crate::alerts::{AlertsError, AlertsResult};
+use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
 /***
 	rule_update_entries_limit = flag.Int("rule.updateEntriesLimit", 20, "Defines the max number of rule's state updates stored in-memory. "+
 		"Rule's updates are available on rule's Details page and are used for debugging purposes. The number of stored updates can be overridden per rule via update_entries_limit param.")
-	resendDelay = flag.Duration("rule.resendDelay", 0, "MiniMum amount of time to wait before resending an alert to notifier")
+	resendDelay = flag.Duration("rule.resendDelay", 0, "Minimum amount of time to wait before resending an alert to notifier")
 	maxResolveDuration = flag.Duration("rule.maxResolveDuration", 0, "Limits the maximum duration for automatic alert expiration, "+
 		"which by default is 4 times evaluationInterval of the parent group")
 	evalDelay = flag.Duration("rule.evalDelay", 30*time.Second, "Adjustment of the `time` parameter for rule evaluation requests to compensate intentional data delay from the datasource."+
@@ -25,7 +24,7 @@ use super::rule::RuleType;
 */
 
 /// ValidateTplFn must validate the given annotations
-pub type ValidateTplFn = fn(annotations: &AHashMap<String, String>) -> AlertsResult<()>;
+pub type ValidateTplFn = fn(annotations: &HashMap<String, String>) -> AlertsResult<()>;
 
 /// `RuleConfig` describes entity that represent either recording rule or alerting rule.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -39,8 +38,8 @@ pub struct RuleConfig {
     pub r#for: Duration,
     /// Alert will continue firing for this long even when the alerting expression no longer has results.
     pub keep_firing_for: Duration,
-    pub labels: AHashMap<String, String>,
-    pub annotations: AHashMap<String, String>,
+    pub labels: HashMap<String, String>,
+    pub annotations: HashMap<String, String>,
     pub debug: bool,
     /// update_entries_limit defines max number of rule's state updates stored in memory.
     /// Overrides `-rule.updateEntriesLimit`.
@@ -155,9 +154,9 @@ pub struct GroupConfig {
     pub concurrency: usize,
     /// Labels is a set of label value pairs, that will be added to every rule.
     /// It has priority over the external labels.
-    pub labels: AHashMap<String, String>,
+    pub labels: HashMap<String, String>,
     /// Optional parameters added to each rule request
-    pub params: Option<AHashMap<String, String>>,
+    pub params: Option<HashMap<String, String>>,
     /// optional headers sent to notifiers for generated notifications
     pub notifier_headers: Vec<Header>,
     /// eval_alignment will make the timestamp of group query requests be aligned with interval

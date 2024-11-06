@@ -1,7 +1,7 @@
 use crate::alerts::{AlertDatasource, AlertsResult};
 use crate::common::types::Timestamp;
 use crate::query::{InstantQueryResult, RangeQueryResult};
-use ahash::AHashMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -83,6 +83,6 @@ pub type QuerierBuilderRef = Arc<dyn QuerierBuilder>;
 pub struct QuerierParams {
     pub evaluation_interval: Duration,
     pub eval_offset: Duration,
-    pub query_params: AHashMap<String, String>,
+    pub query_params: HashMap<String, String>,
     pub debug: bool
 }

@@ -1,4 +1,4 @@
-use crate::alerts::rule::AlertingRule;
+use crate::alerts::rule::{AlertingRule, MetricRule};
 use crate::alerts::utils::with_group_mut;
 use crate::module::arg_parse::{
     parse_duration, 
@@ -27,7 +27,7 @@ pub fn create_alerting_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRes
         if group.contains_rule(&rule.name) {
             return Err(ValkeyError::Str("Err rule already exists"));
         }
-        group.alerting_rules.push(rule);
+        group.rules.push(MetricRule::AlertingRule(rule));
         
         // todo: Replicate
         VALKEY_OK

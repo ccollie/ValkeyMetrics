@@ -1,5 +1,5 @@
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
-use crate::alerts::rule::Group;
+use crate::alerts::rule::{Group, MetricRule};
 use crate::alerts::utils::with_group_mut;
 
 /// VM.DELETE_RULE groupKey ruleName
@@ -22,10 +22,12 @@ pub fn delete_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 fn handle_delete(ctx: &Context, group: &mut Group, name: &str, remove_dest: bool) -> bool {
     // if it's a recording rule and remove_dest is true, we also remove the key
     if remove_dest {
-        if let Some(rule) = group.recording_rules.iter().find(|r| r.name == name) {
-            if !rule.dest_key.is_empty() {
-                let _ = ctx.call("DEL", &[&rule.dest_key]);
-            }
+        if let Some(rule) = group.get_rule_by_name(name) {
+            if let MetricRule::RecordingRule(rr) = rule {
+                if !rr.dest_key.is_empty() {
+                    let _ = ctx.call("DEL", &[&rr.dest_key]);
+                }
+            }    
         }
     }
     

@@ -6,6 +6,7 @@ extern crate get_size;
 extern crate joinkit;
 extern crate phf;
 extern crate smallvec;
+extern crate topologic;
 extern crate valkey_module_macros;
 
 use valkey_module::server_events::{FlushSubevent, LoadingSubevent};

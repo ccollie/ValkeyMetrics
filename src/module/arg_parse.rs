@@ -7,7 +7,6 @@ use crate::series::join_reducer::JoinReducer;
 use crate::series::types::*;
 use crate::series::{DuplicatePolicy, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
 use crate::series::{TimestampRange, TimestampValue};
-use ahash::AHashMap;
 use chrono::DateTime;
 use metricsql_parser::parser::{
     parse_duration_value,
@@ -17,10 +16,11 @@ use metricsql_parser::parser::{
 };
 use metricsql_parser::prelude::Matchers;
 use metricsql_runtime::parse_metric_selector;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::iter::{Peekable, Skip};
 use std::time::Duration;
 use std::vec::IntoIter;
+use metricsql_parser::common::{Value, ValueType};
 use valkey_module::{NextArg, ValkeyError, ValkeyResult, ValkeyString};
 
 const MAX_TS_VALUES_FILTER: usize = 16;
@@ -57,7 +57,10 @@ pub fn parse_number_arg(arg: &ValkeyString, name: &str) -> ValkeyResult<f64> {
     }
     let arg_str = arg.to_string_lossy();
     parse_number_with_unit(&arg_str)
-        .map_err(|_| ValkeyError::Str(error_consts::INVALID_NUMBER))
+        .map_err(|_| {
+            let msg = format!("ERR invalid number parsing {name}");
+            ValkeyError::String(msg)
+        })
 }
 
 pub fn parse_integer_arg(arg: &ValkeyString, name: &str, allow_negative: bool) -> ValkeyResult<i64> {
@@ -338,8 +341,8 @@ pub fn parse_label_list(args: &mut CommandArgIterator, is_cmd_token: fn(&str) ->
     Ok(temp)
 }
 
-pub fn parse_key_value_pairs(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool) -> ValkeyResult<AHashMap<String, String>> {
-    let mut labels: AHashMap<String, String> = AHashMap::new();
+pub fn parse_key_value_pairs(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool) -> ValkeyResult<HashMap<String, String>> {
+    let mut labels: HashMap<String, String> = HashMap::new();
 
     loop {
         let label = args.next_string()?;
@@ -498,4 +501,22 @@ pub fn parse_promql_expr(args: &mut CommandArgIterator) -> ValkeyResult<String> 
     parse_expr(&expr)
         .map_err(|_| ValkeyError::Str("ERR: invalid PromQL expression"))?;
     Ok(expr)
+}
+
+pub fn parse_promql_vector_expr(args: &mut CommandArgIterator) -> ValkeyResult<String> {
+    const ERROR_MSG: &'static str = "ERR: invalid PromQL vector expression";
+    
+    let expr = args.next_string()?;
+    match parse_expr(&expr) {
+        Ok(candidate) => {
+            if candidate.value_type() == ValueType::InstantVector {
+                Ok(expr)   
+            } else {
+                Err(ValkeyError::Str(ERROR_MSG))
+            }
+        },
+        Err(_) => {
+            Err(ValkeyError::Str(ERROR_MSG))
+        }
+    }
 }
