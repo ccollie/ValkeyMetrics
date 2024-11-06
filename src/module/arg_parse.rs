@@ -24,30 +24,31 @@ use metricsql_parser::common::{Value, ValueType};
 use valkey_module::{NextArg, ValkeyError, ValkeyResult, ValkeyString};
 
 const MAX_TS_VALUES_FILTER: usize = 16;
-pub const CMD_ARG_COUNT: &'static str = "COUNT";
-pub const CMD_PARAM_REDUCER: &'static str = "REDUCE";
-pub const CMD_PARAM_ALIGN: &'static str = "ALIGN";
-pub const CMD_ARG_COMPRESSION: &'static str = "COMPRESSION";
-pub const CMD_ARG_DISABLED: &'static str = "DISABLED";
-pub const CMD_ARG_FILTER_BY_VALUE: &'static str = "FILTER_BY_VALUE";
-pub const CMD_ARG_FILTER_BY_TS: &'static str = "FILTER_BY_TS";
-pub const CMD_ARG_AGGREGATION: &'static str = "AGGREGATION";
-pub const CMD_ARG_FILTER: &'static str = "FILTER";
-pub const CMD_ARG_EMPTY: &'static str = "EMPTY";
-pub const CMD_ARG_GROUP_BY: &'static str = "GROUPBY";
-pub const CMD_ARG_BUCKET_TIMESTAMP: &'static str = "BUCKETTIMESTAMP";
-pub const CMD_ARG_RETENTION: &'static str = "RETENTION";
-pub const CMD_ARG_DUPLICATE_POLICY: &'static str = "DUPLICATE_POLICY";
-pub const CMD_ARG_CHUNK_SIZE: &'static str = "CHUNK_SIZE";
-pub const CMD_ARG_DEDUPE_INTERVAL: &'static str = "DEDUPE_INTERVAL";
-pub const CMD_ARG_WITH_LABELS: &'static str = "WITHLABELS";
-pub const CMD_ARG_SELECTED_LABELS: &'static str = "SELECTED_LABELS";
-pub const CMD_ARG_SIGNIFICANT_DIGITS: &'static str = "SIGNIFICANT_DIGITS";
-pub const CMD_ARG_DECIMAL_DIGITS: &'static str = "DECIMAL_DIGITS";
-pub const CMD_ARG_EXPR: &'static str = "EXPR";
-pub const CMD_ARG_NAME: &'static str = "NAME";
-pub const CMD_ARG_LABELS: &'static str = "LABELS";
-pub const CMD_ARG_LIMIT: &'static str = "LIMIT";
+pub const CMD_ARG_ANNOTATIONS: &str = "ANNOTATIONS";
+pub const CMD_ARG_COUNT: &str = "COUNT";
+pub const CMD_PARAM_REDUCER: &str = "REDUCE";
+pub const CMD_PARAM_ALIGN: &str = "ALIGN";
+pub const CMD_ARG_COMPRESSION: &str = "COMPRESSION";
+pub const CMD_ARG_DISABLED: &str = "DISABLED";
+pub const CMD_ARG_FILTER_BY_VALUE: &str = "FILTER_BY_VALUE";
+pub const CMD_ARG_FILTER_BY_TS: &str = "FILTER_BY_TS";
+pub const CMD_ARG_AGGREGATION: &str = "AGGREGATION";
+pub const CMD_ARG_FILTER: &str = "FILTER";
+pub const CMD_ARG_EMPTY: &str = "EMPTY";
+pub const CMD_ARG_GROUP_BY: &str = "GROUPBY";
+pub const CMD_ARG_BUCKET_TIMESTAMP: &str = "BUCKETTIMESTAMP";
+pub const CMD_ARG_RETENTION: &str = "RETENTION";
+pub const CMD_ARG_DUPLICATE_POLICY: &str = "DUPLICATE_POLICY";
+pub const CMD_ARG_CHUNK_SIZE: &str = "CHUNK_SIZE";
+pub const CMD_ARG_DEDUPE_INTERVAL: &str = "DEDUPE_INTERVAL";
+pub const CMD_ARG_WITH_LABELS: &str = "WITHLABELS";
+pub const CMD_ARG_SELECTED_LABELS: &str = "SELECTED_LABELS";
+pub const CMD_ARG_SIGNIFICANT_DIGITS: &str = "SIGNIFICANT_DIGITS";
+pub const CMD_ARG_DECIMAL_DIGITS: &str = "DECIMAL_DIGITS";
+pub const CMD_ARG_EXPR: &str = "EXPR";
+pub const CMD_ARG_NAME: &str = "NAME";
+pub const CMD_ARG_LABELS: &str = "LABELS";
+pub const CMD_ARG_LIMIT: &str = "LIMIT";
 
 pub type CommandArgIterator = Peekable<Skip<IntoIter<ValkeyString>>>;
 
@@ -369,13 +370,6 @@ pub fn parse_key_value_pairs(args: &mut CommandArgIterator, is_cmd_token: fn(&st
     Ok(labels)
 }
 
-pub fn parse_labels(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool) -> ValkeyResult<Vec<Label>> {
-    let map = parse_key_value_pairs(args, is_cmd_token)?;
-    let labels = map.into_iter().map(|(k, v)| Label::new(k, v)).collect();
-    Ok(labels)
-}
-
-
 pub fn parse_dedupe_interval(args: &mut CommandArgIterator) -> ValkeyResult<Duration> {
     let next = args.next_arg()?;
     if let Ok(val) = parse_duration_arg(&next) {
@@ -504,7 +498,7 @@ pub fn parse_promql_expr(args: &mut CommandArgIterator) -> ValkeyResult<String> 
 }
 
 pub fn parse_promql_vector_expr(args: &mut CommandArgIterator) -> ValkeyResult<String> {
-    const ERROR_MSG: &'static str = "ERR: invalid PromQL vector expression";
+    const ERROR_MSG: &str = "ERR: invalid PromQL vector expression";
     
     let expr = args.next_string()?;
     match parse_expr(&expr) {

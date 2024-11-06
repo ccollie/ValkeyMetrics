@@ -57,9 +57,8 @@ impl AlertDatasource {
             look_back,
             query_step,
             query_time_alignment: true,
-            evaluation_interval: Default::default(),
-            evaluation_offset: Default::default(),
             debug: false,
+            ..Default::default()
         }
     }
 
@@ -73,10 +72,12 @@ impl AlertDatasource {
 
     fn get_instant_req_params(&self, query: String, timestamp: Timestamp) -> QueryParams {
         let timestamp = self.adjust_req_timestamp(timestamp);
-        let mut params = QueryParams::default();
-        params.query = query;
-        params.start = timestamp;
-        params.end = timestamp;
+        let mut params = QueryParams {
+            query,
+            start: timestamp,
+            end: timestamp,
+            ..Default::default()
+        };
 
         if !self.evaluation_interval.is_zero() {
             // set step as evaluation_interval by default always convert to seconds to keep
@@ -118,8 +119,8 @@ impl AlertDatasource {
     fn adjust_req_timestamp(&self, timestamp: Timestamp) -> Timestamp {
         let mut timestamp = timestamp;
         if self.evaluation_offset.is_zero() {
-            let eval_interval = self.evaluation_interval.as_millis() as i64; // todo: check for overflow
-            let evaluation_offset = self.evaluation_offset.as_millis() as i64; // todo: check for overflow
+            let eval_interval = self.evaluation_interval.as_millis() as i64; 
+            let evaluation_offset = self.evaluation_offset.as_millis() as i64;
 
             // calculate the min timestamp on the evaluationInterval
             let interval_start = timestamp.truncate(self.evaluation_interval);
@@ -171,7 +172,7 @@ impl Querier for AlertDatasource {
 
 impl QuerierBuilder for AlertDatasource {
     fn build_with_params(&self, params: QuerierParams) -> AlertDatasource {
-        let querier = self.clone().apply_params(params);
+        let querier = (*self).apply_params(params);
         querier
     }
 }

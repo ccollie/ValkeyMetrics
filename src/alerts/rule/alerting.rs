@@ -1,6 +1,6 @@
 use std::any::Any;
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
-use crate::alerts::{AlertsError, AlertsResult, Querier};
+use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, Querier};
 use crate::common::types::{Label, Sample, Timestamp, TimestampTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -105,42 +105,28 @@ struct LabelSet {
 impl AlertingRule {
     pub fn new(group: &Group, rule: RuleConfig) -> Self {
         let updates_limit = rule.update_entries_limit();
-        let mut ar: AlertingRule = Default::default();
-        ar.rule_id = rule.hash();
-        ar.name = rule.name().to_string();
-        ar.expr = rule.expr;
-        ar.group_id = group.id();
-        ar.group_name = group.name.clone();
-        ar.eval_interval = group.interval.clone();
-        ar.r#for = rule.r#for.clone();
-        ar.keep_firing_for = rule.keep_firing_for;
-        ar.labels = rule.labels;
-        ar.annotations = rule.annotations;
-        ar.debug = rule.debug;
-        ar.alerts = Default::default();
-        ar.metrics = AlertingRuleMetrics::default();
-        ar.state = RuleState::new(updates_limit);
-
-        ar
-    }
-
-    /// update_with copies all significant fields. alerts state isn't copied since
-    /// it should be updated in next 2 Execs
-    pub fn update_with(&mut self, rule: &AlertingRule) {
-        self.expr = rule.expr.clone();
-        self.r#for = rule.r#for.clone();
-        self.keep_firing_for = rule.keep_firing_for;
-        self.labels = rule.labels.clone();
-        self.annotations = rule.annotations.clone();
-        self.eval_interval = rule.eval_interval.clone();
-        self.debug = rule.debug;
-        self.state = rule.state.clone()
+        AlertingRule {
+            rule_id: rule.hash(),
+            name: rule.name().to_string(),
+            expr: rule.expr,
+            r#for: rule.r#for,
+            keep_firing_for: rule.keep_firing_for,
+            labels: rule.labels,
+            annotations: rule.annotations,
+            group_id: group.id(),
+            group_name: group.name.clone(),
+            eval_interval: group.interval,
+            debug: rule.debug,
+            state: RuleState::new(updates_limit),
+            metrics: AlertingRuleMetrics::default(),
+            ..Default::default()
+        }
     }
 
     /// restores the value of active_at field for active alerts, based on previously written
     /// time series `alertForStateMetricName`.
     /// Only rules with for > 0 can be restored.
-    pub fn restore<'a>(
+    pub fn restore(
         &mut self,
         ctx: &Context,
         querier: &impl Querier,
@@ -224,9 +210,9 @@ impl AlertingRule {
         }
 
         let mut data = AlertTplData::default();
-        data.labels = ls.origin.clone();
+        data.labels.clone_from(&ls.origin);
         data.value = value;
-        data.expr = self.expr.clone();
+        data.expr.clone_from(&self.expr);
         data.r#for = Default::default();
 
         let extra_labels = exec_template(ctx, &self.labels, data)
@@ -346,7 +332,7 @@ impl AlertingRule {
             active_at: start,
             start,
             expr: self.expr.clone(),
-            r#for: self.r#for.clone(),
+            r#for: self.r#for,
             annotations,
             state: AlertState::Inactive,
             ..Default::default()
@@ -388,7 +374,7 @@ impl AlertingRule {
                 if alert.state == AlertState::Inactive
                     && ts.sub(alert.resolved_at) > RESOLVED_RETENTION.as_millis() as i64
                 {
-                    self.log_debug(ts, Some(&alert), "deleted as inactive");
+                    self.log_debug(ts, Some(alert), "deleted as inactive");
                     debug!("deleted as inactive");
                     Some(*h)
                 } else {
@@ -422,7 +408,7 @@ impl AlertingRule {
                 } else {
                     ""
                 };
-                format!("{}={}",x.to_string(), enquote('"', label_value))
+                format!("{}={}",x, enquote('"', label_value))
             }).collect::<Vec<_>>().join(",");
 
             let alert_msg = format!("alert {} {} ", alert.id, labels);
@@ -489,7 +475,7 @@ impl Rule for AlertingRule {
         &self.expr
     }
 
-    fn exec(&mut self, querier: &dyn Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec(&mut self, querier: &AlertDatasource, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
         let start = current_time_millis();
 
         let mut cur_state = RuleStateEntry {
@@ -523,7 +509,7 @@ impl Rule for AlertingRule {
             self.log_debug(ts, None, &msg)
         }
 
-        let query_ctx = TemplateQueryContext::Query(querier, ts);
+        let query_ctx = TemplateQueryContext::Query(*querier, ts);
 
         // template labels and annotations before updating alerts,
         // since they could use `query` function which takes a while to execute,
@@ -551,6 +537,10 @@ impl Rule for AlertingRule {
         self.remove_inactive_alerts(ts);
 
         let for_duration = self.r#for.as_millis() as i64;
+
+        // HACK. Avoid borrow checker error in log_debug
+        let mut alerts = std::mem::take(&mut self.alerts);
+        
         // update list of active alerts
         let mut updated = HashSet::new();
         for ((m, labels), annotations) in res.into_iter().zip(expanded_labels.into_iter()).zip(expanded_annotations.into_iter()) {
@@ -559,14 +549,14 @@ impl Rule for AlertingRule {
             let value = m.sample.value;
             updated.insert(h);
 
-            if let Some(alert) = self.alerts.get_mut(&h) {
+            if let Some(alert) = alerts.get_mut(&h) {
                 if alert.state == AlertState::Inactive {
                     // alert could be in inactive state for resolvedRetention
                     // so when we again receive metrics for it - we switch it
                     // back to AlertState::Pending
                     alert.state = AlertState::Pending;
                     alert.active_at = ts;
-                    self.log_debug(ts, Some(&alert), "INACTIVE => PENDING")
+                    self.log_debug(ts, Some(alert), "INACTIVE => PENDING")
                 }
                 alert.value = value; //
 
@@ -588,13 +578,14 @@ impl Rule for AlertingRule {
 
         let mut to_delete = Vec::new();
         let keep_firing_for = self.keep_firing_for.as_millis() as i64;
-        for (h, alert) in self.alerts.iter_mut() {
+        
+        for (h, alert) in alerts.iter_mut() {
             // if alert wasn't updated in this iteration it means it is resolved already
             if !updated.contains(h) {
                 if alert.state == AlertState::Pending {
                     // alert was in Pending state - it is not active anymore
                     to_delete.push(h);
-                    self.log_debug(ts, Some(&alert), "PENDING => DELETED: is absent in current evaluation round");
+                    self.log_debug(ts, Some(alert), "PENDING => DELETED: is absent in current evaluation round");
                     continue;
                 }
                 // check if alert should keep Firing if rule has
@@ -608,16 +599,17 @@ impl Rule for AlertingRule {
                     if ts.sub(alert.keep_firing_since) > keep_firing_for {
                         alert.state = AlertState::Inactive;
                         alert.resolved_at = ts;
-                        self.log_debug(ts, Some(&alert), "FIRING => INACTIVE: is absent in current evaluation round");
+                        self.log_debug(ts, Some(alert), "FIRING => INACTIVE: is absent in current evaluation round");
                         continue;
                     }
                     if self.debug {
                         let msg = format!("KEEP_FIRING: will keep firing for {}s since {}",
                                           self.keep_firing_for.as_secs(), alert.keep_firing_since);
-                        self.log_debug(ts, Some(&alert), &msg);
+                        self.log_debug(ts, Some(alert), &msg);
                     }
                 }
             }
+            
             num_active_pending += 1;
             if alert.state == AlertState::Pending && ts.sub(alert.active_at) >= for_duration {
                 alert.state = AlertState::Firing;
@@ -625,10 +617,12 @@ impl Rule for AlertingRule {
                 // alertsFired.Inc()
                 if self.debug {
                     let msg = format!("PENDING => FIRING: {}ms since becoming active at {}", ts.sub(alert.active_at), alert.active_at);
-                    self.log_debug(ts, Some(&alert), &msg);
+                    self.log_debug(ts, Some(alert), &msg);
                 }
             }
         }
+
+        self.alerts = alerts;
 
         if limit > 0 && num_active_pending > limit {
             self.alerts.clear();
@@ -647,7 +641,7 @@ impl Rule for AlertingRule {
     /// It doesn't update internal states of the Rule and is meant to be used just to get time series
     /// for back-filling.
     /// It returns `ALERT` and `ALERT_FOR_STATE` time series as a result.
-    fn exec_range(&mut self, querier: &dyn Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec_range(&mut self, querier: &AlertDatasource, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
         let res = querier.query_range(&self.expr, start, end)?;
         let mut result = Vec::new();
         let mut hold_alert_state = HashMap::new();
@@ -708,6 +702,28 @@ impl Rule for AlertingRule {
 
         self.alerts = hold_alert_state;
         Ok(result)
+    }
+
+    /// update_with copies all significant fields. alerts state isn't copied since
+    /// it should be updated in next 2 Execs
+    fn update_with(&mut self, other: &dyn Rule) -> AlertsResult<()> {
+        if self.rule_type() != other.rule_type() {
+            let msg = format!("BUG: attempt to update alerting rule with wrong type {}", other.rule_type());
+            return Err(AlertsError::Generic(msg)); // todo: better error
+        }
+
+        let rule = other.as_any().downcast_ref::<AlertingRule>().unwrap();
+        
+        self.expr.clone_from(&rule.expr);
+        self.r#for = rule.r#for;
+        self.keep_firing_for = rule.keep_firing_for;
+        self.labels.clone_from(&rule.labels);
+        self.annotations.clone_from(&rule.annotations);
+        self.eval_interval = rule.eval_interval;
+        self.debug = rule.debug;
+        self.state = rule.state.clone();
+        
+        Ok(())
     }
 
     fn as_any(&self) -> &dyn Any {

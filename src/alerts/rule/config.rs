@@ -49,7 +49,7 @@ pub struct RuleConfig {
 impl RuleConfig {
     /// Hash returns unique hash of the RuleConfig
     pub fn hash(&self) -> u64 {
-        hash_rule_config(&self)
+        hash_rule_config(self)
     }
 
     /// returns Rule name according to its type
@@ -92,13 +92,6 @@ impl RuleConfig {
         if self.expr.is_empty() {
             let msg = format!("rule \"{name}\" must have expression set");
             return err(&msg);
-        }
-        if self.r#for.as_millis() < 0 {
-            let msg = format!("rule \"{name}\" for duration should not be negative");
-            return err(&msg);
-        }
-        if self.keep_firing_for.as_millis() < 0 {
-            return Err(AlertsError::InvalidRule("rule keep_firing_for duration shouldn't be negative".to_string()));
         }
         Ok(())
     }
@@ -165,13 +158,13 @@ pub struct GroupConfig {
 }
 
 /// Header is a Key - Value struct for holding an HTTP header.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Header {
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Header {
     pub key: String,
     pub value: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Headers(pub Vec<Header>);
 
 impl Headers {
@@ -185,12 +178,6 @@ impl Headers {
 
     pub fn iter(&self) -> std::slice::Iter<'_, Header> {
         self.0.iter()
-    }
-}
-
-impl Default for Headers {
-    fn default() -> Self {
-        Headers(Vec::new())
     }
 }
 
@@ -218,15 +205,8 @@ impl GroupConfig {
         if self.name.is_empty() {
             return err("group name must be set");
         }
-        if let Some(interval) = &self.interval {
-            if interval.as_millis() < 0 {
-                return err("interval shouldn't be lower than 0");
-            }
-        }
+        
         if let Some(offset) = &self.eval_offset {
-            if offset.as_millis() < 0 {
-                return err("eval_offset shouldn't be lower than 0");
-            }
             if let Some(interval) = &self.interval {
                 // if `eval_offset` is set, interval won't use global evaluationInterval flag and
                 // must be bigger than offset.
@@ -237,10 +217,7 @@ impl GroupConfig {
                 }
             }
         }
-        if self.concurrency < 0 {
-            return Err(AlertsError::InvalidConfiguration(
-                format!("invalid concurrency {}, shouldn't be less than 0", self.concurrency)));
-        }
+
         let mut unique_rules = HashSet::with_capacity(self.rules.len());
 
         for r in self.rules.iter() {

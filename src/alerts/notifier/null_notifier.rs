@@ -20,7 +20,7 @@ impl Notifier for NullNotifier {
     fn send(
         &self,
         _ctx: &Context,
-        _alerts: &[Alert],
+        _alerts: &[&Alert],
         _notifier_headers: &HashMap<String, String>,
     ) -> AlertsResult<()> {
         Ok(())

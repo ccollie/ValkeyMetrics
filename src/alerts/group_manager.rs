@@ -1,5 +1,4 @@
 use std::hash::Hasher;
-use std::ops::Add;
 use std::sync::Arc;
 use std::sync::atomic::{Ordering, AtomicBool};
 use std::time::Duration;
@@ -27,7 +26,7 @@ impl GroupTimerMeta {
     fn start(&self, ctx: &Context, qb: Option<impl QuerierBuilder>) -> AlertsResult<()> {
         let key = ctx.create_string(&*self.group_key);
 
-        with_group_mut(&ctx, &key, |group| {
+        with_group_mut(ctx, &key, |group| {
             // start group
             info!("started rule group \"{}\"",  group.name);
 
@@ -39,7 +38,7 @@ impl GroupTimerMeta {
             // so only active alerts can be restored.
             if let Some(builder) = qb {
                 let lookback = &GLOBAL_SETTINGS.look_back;
-                if let Err(err) = group.restore(ctx, builder, ts, lookback.clone()) {
+                if let Err(err) = group.restore(ctx, builder, ts, *lookback) {
                     let msg = format!("error restoring ruleState for group {}: {:?}", group.name, err);
                     return Err(ValkeyError::String(msg));
                 }
@@ -70,6 +69,7 @@ struct Inner {
 
 }
 
+#[derive(Default)]
 pub struct GroupManager {
     pub write_queue: Arc<WriteQueue>,
     pub querier_builder: Arc<AlertDatasource>,
@@ -79,18 +79,6 @@ pub struct GroupManager {
     flush_timer_id: RedisModuleTimerID
 }
 
-impl Default for GroupManager {
-    fn default() -> Self {
-        Self {
-            group_timers: Default::default(),
-            write_queue: Default::default(),
-            querier_builder: Default::default(),
-            is_stopped: Default::default(),
-            timers_by_group: Default::default(),
-            flush_timer_id: 0
-        }
-    }
-}
 
 impl Drop for GroupManager {
     fn drop(&mut self) {
@@ -184,11 +172,11 @@ impl GroupManager {
         false
     }
 
-    pub fn stop_group(&mut self, ctx: &Context, group_id: GroupId) -> bool {
+    pub fn stop_group(&self, ctx: &Context, group_id: GroupId) -> bool {
         self.stop_group_timer(ctx, group_id)
     }
 
-    pub fn delete_group(&mut self, ctx: &Context, group: &Group) {
+    pub fn delete_group(&self, ctx: &Context, group: &Group) {
         self.stop_group(ctx, group.id);
     }
 
@@ -208,7 +196,7 @@ impl GroupManager {
         stop_timer(&mut self.flush_timer_id);
     }
 
-    fn  create_executor(&self, group: &Group) -> Executor {
+    fn create_executor(&self, group: &Group) -> Executor {
         let querier = self.create_querier(group);
         Executor::new(
             self.write_queue.clone(),
@@ -236,11 +224,11 @@ fn stop_timer(timer_id: &mut RedisModuleTimerID) {
     if *timer_id != 0 {
         let safe_ctx = ThreadSafeContext::new();
         let guard = safe_ctx.lock();
-        match (&guard).stop_timer(*timer_id) {
+        match guard.stop_timer(*timer_id) {
             Ok(()) => (),
             Err(err) => {
                 let msg = format!("Failed to stop timer: {}", err);
-                (&guard).log_debug(&msg);
+                guard.log_debug(&msg);
             }
         }
         *timer_id = 0;
@@ -301,7 +289,7 @@ fn delay_before_start(ts: Timestamp, key: u64, interval: Duration, offset: Optio
         let tmp_eval_ts = ts + rand_sleep.as_millis() as i64;
         let truncated_ts = tmp_eval_ts.truncate(interval);
         if tmp_eval_ts < truncated_ts + offset.as_millis() as i64 {
-            rand_sleep.add(offset);
+            rand_sleep += offset;
         }
     }
 

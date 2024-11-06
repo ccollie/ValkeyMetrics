@@ -1,10 +1,9 @@
+use crate::common::rounding::RoundingStrategy;
+use metricsql_runtime::types::Timestamp;
 use std::collections::HashMap;
 use std::time::Duration;
-use ahash::AHashMap;
-use metricsql_runtime::types::Timestamp;
-use valkey_module::{raw, ValkeyError, ValkeyResult, ValkeyString};
 use valkey_module::error::Error;
-use crate::common::rounding::RoundingStrategy;
+use valkey_module::{raw, ValkeyError, ValkeyResult, ValkeyString};
 
 const OPTIONAL_MARKER_PRESENT: u64 = 0xfe;
 const OPTIONAL_MARKER_ABSENT: u64 = 0xff;
@@ -186,8 +185,8 @@ pub(crate) fn rdb_load_bool(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<bool> 
 pub(crate) fn rdb_save_string_hashmap(rdb: *mut raw::RedisModuleIO, map: &HashMap<String, String>) {
     rdb_save_usize(rdb, map.len());
     for (key, val) in map.iter()  {
-        rdb_save_string(rdb, &key);
-        rdb_save_string(rdb, &val);
+        rdb_save_string(rdb, key);
+        rdb_save_string(rdb, val);
     }
 }
 
@@ -195,27 +194,6 @@ pub(crate) fn rdb_load_string_hashmap(rdb: *mut raw::RedisModuleIO) -> ValkeyRes
     let len = rdb_load_usize(rdb)?;
     // todo: check available mem first
     let mut map = HashMap::with_capacity(len);
-    for _ in 0..len {
-        let key = rdb_load_string(rdb)?;
-        let val = rdb_load_string(rdb)?;
-        map.insert(key, val);
-    }
-    Ok(map)
-}
-
-pub(crate) fn rdb_save_ahashmap(rdb: *mut raw::RedisModuleIO, map: &AHashMap<String, String>) {
-    rdb_save_usize(rdb, map.len());
-    for (key, val) in map.iter()  {
-        rdb_save_string(rdb, &key);
-        rdb_save_string(rdb, &val);
-    }
-}
-
-
-pub(crate) fn rdb_load_ahashmap(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<AHashMap<String, String>> {
-    let len = rdb_load_usize(rdb)?;
-    // todo: check available mem first
-    let mut map = AHashMap::with_capacity(len);
     for _ in 0..len {
         let key = rdb_load_string(rdb)?;
         let val = rdb_load_string(rdb)?;

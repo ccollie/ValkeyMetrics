@@ -1,7 +1,7 @@
 use std::any::Any;
 use crate::alerts::rule::{AlertingRule, RecordingRule};
 use crate::alerts::types::RawTimeSeries;
-use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, Querier};
+use crate::alerts::{AlertDatasource, AlertsError, AlertsResult};
 use crate::common::types::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -10,8 +10,6 @@ use std::str::FromStr;
 use std::time::Duration;
 use get_size::GetSize;
 use valkey_module::Context as ValkeyContext;
-
-pub type RuleId = u64;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum RuleType {
@@ -99,9 +97,11 @@ pub trait Rule: Debug + Any {
     
     /// exec executes the rule with given context at the given timestamp and limit.
     /// returns an err if number of resulting time series exceeds the limit.
-    fn exec(&mut self, querier: &dyn Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>>;
+    fn exec(&mut self, querier: &AlertDatasource, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>>;
     /// exec_range executes the rule on the given time range.
-    fn exec_range(&mut self, querier: &dyn Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>>;
+    fn exec_range(&mut self, querier: &AlertDatasource, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>>;
+    
+    fn update_with(&mut self, other: &dyn Rule) -> AlertsResult<()>;
     
     fn as_any(&self) -> &dyn Any;
     
@@ -135,6 +135,12 @@ pub enum MetricRule {
     RecordingRule(RecordingRule),
 }
 
+impl Default for MetricRule {
+    fn default() -> Self {
+        MetricRule::RecordingRule(RecordingRule::default())
+    }
+}
+
 impl Rule for MetricRule {
     fn id(&self) -> u64 {
         match self {
@@ -164,24 +170,30 @@ impl Rule for MetricRule {
         }
     }
 
-    fn exec(&mut self, querier: &dyn Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec(&mut self, querier: &AlertDatasource, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
         match self {
             MetricRule::AlertingRule(rule) => rule.exec(querier, ts, limit),
             MetricRule::RecordingRule(rule) => rule.exec(querier, ts, limit),
         }
     }
 
-    fn exec_range(&mut self, querier: &dyn Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec_range(&mut self, querier: &AlertDatasource, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
         match self {
             MetricRule::AlertingRule(rule) => rule.exec_range(querier, start, end),
             MetricRule::RecordingRule(rule) => rule.exec_range(querier, start, end),
         }
     }
-    
+
+    fn update_with(&mut self, other: &dyn Rule) -> AlertsResult<()> {
+        match self {
+            MetricRule::AlertingRule(ref mut a) => a.update_with(other),
+            MetricRule::RecordingRule(ref mut a) => a.update_with(other),
+        }
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
-    
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }

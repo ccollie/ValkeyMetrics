@@ -224,12 +224,10 @@ fn compare(x: f64, y: f64, op: Ordering) -> f64 {
                 } else {
                     0.0
                 }
+            } else if x == y {
+                1.0
             } else {
-                if x == y {
-                    1.0
-                } else {
-                    0.0
-                }
+                0.0
             }
         },
         Ordering::Greater => if x > y {

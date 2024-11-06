@@ -342,7 +342,7 @@ pub(crate) fn save_group(rdb: *mut RedisModuleIO, group: &Group) {
     raw::save_unsigned(rdb, group.id);
     rdb_save_string(rdb, &group.name);
     
-    save_group_rules(rdb, &group);
+    save_group_rules(rdb, group);
     
     rdb_save_duration(rdb, &group.interval);
     rdb_save_duration(rdb, &group.eval_offset);

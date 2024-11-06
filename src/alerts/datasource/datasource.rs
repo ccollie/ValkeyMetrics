@@ -57,13 +57,6 @@ pub struct RangeResult {
 }
 
 impl RangeResult {
-    /// new creates a new QueryResult with given data
-    pub fn new(data: Vec<RangeQueryResult>) -> RangeResult {
-        RangeResult {
-            data,
-        }
-    }
-
     pub fn len(&self) -> usize {
         self.data.len()
     }

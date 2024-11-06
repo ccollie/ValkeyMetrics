@@ -81,9 +81,9 @@ pub(crate) fn clone_template(tpl: &Template) -> AlertsResult<Template> {
     let mut result = Template::default();
     result.parse(&tpl.text)
         .map_err(|e| AlertsError::TemplateParseError(e.to_string()))?;
-    result.name = tpl.name.clone();
-    result.funcs = tpl.funcs.clone();
-    result.text = tpl.text.clone();
+    result.name.clone_from(&tpl.name);
+    result.funcs.clone_from(&tpl.funcs);
+    result.text.clone_from(&tpl.text);
     Ok(result)
 }
 
@@ -117,7 +117,7 @@ thread_local!(static QUERY_TS: RefCell<TemplateQueryContext> = RefCell::new(
 pub(crate) fn update_with_funcs(funcs: &FuncMap) {
     let master_template = get_master_template_ref();
     let mut writer = master_template.write().unwrap();
-    writer.current.funcs = funcs.clone();
+    writer.current.funcs.clone_from(funcs);
 }
 
 /// returns a copy of current template with additional FuncMap provided with funcs argument
@@ -297,7 +297,7 @@ fn regex_match(args: &[Value]) -> Result<Value, FuncError> {
     let pattern = ensure_string_arg(args, 0, "match")?;
     let text = ensure_string_arg(args, 1, "match")?;
 
-    let re = Regex::new(&pattern)
+    let re = Regex::new(pattern)
         .map_err(|_e| FuncError::Generic(format!("Invalid regex {pattern}")))?;
     Ok(re.is_match(&text).into())
 }
@@ -374,9 +374,9 @@ fn sort_by_label(args: &[Value]) -> Result<Value, FuncError> {
         metrics.push(metric)
     }
     metrics.sort_by(|a, b| {
-        let a_value = get_metric_label_value(a, &label);
-        let b_value = get_metric_label_value(b, &label);
-        a_value.cmp(&b_value)
+        let a_value = get_metric_label_value(a, label);
+        let b_value = get_metric_label_value(b, label);
+        a_value.cmp(b_value)
     });
 
     let values = metrics.iter().map(|m| m.into()).collect();
@@ -566,7 +566,7 @@ fn humanize_timestamp(args: &[Value]) -> Result<Value, FuncError> {
 /// execute the request and return the first value in response.
 fn query(args: &[Value]) -> Result<Value, FuncError> {
     let query_str = ensure_single_string_arg(args, "query")?;
-    proxy_func(&query_str)
+    proxy_func(query_str)
 }
 
 /// template_funcs initiates template helper functions

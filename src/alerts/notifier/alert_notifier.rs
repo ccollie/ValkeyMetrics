@@ -28,7 +28,7 @@ impl Notifier for AlertNotifier {
     fn send(
         &self,
         ctx: &Context,
-        alerts: &[Alert],
+        alerts: &[&Alert],
         notifier_headers: &HashMap<String, String>) -> AlertsResult<()> {
         match self {
             AlertNotifier::Stream(notifier) => notifier.send(ctx, alerts, notifier_headers),

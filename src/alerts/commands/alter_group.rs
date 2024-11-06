@@ -13,6 +13,7 @@ use valkey_module::{
     ValkeyString,
     VALKEY_OK
 };
+use valkey_module_macros::command;
 
 const INTERVAL: &str = "INTERVAL";
 const EVAL_OFFSET: &str = "EVAL_OFFSET";
@@ -21,7 +22,7 @@ const EVAL_ALIGNMENT: &str = "EVAL_ALIGNMENT";
 
 
 #[derive(Default)]
-struct AlterGroupOptions {
+pub struct AlterGroupOptions {
     name: Option<String>,
     eval_offset: Option<Duration>,
     eval_delay: Option<Duration>,
@@ -34,7 +35,8 @@ struct AlterGroupOptions {
 
 /// Alter a Group
 ///
-/// VM.ALTER-RULE-GROUP groupKey name
+/// VM.ALTER-RULE-GROUP groupKey
+///   [NAME groupName]
 ///   [INTERVAL interval]
 ///   [EVAL_OFFSET evalOffset]
 ///   [EVAL_DELAY evalDelay]
@@ -42,6 +44,21 @@ struct AlterGroupOptions {
 ///   [LIMIT limit]
 ///   [LABELS name value ...]
 ///   [DISABLED true|false]
+#[command(
+    {
+        name: "VM.ALTER-RULE-GROUP",
+        flags: [Write],
+        arity: -2,
+        key_spec: [
+            {
+                notes: "Updates a rule group",
+                flags: [Update, Access],
+                begin_search: Index({ index : 1 }),
+                find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),
+            }
+        ]
+    }
+)]
 pub fn alter_group_function(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let (parsed_key, options, changed) = parse_alter_options(args)?;
 

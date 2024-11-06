@@ -45,7 +45,7 @@ pub static VKM_RULE_GROUP: ValkeyType = ValkeyType::new(
 
 /// Stores all group keys during initialization. We need these keys for later use in the group
 /// manager and dispatcher.
-pub static GROUP_KEYS: LazyLock<Vec<Box<[u8]>>> = LazyLock::new(|| vec![]);
+pub static GROUP_KEYS: LazyLock<Vec<Box<[u8]>>> = LazyLock::new(std::vec::Vec::new);
 
 
 /// # Safety
@@ -57,9 +57,9 @@ pub unsafe extern "C" fn group_rdb_save(rdb: *mut raw::RedisModuleIO, value: *mu
 /// # Safety
 pub unsafe extern "C" fn group_rdb_load(
     rdb: *mut raw::RedisModuleIO,
-    encver: c_int,
+    enc_ver: c_int,
 ) -> *mut c_void {
-    if let Ok(group) = load_group(rdb, encver) {
+    if let Ok(group) = load_group(rdb, enc_ver) {
         let bb = Box::new(group);
         Box::into_raw(bb).cast::<c_void>()
     } else {
@@ -69,15 +69,15 @@ pub unsafe extern "C" fn group_rdb_load(
 
 #[allow(non_snake_case, unused)]
 unsafe extern "C" fn copy(
-    fromkey: *mut RedisModuleString,
-    tokey: *mut RedisModuleString,
+    from_key: *mut RedisModuleString,
+    to_key: *mut RedisModuleString,
     value: *const c_void,
 ) -> *mut c_void {
     let guard = valkey_module::MODULE_CONTEXT.lock();
     let group = &*(value as *mut Group);
     let mut new_group = group.clone();
     // todo: new id.
-    let key = ValkeyString::from_redis_module_string(guard.ctx, tokey);
+    let key = ValkeyString::from_redis_module_string(guard.ctx, to_key);
     // TODO: schedule group or set to disabled
     Box::into_raw(Box::new(new_group)).cast::<c_void>()
 }
@@ -85,7 +85,7 @@ unsafe extern "C" fn copy(
 fn remove_group_from_manager(group: &Group) {
     let guard = valkey_module::MODULE_CONTEXT.lock();
     let ctx = Context { ctx: guard.ctx };
-    (&GROUP_MANAGER).delete_group(&ctx, group);
+    GROUP_MANAGER.delete_group(&ctx, group);
 }
 
 #[allow(unused)]

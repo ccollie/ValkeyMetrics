@@ -30,12 +30,12 @@ impl Notifier for PubSubNotifier {
     fn send(
         &self,
         ctx: &Context,
-        alerts: &[Alert],
+        alerts: &[&Alert],
         _notifier_headers: &HashMap<String, String>,
     ) -> AlertsResult<()> {
         let mut channel = String::with_capacity(128);
-        for alert in alerts {
-            let payload = match serde_json::to_string(alert) {
+        for alert in alerts.iter() {
+            let payload = match serde_json::to_string(*alert) {
                 Ok(json) => json,
                 Err(e) => {
                     let msg = format!("failed to serialize alert to JSON: {:?}", e);
@@ -50,7 +50,7 @@ impl Notifier for PubSubNotifier {
             channel.push(':');
             channel.push_str(&alert.name);
             channel.push(':');
-            channel.push_str(&alert.state.name());
+            channel.push_str(alert.state.name());
 
             self.publish(ctx, &channel, &payload);
             channel.clear();
@@ -58,7 +58,7 @@ impl Notifier for PubSubNotifier {
             // PUBLISH channel alert:<alert_state>:<alert_name>
             channel.push_str(ALERT_PREFIX);
             channel.push(':');
-            channel.push_str(&alert.state.name());
+            channel.push_str(alert.state.name());
             channel.push(':');
             channel.push_str(&alert.name);
 

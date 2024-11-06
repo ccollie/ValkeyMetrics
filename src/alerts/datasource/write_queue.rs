@@ -11,7 +11,7 @@ use valkey_module::{ContextGuard, ThreadSafeContext, ValkeyString};
 /// todo: have an output list, so that flushing does not block adding new series.
 /// Essentially on flush, we just swap data and output
 pub struct WriteQueue {
-    data: RwLock<Vec<RawTimeSeries>>,
+    data: RwLock<Vec<RawTimeSeries>>, 
     pub(crate) flush_interval: Duration,
     max_batch_size: usize,
     max_queue_size: usize,
@@ -41,11 +41,9 @@ pub struct WriteQueueConfig {
     flush_interval: Duration,
 }
 
-const DEFAULT_CONCURRENCY: usize   = 4;
 const DEFAULT_MAX_BATCH_SIZE: usize  = 1000usize;
-const DEFAULT_MAX_QUEUE_SIZE: usize  = 100_000usize;
+const DEFAULT_MAX_QUEUE_SIZE: usize  = 100usize;
 const DEFAULT_FLUSH_INTERVAL: usize = 5 * 1000;
-const DEFAULT_WRITE_TIMEOUT: usize  = 30 * 1000;
 
 impl WriteQueue {
     /// new returns asynchronous client for writing timeseries via remotewrite protocol.
@@ -111,7 +109,7 @@ impl WriteQueue {
     /// Push returns and error if client is stopped or if queue is full.
     pub fn push(&self, s: Vec<RawTimeSeries>) {
         self.add_internal(|writer| {
-            writer.extend(s.into_iter());
+            writer.extend(s);
         })
     }
 
@@ -121,11 +119,11 @@ impl WriteQueue {
         let thread_ctx = ThreadSafeContext::new();
 
         let mut iter = writer.chunks_exact_mut(self.max_batch_size);
-        while let Some(mut batch) = iter.next() {
+        for batch in iter.by_ref() {
             let ctx = thread_ctx.lock();
-            match self.send(&ctx, &mut batch) {
+            match self.send(&ctx, batch) {
                 Ok(_) => {
-                    ctx.log_debug(&*format!("successfully sent {} series to remote storage", batch.len()));
+                    ctx.log_debug(&format!("successfully sent {} series to remote storage", batch.len()));
                     drop(ctx)
                 }
                 Err(err) => {
@@ -166,10 +164,11 @@ impl WriteQueue {
         let series = get_timeseries_mut(ctx, &key, false)
             .map_err(|e| AlertsError::Generic(format!("failed to get series: {:?}", e)))?;
 
-        if series.is_none() {
-            self.create_series(ctx, &key)
-        } else {
-            Ok(series.unwrap())
+        match series {
+            Some(series) =>Ok(series),
+            None => {
+                self.create_series(ctx, &key)                
+            }
         }
     }
 
@@ -178,7 +177,7 @@ impl WriteQueue {
             return Ok(())
         }
         for ts in series.iter_mut() {
-            let series = self.create_series_if_not_exists(&ctx, &ts.key)?;
+            let series = self.create_series_if_not_exists(ctx, &ts.key)?;
             series.merge_samples(&ts.samples, None)
                 .map_err(|e| AlertsError::Generic(format!("failed to merge samples: {:?}", e)))?;
         }

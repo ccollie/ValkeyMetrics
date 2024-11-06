@@ -293,9 +293,9 @@ impl TimeSeries {
         let mut grouping: IntMap<usize, SmallVec<Sample, 4>> = IntMap::new();
 
         let earliest_ts = self.get_min_timestamp();
-        for sample in samples.into_iter().filter(|sample| sample.timestamp >= earliest_ts) {
+        for sample in samples.iter().filter(|sample| sample.timestamp >= earliest_ts) {
             let (chunk_index, _) = find_last_ge_index(&self.chunks, sample.timestamp);
-            grouping.entry(chunk_index).or_insert_with(SmallVec::new).push(*sample);
+            grouping.entry(chunk_index).or_default().push(*sample);
         }
 
         let mut size = 0;

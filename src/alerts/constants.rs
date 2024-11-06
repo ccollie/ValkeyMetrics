@@ -20,4 +20,8 @@ pub static ALERT_GROUP_NAME_LABEL: &str = "alertgroup";
 /// See https://www.robustperception.io/staleness-and-promql
 /// StaleNaN is a special NaN value, which is used as Prometheus staleness mark.
 const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
-pub const STALE_NAN: LazyLock<f64> = LazyLock::new(||f64::from_bits(STALE_NAN_BITS));
+pub const STALE_NAN: LazyLock<f64> = LazyLock::new(get_stale_nan_value);
+
+fn get_stale_nan_value() -> f64 {
+    f64::from_bits(STALE_NAN_BITS)
+}

@@ -1,14 +1,37 @@
 use crate::alerts::rule::{MetricRule, RecordingRule};
 use crate::alerts::utils::with_group_mut;
-use crate::module::arg_parse::{parse_key_value_pairs, parse_promql_vector_expr, CommandArgIterator, CMD_ARG_EXPR, CMD_ARG_LABELS, CMD_ARG_NAME};
+use crate::module::arg_parse::{
+    parse_key_value_pairs, 
+    parse_promql_vector_expr, 
+    CommandArgIterator, 
+    CMD_ARG_EXPR, 
+    CMD_ARG_LABELS,
+};
 use metricsql_parser::parser::is_valid_identifier;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
+use valkey_module_macros::command;
 
-const CMD_ARG_MAX_ENTRIES: &'static str = "MAX_ENTRIES";
-const CMD_ARG_SELECTED_LABELS: &'static str = "SELECTED_LABELS";
-const CMD_ARG_KEY: &'static str = "KEY";
+const CMD_ARG_MAX_ENTRIES: &str = "MAX_ENTRIES";
 
-
+/// VM.CREATE-RECORDING-RULE groupKey ruleName
+///  EXPR expression
+///  [LABELS label value ...]
+///  [MAX_ENTRIES alertDuration]
+#[command(
+    {
+        name: "VM.CREATE-RECORDING-RULE",
+        flags: [Write],
+        arity: -4,
+        key_spec: [
+            {
+                notes: "Create a rule based on PromQL to precompute expressions and save their result as a new set of time series..",
+                flags: [Insert, Access],
+                begin_search: Index({ index : 1 }),
+                find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),
+            }
+        ]
+    }
+)]
 pub fn create_recording_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1).peekable();
     let group_key = args.next_arg()?;
@@ -26,9 +49,7 @@ pub fn create_recording_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRe
 
 fn parse_rule_config(mut args: CommandArgIterator) -> ValkeyResult<RecordingRule> {
     fn is_cmd_token(token: &str) -> bool {
-        const TOKENS: [&str; 5] = [
-            CMD_ARG_NAME,
-            CMD_ARG_KEY,
+        const TOKENS: [&str; 3] = [
             CMD_ARG_EXPR,
             CMD_ARG_LABELS,
             CMD_ARG_MAX_ENTRIES,
@@ -37,20 +58,14 @@ fn parse_rule_config(mut args: CommandArgIterator) -> ValkeyResult<RecordingRule
     }
     
     let mut rule = RecordingRule::default();
+    
+    rule.name = args.next_string()?;
+    if !is_valid_identifier(&rule.name) {
+        return Err(ValkeyError::Str("ERR invalid rule name"));
+    }
+    
     while let Ok(arg) = args.next_str() {
         match arg {
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_NAME) => {
-                let name = args.next_string()?;
-                if !is_valid_identifier(&name) {
-                    return Err(ValkeyError::Str("ERR invalid rule name"));
-                }
-                rule.name = name; // todo:
-            }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_KEY) => {
-                let key = args.next_string()?;
-                // todo: validate
-                rule.dest_key = key;
-            }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_EXPR) => {
                 rule.expr = parse_promql_vector_expr(&mut args)?;
             }
@@ -67,8 +82,8 @@ fn parse_rule_config(mut args: CommandArgIterator) -> ValkeyResult<RecordingRule
         }
     }
     
-    if rule.dest_key.is_empty() {
-        return Err(ValkeyError::Str("ERR missing destination key"));
+    if rule.expr.is_empty() {
+        return Err(ValkeyError::Str("ERR missing expression"));
     }
     
     Ok(rule)

@@ -3,6 +3,7 @@ use crate::alerts::rule::{Group, GroupConfig};
 use crate::error_consts;
 use crate::module::arg_parse::*;
 use std::time::Duration;
+use metricsql_parser::parser::is_valid_identifier;
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{
     Context,
@@ -13,6 +14,7 @@ use valkey_module::{
     ValkeyString, 
     VALKEY_OK
 };
+use valkey_module_macros::command;
 
 const INTERVAL: &str = "INTERVAL";
 const EVAL_OFFSET: &str = "EVAL_OFFSET";
@@ -29,7 +31,21 @@ const EVAL_ALIGNMENT: &str = "EVAL_ALIGNMENT";
 ///   [EVAL_ALIGNMENT isAligned]
 ///   [LIMIT limit]
 ///   [LABELS name value ...]
-///   [NOTIFIER pubsub key]
+#[command(
+    {
+        name: "VM.CREATE-RULE-GROUP",
+        flags: [Write],
+        arity: -3,
+        key_spec: [
+            {
+                notes: "Creates a rule group",
+                flags: [Insert, Access],
+                begin_search: Index({ index : 1 }),
+                find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),
+            }
+        ]
+    }
+)]
 pub fn create_group_function(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let (parsed_key, options) = parse_create_options(args)?;
 
@@ -45,6 +61,10 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
 
     let key = args.next().ok_or(ValkeyError::Str("Err missing key argument"))?;
     options.name = args.next_string()?;
+    
+    if !is_valid_identifier(&options.name) {
+        return Err(ValkeyError::Str("ERR invalid group name"));
+    }
 
     const CREATE_TOKENS: [&str; 6] = [
         EVAL_ALIGNMENT,

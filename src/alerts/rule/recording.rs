@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::alerts::rule::config::RuleConfig;
 use crate::alerts::rule::{Group, Rule, RuleStateEntry, RuleType};
 use crate::alerts::types::RawTimeSeries;
-use crate::alerts::{AlertsError, AlertsResult, Querier};
+use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, Querier};
 use crate::common::types::{Label, MetricName, Sample, Timestamp};
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
@@ -79,7 +79,7 @@ impl RecordingRule {
         // Collect label updates to avoid borrowing conflicts
         let mut updates = Vec::new();
         for (k, v) in &self.labels {
-            if let Some(value) = metric.label_value(&k) {
+            if let Some(value) = metric.label_value(k) {
                 if value != v {
                     let new_key = format!("exported_{k}");
                     updates.push((new_key, value.to_string()));
@@ -107,13 +107,13 @@ impl RecordingRule {
         }
     }
 
-    fn to_instant_time_series(&mut self, r: InstantQueryResult) -> RawTimeSeries {
+    fn to_instant_time_series(&self, r: InstantQueryResult) -> RawTimeSeries {
         // TODO: properly construct name
         let key = self.dest_key.clone();
         self.to_time_series(key, r.metric, &[r.sample])
     }
 
-    fn to_range_time_series(&mut self, r: RangeQueryResult) -> RawTimeSeries {
+    fn to_range_time_series(&self, r: RangeQueryResult) -> RawTimeSeries {
         // TODO: properly construct name
         let key = self.dest_key.clone();
         // todo: generate key for range query
@@ -127,12 +127,7 @@ impl RecordingRule {
             self.state.remove(0);
         }
     }
-
-    // update_with copies all significant fields.
-    pub fn update_with(&mut self, other: &RecordingRule) {
-        self.expr = other.expr.to_string();
-        self.labels = other.labels.clone();
-    }
+    
 }
 
 impl Rule for RecordingRule {
@@ -152,12 +147,14 @@ impl Rule for RecordingRule {
         &self.expr
     }
 
-    fn exec(&mut self, querier: &dyn Querier, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec(&mut self, querier: &AlertDatasource, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
         let start = current_time_millis();
 
-        let mut cur_state = RuleStateEntry::default();
-        cur_state.time = start;
-        cur_state.at = ts;
+        let mut cur_state = RuleStateEntry {
+            time: start,
+            at: ts,
+            ..Default::default()
+        };
 
         let q_metrics = match querier.query(&self.expr, ts) {
             Ok(res) => res,
@@ -208,7 +205,7 @@ impl Rule for RecordingRule {
     /// `exec_range` executes recording rule on the given time range similarly to Exec.
     /// It doesn't update internal states of the Rule and meant to be used just to get time series
     /// for backfilling.
-    fn exec_range(&mut self, querier: &dyn Querier, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec_range(&mut self, querier: &AlertDatasource, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
         let res = querier
             .query_range(&self.expr, start, end)
             .map_err(|e| AlertsError::QueryExecutionError(format!("{}: {:?}", self.expr, e)))?;
@@ -231,6 +228,19 @@ impl Rule for RecordingRule {
         Ok(tss)
     }
 
+    fn update_with(&mut self, other: &dyn Rule) -> AlertsResult<()> {
+        if other.rule_type() != RuleType::Recording {
+            let msg = format!("BUG: attempt to update recording rule with wrong type {}", other.rule_type());
+            return Err(AlertsError::Generic(msg)); // todo: better error
+        }
+        
+        let rr = other.as_any().downcast_ref::<RecordingRule>().unwrap();
+        
+        self.expr.clone_from(&rr.expr);
+        self.labels.clone_from(&rr.labels);
+        Ok(())
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -245,9 +255,9 @@ pub fn stringify_labels(ts: &RawTimeSeries) -> String {
     let mut b = String::with_capacity(40); // todo: better capacity calculation.
     labels.sort();
     for (i, label) in ts.labels.iter().enumerate() {
-        b.push_str(&*format!("{}=\"{}\"", &label.name, enquote('"', &label.value)));
+        b.push_str(&format!("{}=\"{}\"", &label.name, enquote('"', &label.value)));
         if i < labels.len() - 1 {
-            b.push_str(",")
+            b.push(',')
         }
     }
     b

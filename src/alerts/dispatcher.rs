@@ -24,7 +24,7 @@ pub fn add_group(ctx: &Context, group: &Group, key: ValkeyString) {
     }
     let start_delay = get_start_delay(group, current_time_millis());
     if start_delay.is_zero() {
-        (&GROUP_MANAGER).add_group(ctx, group, key);
+        GROUP_MANAGER.add_group(ctx, group, key);
     }  else {
         let data = GroupDelayedStart {
             group_id: group.id,
@@ -34,9 +34,13 @@ pub fn add_group(ctx: &Context, group: &Group, key: ValkeyString) {
         kill_delay_timer(ctx, group.id);
         // todo: error if we have scheduled a callback for this group already
         let timer_id = ctx.create_timer(start_delay, delayed_start_group_callback, data);
-        let timer_map = (&DELAY_TIMER_IDS).pin();
+        let timer_map = DELAY_TIMER_IDS.pin();
         timer_map.insert(group.id, timer_id);
     }
+}
+
+pub fn delete_group(ctx: &mut Context, group: &Group) {
+    GROUP_MANAGER.delete_group(ctx, group);
 }
 
 
@@ -51,7 +55,7 @@ fn delayed_start_group_callback(ctx: &Context, msg: GroupDelayedStart) {
     let redis_key = ctx.open_key(&msg.key);
     match redis_key.get_value::<Group>(&VKM_RULE_GROUP) {
         Ok(Some(group)) => {
-            (&GROUP_MANAGER).add_group(ctx, &group, msg.key);
+            GROUP_MANAGER.add_group(ctx, group, msg.key);
         }
         Err(e) => {
             ctx.log_warning(&format!("Error getting group: {}", e));
@@ -62,7 +66,7 @@ fn delayed_start_group_callback(ctx: &Context, msg: GroupDelayedStart) {
 
 fn kill_delay_timer(ctx: &Context, group_id: GroupId) {
     // kill the timer
-    let timers = (&DELAY_TIMER_IDS).pin();
+    let timers = DELAY_TIMER_IDS.pin();
     if let Some(timer_id) = timers.remove(&group_id) {
         if let Err(e) = ctx.stop_timer::<GroupDelayedStart>(*timer_id) {
             ctx.log_warning(&format!("Error stopping timer: {:?}", e));

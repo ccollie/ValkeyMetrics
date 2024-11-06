@@ -11,23 +11,23 @@ use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, WriteQueue};
 use crate::common::types::{Label, Sample, Timestamp, TimestampTrait};
 use crate::config::get_global_settings;
 use ahash::AHashMap;
-use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use valkey_module::ThreadSafeContext;
 
 pub type PreviouslySentSeries = HashMap<u64, AHashMap<String, Vec<Label>>>;
 
 #[derive(Clone, Default)]
 pub struct Executor {
-    pub rw: Arc<WriteQueue>,
-    pub querier: AlertDatasource,
-    pub notifiers: Arc<Vec<AlertNotifier>>,
+    rw: Arc<WriteQueue>,
+    querier: AlertDatasource,
+    notifiers: Arc<Vec<AlertNotifier>>,
 
     /// `previously_sent_series` stores series sent to the write queue on previous iteration
     /// HashMap<RuleID, HashMap<ruleLabels, Vec<Label>>
     /// where `ruleID` is id of the Rule within a Group and `ruleLabels` is Vec<Label> marshalled
     /// to a string
     previously_sent_series: Arc<Mutex<PreviouslySentSeries>>,
-    pub last_evaluation: Timestamp,
+    last_evaluation: Timestamp,
 }
 
 /// SKIP_RAND_SLEEP_ON_GROUP_START will skip random sleep delay in group first evaluation
@@ -106,80 +106,98 @@ impl Executor {
                              resolve_duration: Duration,
                              limit: usize) -> AlertsResult<()> {
 
+        // group.dependencies.is_some() means we have the dependencies in topological order.
+        // group.dependencies.is_none() means we have indeterminate dependencies, and rules
+        // should be evaluated sequentially
+        
+        // We need to execute the rules in dependency order
         if group.dependencies.is_some() {
             return self.exec_dag(group, ts, resolve_duration, limit);
         }
-
-        self.exec_recording_rules(group, ts, limit)?;
-        self.exec_alerting_rules(group, ts, resolve_duration, limit)?;
-
-        Ok(())
+        
+        // if we have an indeterminate rule, it's possible that the series
+        // ALERTS or ALERTS_FOR_STATE, which means that alerting rules need to be
+        // evaluated sequentially
+        // todo: 
+        let mut errors = vec![];
+        self.exec_rules_sequentially(group, RuleType::Recording, ts, resolve_duration, limit, &mut errors);
+        
+        if errors.is_empty() {
+            return Ok(())
+        }
+        
+        Err(AlertsError::GroupExecutionError(errors.into()))
     }
     
     fn exec_dag(&self, group: &mut Group, ts: Timestamp, resolve_duration: Duration, limit: usize) -> AlertsResult<()> {
         // Ugly Hack to avoid borrow checker issues to allow parallelism
         let mut rules = std::mem::take(&mut group.rules);
-        let dag = std::mem::take(&mut group.dependencies).unwrap();
+        let dag = group.dependencies.as_ref().unwrap();
+        let mut errors = Vec::new();
         
         for dependencies in dag.iter() {
-            let results: Vec<AlertsResult<()>> = dependencies
-                .par_iter()
-                .map(|rule_id| {
-                    let rule_option = rules.iter_mut().find(|x| x.id() == *rule_id);
-                    match rule_option {
-                        Some(rule) => self.exec_rule(group, rule, ts, resolve_duration, limit),
-                        None => {
-                            // todo: should not happen, but log it
-                            Ok(())
-                        }
+            // borrow rules
+            let mut rule_dependencies: Vec<MetricRule> = dependencies
+                .iter()
+                .map(|idx| std::mem::take(&mut rules[*idx]))
+                .collect();
+            
+            let results: Vec<AlertsError> = rule_dependencies
+                .par_iter_mut()
+                .flat_map(|rule| {
+                    match self.exec_rule(group, rule, ts, resolve_duration, limit) {
+                        Ok(_) => None,
+                        Err(err) => Some(err)
                     }
                 })
                 .collect();
 
-            // Handle errors if needed
-            for result in results {
-                result?;
+            errors.extend(results.into_iter());
+            
+            // restore
+            for (index, rule) in dependencies.iter().zip(rule_dependencies.into_iter()) {
+                rules[*index] = rule;
             }
         }
         
-        group.dependencies = Some(dag);
         group.rules = rules;
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(AlertsError::GroupExecutionError(errors.into()))
+        }
+    }
+    
+
+    fn exec_rules_sequentially(&self,
+                              group: &mut Group,
+                              rule_type: RuleType, 
+                              ts: Timestamp,
+                              resolve_duration: Duration,
+                              limit: usize,
+                              errors: &mut Vec<AlertsError>) {
+        // Ugly Hack to avoid borrow checker issues to allow parallelism
+        let mut rules = std::mem::take(&mut group.rules);
         
-        Ok(())
-    }
-
-    pub(super) fn exec_alerting_rules(&self,
-                                      group: &mut Group,
-                                      ts: Timestamp,
-                                      resolve_duration: Duration,
-                                      limit: usize) -> AlertsResult<()> {
-        group.rules
-            .par_iter_mut()
-            .try_for_each(|rule| {
-                if rule.rule_type() == RuleType::Alerting {
-                    self.exec_rule(group, rule, ts, resolve_duration, limit)
+        let errs: Vec<_> = rules
+            .iter_mut()
+            .flat_map(|rule| {
+                if rule.rule_type() == rule_type {
+                    match self.exec_rule(group, rule, ts, resolve_duration, limit) {
+                        Ok(_) => None,
+                        Err(err) => Some(err)
+                    }   
                 } else {
-                    // todo: log it out
-                    Ok(())
+                    None
                 }
-            })
+            }).collect();
+
+        group.rules = rules;
+
+        errors.extend(errs);
     }
 
-    pub fn exec_recording_rules(&self, group: &mut Group, ts: Timestamp, limit: usize) -> AlertsResult<()> {
-        group
-            .rules
-            .par_iter_mut()
-            .try_for_each(|rule| {
-                if rule.rule_type() == RuleType::Recording {
-                    self.exec_internal(rule, ts, limit)
-                } else {
-                    // todo: log it out
-                    Ok(())
-                }
-            })
-    }
-
-    fn exec_internal(&self, rule: &mut MetricRule, ts: Timestamp, limit: usize) -> AlertsResult<()> {
+    fn exec_rule_base(&self, rule: &mut MetricRule, ts: Timestamp, limit: usize) -> AlertsResult<()> {
         let tss = rule.exec(&self.querier, ts, limit)
             .map_err(|err| {
                 // todo: log it out
@@ -199,14 +217,11 @@ impl Executor {
                ts: Timestamp, 
                resolve_duration: Duration,
                limit: usize) -> AlertsResult<()> {
-        let res = self.exec_internal(rule, ts, limit);
+        let res = self.exec_rule_base(rule, ts, limit);
         if res.is_ok() {
-            match rule { 
-                MetricRule::AlertingRule(alerting_rule) => {
-                    let settings = get_global_settings();
-                    return self.send_notifications(group, alerting_rule, ts, resolve_duration, settings.resend_delay)
-                },
-                _ => {}, // not applicable for recording rules
+            if let MetricRule::AlertingRule(alerting_rule) = rule {
+                let settings = get_global_settings();
+                return self.send_notifications(group, alerting_rule, ts, resolve_duration, settings.resend_delay)
             }
         }
         

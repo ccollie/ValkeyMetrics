@@ -22,12 +22,10 @@ pub fn delete_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 fn handle_delete(ctx: &Context, group: &mut Group, name: &str, remove_dest: bool) -> bool {
     // if it's a recording rule and remove_dest is true, we also remove the key
     if remove_dest {
-        if let Some(rule) = group.get_rule_by_name(name) {
-            if let MetricRule::RecordingRule(rr) = rule {
-                if !rr.dest_key.is_empty() {
-                    let _ = ctx.call("DEL", &[&rr.dest_key]);
-                }
-            }    
+        if let Some(MetricRule::RecordingRule(rr)) = group.get_rule_by_name(name) {
+            if !rr.dest_key.is_empty() {
+                let _ = ctx.call("DEL", &[&rr.dest_key]);
+            }
         }
     }
     

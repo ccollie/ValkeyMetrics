@@ -1,5 +1,4 @@
 use std::fmt::Display;
-use std::str::FromStr;
 use get_size::GetSize;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -41,7 +40,7 @@ pub enum AlertsError {
     #[error("Failed to create alert. {0}")]
     FailedToCreateAlert(String),
 
-    #[error("Failed to template: {0}")]
+    #[error("Failed to parse template: {0}")]
     TemplateParseError(String),
 
     #[error("Error fetching group: {0}")]
@@ -50,6 +49,9 @@ pub enum AlertsError {
     #[error("Failure executing template: {0}")]
     TemplateExecutionError(ErrorGroup),
 
+    #[error("Failed to execute group rules: {0}")]
+    GroupExecutionError(ErrorGroup),
+    
     #[error("Failure expanding template: {0}")]
     TemplateExpansionError(String),
 
@@ -62,14 +64,14 @@ pub enum AlertsError {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq)]
 #[derive(GetSize)]
-pub struct ErrorGroup(pub Vec<String>);
+pub struct ErrorGroup(pub Vec<AlertsError>);
 
 impl ErrorGroup {
     pub fn new() -> Self {
         ErrorGroup(Vec::new())
     }
 
-    pub fn push(&mut self, err: String) {
+    pub fn push(&mut self, err: AlertsError) {
         self.0.push(err);
     }
 
@@ -81,37 +83,41 @@ impl ErrorGroup {
         self.0.is_empty()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &String> {
+    pub fn iter(&self) -> impl Iterator<Item = &AlertsError> {
         self.0.iter()
     }
 
-    pub fn into_iter(self) -> impl Iterator<Item = String> {
+    pub fn into_iter(self) -> impl Iterator<Item = AlertsError> {
         self.0.into_iter()
+    }
+}
+
+impl From<Vec<AlertsError>> for ErrorGroup {
+    fn from(errors: Vec<AlertsError>) -> Self {
+        ErrorGroup(errors)
     }
 }
 
 impl Display for ErrorGroup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.join(", "))
-    }
-}
-
-impl FromStr for ErrorGroup {
-    type Err = AlertsError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(ErrorGroup(vec![s.to_string()]))
+        let len = self.len();
+        for (i, error) in self.0.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{:?}", error)?;
+            if i < len - 1 {
+                write!(f, "\n, ")?;
+            }
+        }
+        Ok(())
     }
 }
 
 impl From<ErrorGroup> for AlertsError {
     fn from(err: ErrorGroup) -> Self {
-        AlertsError::Generic(err.0.join(", "))
+        AlertsError::GroupExecutionError(err)
     }
-}
-
-pub struct MaxActivePendingExceeded {
-    pub max_active: usize,
-    pub limit: usize,
 }
 
 pub type AlertsResult<T> = Result<T, AlertsError>;

@@ -53,12 +53,10 @@ fn get_label_from_value(value: &Value) -> Option<Label> {
         Value::Map(map) => map,
         _ => return None,
     };
-    if let Some(name_value) = map.get("name") {
-        if let Value::String(name) = name_value {
-            if let Some(value_value) = map.get("value") {
-                if let Value::String(value) = value_value {
-                    return Some(Label { name: name.clone(), value: value.clone() });
-                }
+    if let Some(Value::String(name)) = map.get("name") {
+        if let Some(value_value) = map.get("value") {
+            if let Value::String(value) = value_value {
+                return Some(Label { name: name.clone(), value: value.clone() });
             }
         }
     }
@@ -77,7 +75,7 @@ impl From<&Metric> for Value {
 
 impl From<Metric> for Value {
     fn from(metric: Metric) -> Value {
-        metric.into()
+        (&metric).into()
     }
 }
 
@@ -87,10 +85,10 @@ impl TryFrom<&Value> for Metric {
     fn try_from(value: &Value) -> Result<Self, Self::Error> {
         match value {
             Value::Map(_) | Value::Object(_) => {
-                let label_values = get_hash_array_value(&value, "labels", true)?.unwrap();
+                let label_values = get_hash_array_value(value, "labels", true)?.unwrap();
                 let labels: Vec<Label> = label_values.iter().filter_map(get_label_from_value).collect();
-                let timestamp = get_hash_float_value(&value, "timestamp", true)?.unwrap();
-                let value = get_hash_float_value(&value, "value", true)?.unwrap();
+                let timestamp = get_hash_float_value(value, "timestamp", true)?.unwrap();
+                let value = get_hash_float_value(value, "value", true)?.unwrap();
                 Ok(Metric::new(labels, timestamp as i64, value))
             }
             _ => Err(FuncError::Generic(format!("expected object for metric, got {}", value)))

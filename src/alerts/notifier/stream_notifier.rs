@@ -1,7 +1,6 @@
 use super::{Alert, Notifier};
 use crate::alerts::{AlertsError, AlertsResult};
 use crate::common::types::Timestamp;
-use ahash::AHashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -49,14 +48,6 @@ impl StreamNotifier {
             }
             serialized_alert.push(key.to_string());
             serialized_alert.push(hash_map_to_string(value));
-        }
-
-        fn add_ahash_map(key: &str, value: &AHashMap<String, String>, serialized_alert: &mut Vec<String>) {
-            if value.is_empty() {
-                return;
-            }
-            serialized_alert.push(key.to_string());
-            serialized_alert.push(ahash_map_to_string(value));
         }
 
         // Serialize the alert to a list of key value pairs encoded as strings
@@ -108,7 +99,7 @@ impl StreamNotifier {
 }
 
 impl Notifier for StreamNotifier {
-    fn send(&self, ctx: &Context, alerts: &[Alert], notifier_headers: &HashMap<String, String>) -> AlertsResult<()> {
+    fn send(&self, ctx: &Context, alerts: &[&Alert], notifier_headers: &HashMap<String, String>) -> AlertsResult<()> {
         let mut keys: Vec<String> = Vec::new();
 
         keys.push(self.key.clone());
@@ -153,9 +144,5 @@ impl Notifier for StreamNotifier {
 }
 
 fn hash_map_to_string(map: &HashMap<String, String>) -> String {
-    map.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<String>>().join(",")
-}
-
-fn ahash_map_to_string(map: &AHashMap<String, String>) -> String {
     map.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<String>>().join(",")
 }

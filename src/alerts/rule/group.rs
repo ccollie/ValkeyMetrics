@@ -13,10 +13,10 @@ use crate::common::types::{Label, Timestamp, TimestampTrait};
 use serde::{Deserialize, Serialize};
 use topologic::AcyclicDependencyGraph;
 use tracing::info;
-use valkey_module::Context;
+use valkey_module::{Context, DetachedContextGuard};
 use xxhash_rust::xxh3::Xxh3;
 use crate::alerts::{AlertsError, AlertsResult, QuerierBuilder, QuerierParams};
-use crate::alerts::rule::{AlertingRule, GroupConfig, MetricRule, RecordingRule, Rule, RuleId, RuleType};
+use crate::alerts::rule::{AlertingRule, GroupConfig, MetricRule, RecordingRule, Rule, RuleType};
 use crate::alerts::rule::executor::Executor;
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::config::get_global_settings;
@@ -24,7 +24,7 @@ use crate::config::get_global_settings;
 
 // `DependencyMap` describes the dependency associations between rules in a group whereby one rule uses the
 // output metric produced by another rule in its expression (i.e. as its "input"). Basically an adjacency list
-pub type DependencyMap = Vec<Vec<RuleId>>;
+pub type DependencyMap = Vec<Vec<usize>>;
 
 /// Group is an entity for grouping rules
 #[derive(Debug, Default)]
@@ -33,7 +33,12 @@ pub struct Group {
     pub id: u64,
     pub name: String,
     pub rules: Vec<MetricRule>,
+    /// How often rules in the group are evaluated.
     pub interval: Duration,
+    /// A Group will be evaluated at the exact offset in the range of [0...interval].
+    /// E.g. for Group with `interval: 1h` and `eval_offset: 5m` the evaluation will
+    /// start at 5th minute of the hour. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/3409
+    /// `eval_offset` can't be bigger than `interval`.
     pub eval_offset: Duration,
     /// Adjusts the `time` parameter of group evaluation requests to compensate for intentional query delay from the datasource.
     /// By default, the value is inherited from the `-rule.evalDelay` env var - see its description for details.
@@ -53,14 +58,25 @@ pub struct Group {
     /// On exceeding the limit, rule will be marked with an error and all its results will be discarded.
     /// 0 is no limit.
     pub limit: usize,
-    pub last_evaluation: AtomicI64,
+    /// Optional list of labels added to every rule within a group.
+    /// It has priority over the external labels.
+    /// Labels are commonly used for adding environment or tenant-specific tag.
     pub labels: HashMap<String, String>,
+    /// Optional list of parameters
+    ///  applied for all rules requests within a group
+    /// For example:
+    ///   params:
+    ///     nocache: ["1"]                # disable caching for vmselect
+    ///     denyPartialResponse: ["true"] # fail if one or more vmstorage nodes returned an error
+    ///     extra_label: ["env=dev"]      # apply additional label filter "env=dev" for all requests
+    /// see more details at https://docs.victoriametrics.com#prometheus-querying-api-enhancements
     pub params: HashMap<String, String>,
     pub notifier_headers: HashMap<String, String>,
     /// A DAG of rule ids represented as an adjacency list
     pub dependencies: Option<DependencyMap>,
     pub metrics: GroupMetrics,
     pub disabled: bool,
+    pub last_evaluation: AtomicI64,
 }
 
 impl Clone for Group {
@@ -71,8 +87,8 @@ impl Clone for Group {
             rules: self.rules.clone(),
             interval: self.interval,
             eval_offset: self.eval_offset,
-            eval_delay: self.eval_delay.clone(),
-            eval_alignment: self.eval_alignment.clone(),
+            eval_delay: self.eval_delay,
+            eval_alignment: self.eval_alignment,
             limit: self.limit,
             last_evaluation: AtomicI64::new(self.last_evaluation.load(Ordering::Relaxed)),
             labels: self.labels.clone(),
@@ -114,7 +130,7 @@ impl Group {
             eval_offset: Duration::default(),
             limit: cfg.limit,
             params: cfg.params.unwrap_or_default().clone(),
-            labels: cfg.labels.into(),
+            labels: cfg.labels,
             eval_alignment: cfg.eval_alignment,
             ..Default::default()
         };
@@ -122,7 +138,7 @@ impl Group {
             g.interval = default_interval
         }
         if let Some(eval_offset) = cfg.eval_offset {
-            g.eval_offset = eval_offset.clone()
+            g.eval_offset = eval_offset
         }
         for h in cfg.notifier_headers.iter() {
             g.notifier_headers.insert(h.key.clone(), h.value.clone());
@@ -188,22 +204,19 @@ impl Group {
     /// restores alerts state for group rules
     pub fn restore(&mut self, ctx: &Context, qb: impl QuerierBuilder, ts: Timestamp, look_back: Duration) -> AlertsResult<()> {
         for ar in self.rules.iter_mut() {
-            match ar {
-                MetricRule::AlertingRule(alerting_rule)  => {
-                    if alerting_rule.r#for.is_zero() {
-                        continue;
-                    }
-                    let querier = qb.build_with_params(QuerierParams {
-                        evaluation_interval: self.interval.clone(),
-                        eval_offset: Default::default(),
-                        query_params: self.params.clone(),
-                        debug: alerting_rule.debug,
-                    });
-
-                    alerting_rule.restore(ctx, &querier, ts, look_back)
-                        .map_err(|e| AlertsError::RuleRestoreError(format!("{}: {:?}", alerting_rule.expr, e)))?;
+            if let MetricRule::AlertingRule(alerting_rule) = ar {
+                if alerting_rule.r#for.is_zero() {
+                    continue;
                 }
-                _ => {}
+                let querier = qb.build_with_params(QuerierParams {
+                    evaluation_interval: self.interval,
+                    eval_offset: Default::default(),
+                    query_params: self.params.clone(),
+                    debug: alerting_rule.debug,
+                });
+
+                alerting_rule.restore(ctx, &querier, ts, look_back)
+                    .map_err(|e| AlertsError::RuleRestoreError(format!("{}: {:?}", alerting_rule.expr, e)))?;
             }
         }
         Ok(())
@@ -221,10 +234,10 @@ impl Group {
         
         let mut to_delete = vec![];
         
-        for (i, or) in self.rules.iter().enumerate() {
+        for (i, or) in self.rules.iter_mut().enumerate() {
             let id = or.id();
             if let Some(rule) = rules_registry.get(&id) {
-                or.update_with(rule)?;
+                or.update_with(*rule)?;
             } else {
                 to_delete.push(i);   
             }
@@ -243,9 +256,9 @@ impl Group {
 
         // note that self.interval is not updated here so the value can be compared later in
         // group.start function
-        self.params = new_group.params.clone();
-        self.notifier_headers = new_group.notifier_headers.clone();
-        self.labels = new_group.labels.clone();
+        self.params.clone_from(&new_group.params);
+        self.notifier_headers.clone_from(&new_group.notifier_headers);
+        self.labels.clone_from(&new_group.labels);
         self.limit = new_group.limit;
         Ok(())
     }
@@ -299,20 +312,19 @@ impl Group {
     ///
     /// None is returned if the group contains "indeterminate" rule expressions
     fn build_dependencies(&self) -> Option<DependencyMap> {
-        if self.rules.is_empty() {
+        if self.rules.len() <= 1 {
             // No relationships if group has 1 or fewer rules.
             return None;
         }
 
-        let mut name_id_map: HashMap<String, RuleId> = HashMap::new();
-        let mut graph: AcyclicDependencyGraph<String> = AcyclicDependencyGraph::new();
+        // collect rules which haven't added any dependencies to the graph.
+        let mut no_dependents: Vec<usize> = Vec::with_capacity(self.rules.len());
+        let graph: AcyclicDependencyGraph<usize> = AcyclicDependencyGraph::new();
         
         
         let mut is_indeterminate = false;
 
-        for rule in self.rules.iter() {
-            let rule_name = rule.name().to_string();
-            name_id_map.insert(rule_name.clone(), rule.id());
+        for (i, rule) in self.rules.iter().enumerate() {
 
             if let Some(vector_selector) = inspect_query(rule) {
                 if vector_selector.name.is_none() && !vector_selector.matchers.is_empty() {
@@ -330,36 +342,32 @@ impl Group {
                 }
 
                 // only include a metric if it's related to one of our rules
-                if self.contains_rule(&name) {
-                    graph.depends_on(&rule_name, &name);
+                if let Some(rule_idx) = self.rules.iter().position(|x| x.name() == name) {
+                    graph.depends_on(&i, &rule_idx);
+                    continue;
                 }
             }
+            no_dependents.push(i);
         }
 
         if is_indeterminate {
             return None;
         }
-        // collect rules which haven't added any dependencies to the graph. This would realistically
-        // only happen for NumberLiteral nodes
-        let mut no_dependents: Vec<RuleId> = Vec::new();
-        for (key, _) in name_id_map.iter() {
+        
+        for i in 0 .. self.rules.len() {
             // Get the set of nodes that a given node depends on.
-            let dependencies = graph.get_forward_dependencies(key);
+            let dependencies = graph.get_forward_dependencies(&i);
             if dependencies.is_empty() {
-                if let Some(id) = name_id_map.get(key) {
-                    no_dependents.push(*id);
-                }
+                no_dependents.push(i);
             }
         }
 
-        let mut result: Vec<Vec<RuleId>> = Vec::new();
+        let mut result: Vec<Vec<usize>> = Vec::new();
         let deps = graph.get_forward_dependency_topological_layers();
         for (i, dependency) in deps.iter().enumerate() {
             let mut layer = Vec::with_capacity(dependency.len());
-            for rule_name in dependency {
-                if let Some(rule_id) = name_id_map.get(rule_name) {
-                    layer.push(*rule_id);
-                }
+            for index in dependency {
+                layer.push(*index);
             }
             if i == 0 {
                 layer.append(&mut no_dependents);
@@ -391,12 +399,22 @@ impl Group {
         let resolve_duration = self.resolve_duration();
         let ts = self.adjust_req_timestamp(ts);
 
-        let errs = e.exec_rules(self, ts, resolve_duration, self.limit);
-
-        for err in errs {
-            if err != nil {
-                let msg = format!("group {}: {:?}", self.name, err);
-                tracing::warn!("{}", msg);
+        fn log_error(ctx: &DetachedContextGuard, name: &str, err: &AlertsError) {
+            let msg = format!("group {}: failed to execute rule {}", name, err); 
+            ctx.log_warning(&msg)
+        }
+        
+        if let Err(res) = e.exec_rules(self, ts, resolve_duration, self.limit) {
+            let ctx_guard = valkey_module::MODULE_CONTEXT.lock();
+            match res {
+                AlertsError::GroupExecutionError(errs) => {
+                    for err in errs.iter() {
+                        log_error(&ctx_guard, &self.name, err);
+                    }
+                }
+                _=> {
+                    log_error(&ctx_guard, &self.name, &res);
+                }
             }
         }
         
@@ -424,7 +442,7 @@ impl Group {
 
     pub(super) fn on_update(&mut self, ng: &Group, e: &mut Executor) -> AlertsResult<()> {
         self.update_with(ng).map_err(|_| {
-            return AlertsError::Generic(format!("group {}: failed to update", self.name))
+            AlertsError::Generic(format!("group {}: failed to update", self.name))
         })?;
 
         // ensure that staleness is tracked for existing rules only
@@ -503,25 +521,6 @@ fn new_group_metrics(_g: &Group) -> GroupMetrics {
     m
 }
 
-// merges group rule labels into result map
-// set2 has priority over set1.
-fn merge_labels(group_name: &str, rule_name: &str, set1: &Vec<Label>, set2: &Vec<Label>) -> Vec<Label> {
-    let mut r: Vec<Label> = set1.clone();
-
-    for label in set2.iter() {
-        let prev_v = r.iter().find(|x| x.name == label.name);
-        if let Some(prev) = prev_v {
-            let k = &label.name;
-            let v = &label.value;
-            info!("label {k}={prev} for rule {}.{} overwritten with external label {k}={v}",
-                  group_name,
-                  rule_name);
-        }
-        r.push(label.clone());
-    }
-    r
-}
-
 fn merge_hashes(group_name: &str, rule_name: &str, dest: &mut HashMap<String, String>, set2: &HashMap<String, String>) {
     for (k, v) in set2.iter() {
         use std::collections::hash_map::Entry;
@@ -530,7 +529,7 @@ fn merge_hashes(group_name: &str, rule_name: &str, dest: &mut HashMap<String, St
                 info!("hash {k} for rule {}.{} overwritten with external hash {k}={v}",
                       group_name,
                       rule_name);
-                *entry.get_mut() = v.clone();
+                entry.get_mut().clone_from(v);
             }
             Entry::Vacant(entry) => {
                 entry.insert(k.clone());
@@ -566,7 +565,7 @@ pub(super) fn labels_to_string(labels: &[Label]) -> String {
             b.push_str(&label.name)
         }
         b.push('=');
-        b.push_str(&*enquote('"', &label.value));
+        b.push_str(&enquote('"', &label.value));
         if i < labels.len() - 1 {
             b.push(',')
         }

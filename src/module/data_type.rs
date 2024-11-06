@@ -37,7 +37,7 @@ pub static VKM_SERIES_TYPE: ValkeyType = ValkeyType::new(
 );
 
 pub trait ValkeyDataType<T> {
-    fn load_from_rdb(rdb: *mut raw::RedisModuleIO, encver: i32) -> Option<T>;
+    fn load_from_rdb(rdb: *mut raw::RedisModuleIO, enc_ver: i32) -> Option<T>;
 }
 
 unsafe extern "C" fn rdb_save(rdb: *mut raw::RedisModuleIO, value: *mut c_void) {
@@ -45,8 +45,8 @@ unsafe extern "C" fn rdb_save(rdb: *mut raw::RedisModuleIO, value: *mut c_void) 
     series.rdb_save(rdb);
 }
 
-unsafe extern "C" fn rdb_load(rdb: *mut raw::RedisModuleIO, encver: c_int) -> *mut c_void {
-    TimeSeries::rdb_load(rdb, encver)
+unsafe extern "C" fn rdb_load(rdb: *mut raw::RedisModuleIO, enc_ver: c_int) -> *mut c_void {
+    TimeSeries::rdb_load(rdb, enc_ver)
     // index.index_time_series(&new_series, &tmp);
 }
 

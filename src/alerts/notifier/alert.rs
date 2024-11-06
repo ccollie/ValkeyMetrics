@@ -216,18 +216,15 @@ fn template_annotations(
     for (key, text) in annotations {
         builder.clear();
         builder.reserve(header_len + text.len());
-        builder.push_str(&TPL_HEADERS);
-        builder.push_str(&text);
+        builder.push_str(TPL_HEADERS);
+        builder.push_str(text);
 
         let output = template_annotation(&builder, &template_data, tmpl);
         match output {
             Ok(text) => {
                 r.insert(key.to_string(), text.to_string());
             }
-            Err(err) => {
-                let msg = format!("key {key}, template {text}: {:?}", err);
-                err_group.push(msg);
-            }
+            Err(err) => err_group.push(err)
         }
     }
 
@@ -240,7 +237,7 @@ fn template_annotations(
 fn template_annotation(text: &str, data: &AlertTplData, tmpl: &Template) -> AlertsResult<String> {
     let mut tpl = clone_template(tmpl)?; // ??????
     tpl.parse(text).map_err(|err| {
-        return AlertsError::TemplateParseError(format!("{:?}", err));
+        AlertsError::TemplateParseError(format!("{:?}", err))
     })?;
 
     let context = Context::from(data.clone());
