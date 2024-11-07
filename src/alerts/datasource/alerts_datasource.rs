@@ -119,7 +119,7 @@ impl AlertDatasource {
     fn adjust_req_timestamp(&self, timestamp: Timestamp) -> Timestamp {
         let mut timestamp = timestamp;
         if self.evaluation_offset.is_zero() {
-            let eval_interval = self.evaluation_interval.as_millis() as i64; 
+            let eval_interval = self.evaluation_interval.as_millis() as i64;
             let evaluation_offset = self.evaluation_offset.as_millis() as i64;
 
             // calculate the min timestamp on the evaluationInterval
@@ -172,8 +172,7 @@ impl Querier for AlertDatasource {
 
 impl QuerierBuilder for AlertDatasource {
     fn build_with_params(&self, params: QuerierParams) -> AlertDatasource {
-        let querier = (*self).apply_params(params);
-        querier
+        (*self).apply_params(params)
     }
 }
 

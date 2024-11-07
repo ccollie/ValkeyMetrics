@@ -3,9 +3,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::alerts::constants::STALE_NAN;
-use crate::alerts::notifier::{AlertNotifier, Notifier};
-use crate::alerts::rule::group::labels_to_string;
-use crate::alerts::rule::{make_series_key, AlertingRule, Group, MetricRule, Rule, RuleType};
+use crate::alerts::notifications::{AlertNotifier, Notifier};
+use crate::alerts::rules::group::labels_to_string;
+use crate::alerts::rules::{make_series_key, AlertingRule, Group, MetricRule, Rule, RuleType};
 use crate::alerts::types::RawTimeSeries;
 use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, WriteQueue};
 use crate::common::types::{Label, Sample, Timestamp, TimestampTrait};
@@ -115,7 +115,7 @@ impl Executor {
             return self.exec_dag(group, ts, resolve_duration, limit);
         }
         
-        // if we have an indeterminate rule, it's possible that the series
+        // if we have an indeterminate rules, it's possible that the series
         // ALERTS or ALERTS_FOR_STATE, which means that alerting rules need to be
         // evaluated sequentially
         // todo: 
@@ -201,7 +201,7 @@ impl Executor {
         let tss = rule.exec(&self.querier, ts, limit)
             .map_err(|err| {
                 // todo: log it out
-                AlertsError::QueryExecutionError(format!("rule {:?}: failed to execute: {:?}", rule, err))
+                AlertsError::QueryExecutionError(format!("rules {:?}: failed to execute: {:?}", rule, err))
             })?;
 
         let stale_series = self.get_stale_series(rule, &tss, ts);

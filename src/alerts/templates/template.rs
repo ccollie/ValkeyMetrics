@@ -33,29 +33,30 @@ pub type FuncMap = HashMap<String, Func>;
 // go template execution fails when it's tree is empty
 const DEFAULT_TEMPLATE: &str = r##"{{- define "default.template" -}}{{- end -}}"##;
 
-#[derive(Default)]
 pub(crate) struct TextTemplate {
     pub(crate) current: Template,
-    pub(crate) replacement: Template,
 }
 
 impl TextTemplate {
-    pub(crate) fn new() -> AlertsResult<Self> {
-        let current = new_template()?;
-        Ok(TextTemplate {
-            current,
-            replacement: Template::default(),
-        })
+    pub(crate) fn new() -> Self {
+        TextTemplate::default()
     }
 
     pub fn clone(&self) -> AlertsResult<Self> {
         Ok(TextTemplate {
             current: clone_template(&self.current)?,
-            replacement: clone_template(&self.replacement)?,
         })
     }
 }
 
+impl Default for TextTemplate {
+    fn default() -> Self {
+        let current = new_template();
+        TextTemplate {
+            current,
+        }
+    }
+}
 
 static MASTER_TEMPLATE: OnceLock<RwLock<TextTemplate>> = OnceLock::new();
 
@@ -65,17 +66,19 @@ fn get_master_template_ref() -> &'static RwLock<TextTemplate> {
     })
 }
 fn create_master_template() -> RwLock<TextTemplate> {
-    RwLock::new(TextTemplate {
-        current: Template::default(),
-        replacement: Template::default(),
-    })
+    let current = new_template();
+    RwLock::new(TextTemplate { current })
 }
-pub(crate) fn new_template() -> AlertsResult<Template> {
-    let mut tmpl = Template::default();
-    tmpl.funcs = template_funcs();
-    tmpl.parse(DEFAULT_TEMPLATE)
-        .map_err(|e| AlertsError::TemplateParseError(e.to_string()))?;
-    Ok(tmpl)
+pub(crate) fn new_template() -> Template {
+    let mut tmpl = Template {
+        funcs: template_funcs(),
+        ..Default::default()
+    };
+
+    // If we have an invalid template, we SHOULD panic, since DEFAULT_TEMPLATE is a private const and
+    // we control it
+    tmpl.parse(DEFAULT_TEMPLATE).unwrap();
+    tmpl
 }
 pub(crate) fn clone_template(tpl: &Template) -> AlertsResult<Template> {
     let mut result = Template::default();
@@ -86,18 +89,6 @@ pub(crate) fn clone_template(tpl: &Template) -> AlertsResult<Template> {
     result.text.clone_from(&tpl.text);
     Ok(result)
 }
-
-/// Reload func replaces current template with a replacement template which was set by load with
-/// override=false
-pub fn reload() {
-    let master_template = get_master_template_ref();
-    let mut writer = master_template.write().unwrap();
-    if !writer.replacement.text.is_empty() {
-        writer.current = std::mem::take(&mut writer.replacement);
-        writer.replacement.text.clear();
-    }
-}
-
 
 // QueryFn is used to wrap a call to provider into simple-to-use function for templating functions.
 pub type QueryFn = fn(query: &str) -> AlertsResult<InstantResult>;
@@ -172,7 +163,7 @@ pub(crate) fn make_query_fn(ctx: TemplateQueryContext) -> Func {
     move |args: &[Value]| -> Result<Value, FuncError> {
         let arg = ensure_single_arg(args, "query")?;
         if let Value::String(q) = arg {
-            proxy_func(&q)
+            proxy_func(q)
         } else {
             Err(FuncError::Generic(format!("expected string argument, got {}", arg)))
         }
@@ -299,7 +290,7 @@ fn regex_match(args: &[Value]) -> Result<Value, FuncError> {
 
     let re = Regex::new(pattern)
         .map_err(|_e| FuncError::Generic(format!("Invalid regex {pattern}")))?;
-    Ok(re.is_match(&text).into())
+    Ok(re.is_match(text).into())
 }
 
 /// quotesEscape escapes the string, so it can be safely put inside JSON string.
@@ -398,10 +389,10 @@ fn args(args: &[Value]) -> Result<Value, FuncError> {
 ///
 /// See also `queryEscape`.
 fn path_escape(s: &[Value]) -> Result<Value, FuncError> {
-    let mut s = ensure_single_arg(s, "pathEscape")?.to_string();
+    let s = ensure_single_arg(s, "pathEscape")?.to_string();
     let base = "example.com";
     let mut url = parse_url(base)?;
-    url.set_path(&mut s);
+    url.set_path(&s);
     let result = url.path();
     Ok(result.into())
 }

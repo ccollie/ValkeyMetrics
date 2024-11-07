@@ -21,9 +21,10 @@ pub type QuerierRef = Arc<dyn Querier>;
 pub struct InstantResult(pub Vec<InstantQueryResult>);
 
 impl InstantResult {
-    pub fn push(&mut self, result: InstantQueryResult) {
-        self.0.push(result);
+    pub fn remove(&mut self, index: usize) -> InstantQueryResult {
+        self.0.remove(index)
     }
+
     pub fn into_iter(self) -> impl Iterator<Item = InstantQueryResult> {
         self.0.into_iter()
     }
@@ -34,14 +35,6 @@ impl InstantResult {
 
     pub fn iter(&self) -> impl Iterator<Item = &InstantQueryResult> {
         self.0.iter()
-    }
-
-    pub fn remove(&mut self, index: usize) -> InstantQueryResult {
-        self.0.remove(index)
-    }
-
-    pub fn into_vec(self) -> Vec<InstantQueryResult> {
-        self.0
     }
 
     pub fn len(&self) -> usize {

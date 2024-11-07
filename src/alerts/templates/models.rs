@@ -54,10 +54,8 @@ fn get_label_from_value(value: &Value) -> Option<Label> {
         _ => return None,
     };
     if let Some(Value::String(name)) = map.get("name") {
-        if let Some(value_value) = map.get("value") {
-            if let Value::String(value) = value_value {
-                return Some(Label { name: name.clone(), value: value.clone() });
-            }
+        if let Some(Value::String(value)) = map.get("value") {
+            return Some(Label { name: name.clone(), value: value.clone() });
         }
     }
     None
@@ -160,7 +158,7 @@ impl From<&DateTimeModel> for Value {
 
 impl From<DateTimeModel> for Value {
     fn from(value: DateTimeModel) -> Self {
-        value.into()
+        (&value).into()
     }
 }
 
@@ -188,7 +186,7 @@ impl From<DurationModel> for Value {
 
 impl From<&Duration> for DurationModel {
     fn from(d: &Duration) -> Self {
-        DurationModel(d.clone())
+        DurationModel(*d)
     }
 }
 

@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::collections::HashMap;
-use crate::alerts::rule::config::RuleConfig;
-use crate::alerts::rule::{Group, Rule, RuleStateEntry, RuleType};
+use crate::alerts::rules::config::RuleConfig;
+use crate::alerts::rules::{Group, Rule, RuleStateEntry, RuleType};
 use crate::alerts::types::RawTimeSeries;
 use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, Querier};
 use crate::common::types::{Label, MetricName, Sample, Timestamp};
@@ -16,7 +16,7 @@ use std::time::Duration;
 use ahash::AHashSet;
 
 const ERR_DUPLICATE: &str =
-    "result contains metrics with the same labelset after applying rule labels.";
+    "result contains metrics with the same labelset after applying rules labels.";
 
 /// `RecordingRule` is a Rule that evaluates a configured vector expression and records 
 /// the result into new timeseries.timeseries.
@@ -202,7 +202,7 @@ impl Rule for RecordingRule {
         Ok(tss)
     }
 
-    /// `exec_range` executes recording rule on the given time range similarly to Exec.
+    /// `exec_range` executes recording rules on the given time range similarly to Exec.
     /// It doesn't update internal states of the Rule and meant to be used just to get time series
     /// for backfilling.
     fn exec_range(&mut self, querier: &AlertDatasource, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
@@ -230,7 +230,7 @@ impl Rule for RecordingRule {
 
     fn update_with(&mut self, other: &dyn Rule) -> AlertsResult<()> {
         if other.rule_type() != RuleType::Recording {
-            let msg = format!("BUG: attempt to update recording rule with wrong type {}", other.rule_type());
+            let msg = format!("BUG: attempt to update recording rules with wrong type {}", other.rule_type());
             return Err(AlertsError::Generic(msg)); // todo: better error
         }
         

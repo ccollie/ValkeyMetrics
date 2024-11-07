@@ -17,8 +17,8 @@ use metricsql_runtime::prelude::MetricName;
 use tracing::debug;
 use valkey_module::Context;
 use crate::alerts::constants::*;
-use crate::alerts::notifier::{exec_template, Alert, AlertState, AlertTplData};
-use crate::alerts::rule::{Group, Rule, RuleConfig, RuleState, RuleStateEntry, RuleType};
+use crate::alerts::notifications::{exec_template, Alert, AlertState, AlertTplData};
+use crate::alerts::rules::{Group, Rule, RuleConfig, RuleState, RuleStateEntry, RuleType};
 use crate::alerts::templates::{TemplateQueryContext};
 use crate::alerts::types::{hashmap_to_labels, RawTimeSeries};
 // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmalert/alerting.go#L612
@@ -98,7 +98,7 @@ struct LabelSet {
     origin: HashMap<String, String>,
     /// `processed` labels includes origin labels plus extra labels (group labels, service labels
     /// like `ALERT_NAME_LABEL`). In case of conflicts, extra labels are preferred.
-    /// Used as labels attached to notifier.Alert and ALERTS series written to remote storage.
+    /// Used as labels attached to notifications.Alert and ALERTS series written to remote storage.
     processed: HashMap<String, String>,
 }
 
@@ -223,7 +223,7 @@ impl AlertingRule {
             ls.processed.insert(k, v);
         }
 
-        // set additional labels to identify group and rule name
+        // set additional labels to identify group and rules name
         if !self.name.is_empty() {
             ls.origin
                 .insert(ALERT_NAME_LABEL.to_string(), self.name.clone());
@@ -281,7 +281,7 @@ impl AlertingRule {
     }
 
     /// walks through the current alerts of AlertingRule and returns only those which should be sent
-    /// to notifier.
+    /// to notifications.
     pub fn process_alerts_to_send<F>(
         &mut self,
         ts: Timestamp,
@@ -395,7 +395,7 @@ impl AlertingRule {
         if !self.debug {
             return;
         }
-        let mut prefix = format!("DEBUG rule {}:{} ({}) at {}: ",
+        let mut prefix = format!("DEBUG rules {}:{} ({}) at {}: ",
                                  self.group_name, self.name, self.rule_id, at.to_rfc3339());
 
         if let Some(alert) = alert {
@@ -588,7 +588,7 @@ impl Rule for AlertingRule {
                     self.log_debug(ts, Some(alert), "PENDING => DELETED: is absent in current evaluation round");
                     continue;
                 }
-                // check if alert should keep Firing if rule has
+                // check if alert should keep Firing if rules has
                 // `keep_firing_for` field
                 if alert.state == AlertState::Firing {
                     if !self.keep_firing_for.is_zero() && alert.keep_firing_since == 0 {
@@ -637,7 +637,7 @@ impl Rule for AlertingRule {
         Ok(self.to_time_series(ts))
     }
 
-    /// `exec_range` executes alerting rule on the given time range similarly to exec.
+    /// `exec_range` executes alerting rules on the given time range similarly to exec.
     /// It doesn't update internal states of the Rule and is meant to be used just to get time series
     /// for back-filling.
     /// It returns `ALERT` and `ALERT_FOR_STATE` time series as a result.
@@ -708,7 +708,7 @@ impl Rule for AlertingRule {
     /// it should be updated in next 2 Execs
     fn update_with(&mut self, other: &dyn Rule) -> AlertsResult<()> {
         if self.rule_type() != other.rule_type() {
-            let msg = format!("BUG: attempt to update alerting rule with wrong type {}", other.rule_type());
+            let msg = format!("BUG: attempt to update alerting rules with wrong type {}", other.rule_type());
             return Err(AlertsError::Generic(msg)); // todo: better error
         }
 

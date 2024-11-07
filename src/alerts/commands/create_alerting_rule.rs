@@ -1,4 +1,5 @@
-use crate::alerts::rule::{AlertingRule, MetricRule};
+use crate::alerts::notifications::validate_templates;
+use crate::alerts::rules::{AlertingRule, MetricRule};
 use crate::alerts::utils::with_group_mut;
 use crate::module::arg_parse::{
     parse_duration,
@@ -46,7 +47,7 @@ pub fn create_alerting_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRes
     with_group_mut(ctx, &group_key, move |group| {
         let rule = parse_alerting_rule_config(args)?;
         if group.contains_rule(&rule.name) {
-            return Err(ValkeyError::Str("Err rule already exists"));
+            return Err(ValkeyError::Str("Err rules already exists"));
         }
         group.rules.push(MetricRule::AlertingRule(rule));
         
@@ -67,14 +68,21 @@ fn parse_alerting_rule_config(mut args: CommandArgIterator) -> ValkeyResult<Aler
         ];
         TOKENS.contains(&token)
     }
+
+    let name = args.next_string()?;
     
-    let mut rule = AlertingRule::default();
-    
-    rule.name = args.next_string()?;
-    if !is_valid_identifier(&rule.name) {
-        return Err(ValkeyError::Str("ERR invalid rule name"));
+    if name.is_empty() {
+        return Err(ValkeyError::Str("ERR missing rules name"));
     }
-    
+    if !is_valid_identifier(&name) {
+        return Err(ValkeyError::Str("ERR invalid rules name"));
+    }
+
+    let mut rule = AlertingRule {
+        name,
+       ..Default::default()
+    };
+
     while let Ok(arg) = args.next_str() {
         match arg {
             arg if arg.eq_ignore_ascii_case(CMD_ARG_EVAL_INTERVAL) => {
@@ -90,7 +98,10 @@ fn parse_alerting_rule_config(mut args: CommandArgIterator) -> ValkeyResult<Aler
                 rule.r#for = parse_duration(args.next_str()?)?;
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_ANNOTATIONS) => {
-                rule.annotations = parse_key_value_pairs(&mut args, is_cmd_token)?;
+                let annotations = parse_key_value_pairs(&mut args, is_cmd_token)?;
+                validate_templates(&annotations)
+                    .map_err(|_err| ValkeyError::Str("ERR error parsing annotations"))?;
+                rule.annotations = annotations;
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_KEEP_FIRING_FOR) => {
                 rule.keep_firing_for = parse_duration(args.next_str()?)?;

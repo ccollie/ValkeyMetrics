@@ -106,9 +106,7 @@ pub trait Chunk: Sized {
     ) -> TsdbResult<usize>;
 
     fn split(&mut self) -> TsdbResult<Self>;
-    fn overlaps(&self, start_ts: i64, end_ts: i64) -> bool {
-        self.first_timestamp() <= end_ts && self.last_timestamp() >= start_ts
-    }
+    
     fn rdb_save(&self, rdb: *mut RedisModuleIO);
     fn rdb_load(rdb: *mut RedisModuleIO, _encver: i32) -> Result<Self, Error>;
 }

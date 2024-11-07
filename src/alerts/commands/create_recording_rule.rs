@@ -1,10 +1,10 @@
-use crate::alerts::rule::{MetricRule, RecordingRule};
+use crate::alerts::rules::{MetricRule, RecordingRule};
 use crate::alerts::utils::with_group_mut;
 use crate::module::arg_parse::{
-    parse_key_value_pairs, 
-    parse_promql_vector_expr, 
-    CommandArgIterator, 
-    CMD_ARG_EXPR, 
+    parse_key_value_pairs,
+    parse_promql_vector_expr,
+    CommandArgIterator,
+    CMD_ARG_EXPR,
     CMD_ARG_LABELS,
 };
 use metricsql_parser::parser::is_valid_identifier;
@@ -24,7 +24,7 @@ const CMD_ARG_MAX_ENTRIES: &str = "MAX_ENTRIES";
         arity: -4,
         key_spec: [
             {
-                notes: "Create a rule based on PromQL to precompute expressions and save their result as a new set of time series..",
+                notes: "Create a rules based on PromQL to precompute expressions and save their result as a new set of time series..",
                 flags: [Insert, Access],
                 begin_search: Index({ index : 1 }),
                 find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),
@@ -39,7 +39,7 @@ pub fn create_recording_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRe
     with_group_mut(ctx, &group_key, move |group| {
         let rule = parse_rule_config(args)?;
         if group.contains_rule(&rule.name) {
-            return Err(ValkeyError::Str("Err rule already exists"));
+            return Err(ValkeyError::Str("Err rules already exists"));
         }
         group.rules.push(MetricRule::RecordingRule(rule));
         VALKEY_OK
@@ -56,14 +56,17 @@ fn parse_rule_config(mut args: CommandArgIterator) -> ValkeyResult<RecordingRule
         ];
         TOKENS.contains(&token)
     }
-    
-    let mut rule = RecordingRule::default();
-    
-    rule.name = args.next_string()?;
-    if !is_valid_identifier(&rule.name) {
-        return Err(ValkeyError::Str("ERR invalid rule name"));
+
+    let name = args.next_string()?;
+    if !is_valid_identifier(&name) {
+        return Err(ValkeyError::Str("ERR invalid rules name"));
     }
-    
+
+    let mut rule = RecordingRule {
+        name,
+        ..Default::default()
+    };
+
     while let Ok(arg) = args.next_str() {
         match arg {
             arg if arg.eq_ignore_ascii_case(CMD_ARG_EXPR) => {
@@ -81,7 +84,7 @@ fn parse_rule_config(mut args: CommandArgIterator) -> ValkeyResult<RecordingRule
             }
         }
     }
-    
+
     if rule.expr.is_empty() {
         return Err(ValkeyError::Str("ERR missing expression"));
     }

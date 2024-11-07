@@ -16,14 +16,14 @@ use tracing::info;
 use valkey_module::{Context, DetachedContextGuard};
 use xxhash_rust::xxh3::Xxh3;
 use crate::alerts::{AlertsError, AlertsResult, QuerierBuilder, QuerierParams};
-use crate::alerts::rule::{AlertingRule, GroupConfig, MetricRule, RecordingRule, Rule, RuleType};
-use crate::alerts::rule::executor::Executor;
+use crate::alerts::rules::{AlertingRule, GroupConfig, MetricRule, RecordingRule, Rule, RuleType};
+use crate::alerts::rules::executor::Executor;
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::config::get_global_settings;
 
 
-// `DependencyMap` describes the dependency associations between rules in a group whereby one rule uses the
-// output metric produced by another rule in its expression (i.e. as its "input"). Basically an adjacency list
+// `DependencyMap` describes the dependency associations between rules in a group whereby one rules uses the
+// output metric produced by another rules in its expression (i.e. as its "input"). Basically an adjacency list
 pub type DependencyMap = Vec<Vec<usize>>;
 
 /// Group is an entity for grouping rules
@@ -41,7 +41,7 @@ pub struct Group {
     /// `eval_offset` can't be bigger than `interval`.
     pub eval_offset: Duration,
     /// Adjusts the `time` parameter of group evaluation requests to compensate for intentional query delay from the datasource.
-    /// By default, the value is inherited from the `-rule.evalDelay` env var - see its description for details.
+    /// By default, the value is inherited from the `-rules.evalDelay` env var - see its description for details.
     /// If group has `latency_offset` set in `params`, then it is recommended to set `eval_delay` equal to `latency_offset`.
     /// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5155 and https://docs.victoriametrics.com/keyconcepts/#query-latency.
     pub eval_delay: Option<Duration>,
@@ -54,11 +54,11 @@ pub struct Group {
     ///
     /// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5049
     pub eval_alignment: Option<bool>,
-    /// Limit limits the number of alerts or recording results the rule within this group can produce.
-    /// On exceeding the limit, rule will be marked with an error and all its results will be discarded.
+    /// Limit limits the number of alerts or recording results the rules within this group can produce.
+    /// On exceeding the limit, rules will be marked with an error and all its results will be discarded.
     /// 0 is no limit.
     pub limit: usize,
-    /// Optional list of labels added to every rule within a group.
+    /// Optional list of labels added to every rules within a group.
     /// It has priority over the external labels.
     /// Labels are commonly used for adding environment or tenant-specific tag.
     pub labels: HashMap<String, String>,
@@ -72,7 +72,7 @@ pub struct Group {
     /// see more details at https://docs.victoriametrics.com#prometheus-querying-api-enhancements
     pub params: HashMap<String, String>,
     pub notifier_headers: HashMap<String, String>,
-    /// A DAG of rule ids represented as an adjacency list
+    /// A DAG of rules ids represented as an adjacency list
     pub dependencies: Option<DependencyMap>,
     pub metrics: GroupMetrics,
     pub disabled: bool,
@@ -296,21 +296,21 @@ impl Group {
 
     /// `build_dependencies` builds an adjacency list based DAG of the relationships between rules within a group.
     ///
-    /// Alert rules, by definition, cannot have any dependents - but they can have dependencies. Any recording rule on whose
-    /// output an Alert rule depends will not be able to run concurrently.
+    /// Alert rules, by definition, cannot have any dependents - but they can have dependencies. Any recording rules on whose
+    /// output an Alert rules depends will not be able to run concurrently.
     ///
-    /// There is a class of rule expressions which are considered "indeterminate", because either relationships cannot be
+    /// There is a class of rules expressions which are considered "indeterminate", because either relationships cannot be
     /// inferred, or concurrent evaluation of rules depending on these series would produce undefined/unexpected behaviour:
     ///   - wildcard queries like {cluster="prod1"} which would match every series with that label selector
     ///   - any "meta" series (series produced by Prometheus itself) like ALERTS, ALERTS_FOR_STATE
     ///
     /// Rules which are independent can run concurrently without side effects.
     ///
-    /// Returns an adjacency list of rule ids which represents the topologically sorted execution order
+    /// Returns an adjacency list of rules ids which represents the topologically sorted execution order
     /// of rules within the group. The first index contains rules that have no dependencies.
     /// Each subsequent element contains the rules that depend on the rules in the previous layer.
     ///
-    /// None is returned if the group contains "indeterminate" rule expressions
+    /// None is returned if the group contains "indeterminate" rules expressions
     fn build_dependencies(&self) -> Option<DependencyMap> {
         if self.rules.len() <= 1 {
             // No relationships if group has 1 or fewer rules.
@@ -400,7 +400,7 @@ impl Group {
         let ts = self.adjust_req_timestamp(ts);
 
         fn log_error(ctx: &DetachedContextGuard, name: &str, err: &AlertsError) {
-            let msg = format!("group {}: failed to execute rule {}", name, err); 
+            let msg = format!("group {}: failed to execute rules {}", name, err); 
             ctx.log_warning(&msg)
         }
         
@@ -517,8 +517,7 @@ fn inspect_query(rule: &impl Rule) -> Option<MetricExpr> {
 
 
 fn new_group_metrics(_g: &Group) -> GroupMetrics {
-    let m = GroupMetrics::default();
-    m
+    GroupMetrics::default()
 }
 
 fn merge_hashes(group_name: &str, rule_name: &str, dest: &mut HashMap<String, String>, set2: &HashMap<String, String>) {
@@ -526,7 +525,7 @@ fn merge_hashes(group_name: &str, rule_name: &str, dest: &mut HashMap<String, St
         use std::collections::hash_map::Entry;
         match dest.entry(k.clone()) {
             Entry::Occupied(mut entry) => {
-                info!("hash {k} for rule {}.{} overwritten with external hash {k}={v}",
+                info!("hash {k} for rules {}.{} overwritten with external hash {k}={v}",
                       group_name,
                       rule_name);
                 entry.get_mut().clone_from(v);

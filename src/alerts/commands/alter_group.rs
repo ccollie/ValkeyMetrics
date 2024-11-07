@@ -1,3 +1,4 @@
+use crate::alerts::GROUP_MANAGER;
 use std::collections::HashMap;
 use crate::alerts::utils::with_group_mut;
 use crate::error_consts;
@@ -51,7 +52,7 @@ pub struct AlterGroupOptions {
         arity: -2,
         key_spec: [
             {
-                notes: "Updates a rule group",
+                notes: "Updates a rules group",
                 flags: [Update, Access],
                 begin_search: Index({ index : 1 }),
                 find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),
@@ -98,7 +99,7 @@ pub fn parse_alter_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStrin
             CMD_ARG_NAME => {
                 let name = args.next_string()?;
                 if !is_valid_identifier(&name) {
-                    return Err(ValkeyError::Str("Err invalid rule name"));
+                    return Err(ValkeyError::Str("Err invalid rules name"));
                 }
                 config.name = Some(name);
                 changed = true;
@@ -191,13 +192,18 @@ pub(crate) fn update_group(ctx: &Context, key: &ValkeyString, options: AlterGrou
                 changed = true;
             }
         }
+        
+        if changed {
+            GROUP_MANAGER.update_group(ctx, group, key);
+        }
+        
         Ok(changed)
     })?;
 
     if changed {
         ctx.replicate_verbatim();
         ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.ALTER-RULE-GROUP", key);
-        ctx.log_verbose("group updated");   
+        ctx.log_verbose("group updated");
     }
 
     Ok(())

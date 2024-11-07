@@ -1,5 +1,5 @@
 use std::any::Any;
-use crate::alerts::rule::{AlertingRule, RecordingRule};
+use crate::alerts::rules::{AlertingRule, RecordingRule};
 use crate::alerts::types::RawTimeSeries;
 use crate::alerts::{AlertDatasource, AlertsError, AlertsResult};
 use crate::common::types::Timestamp;
@@ -24,19 +24,8 @@ impl RuleType {
             RuleType::Alerting => "alerting",
         }
     }
-    pub fn is_recording(&self) -> bool {
-        matches!(self, RuleType::Recording)
-    }
-    pub fn is_alerting(&self) -> bool {
-        matches!(self, RuleType::Alerting)
-    }
 }
 
-impl Default for RuleType {
-    fn default() -> Self {
-        RuleType::Alerting
-    }
-}
 
 impl Display for RuleType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -52,7 +41,7 @@ impl FromStr for RuleType {
             value if value.eq_ignore_ascii_case("recording_rule") => Ok(RuleType::Recording),
             value if value.eq_ignore_ascii_case(RuleType::Recording.name()) => Ok(RuleType::Recording),
             value if value.eq_ignore_ascii_case(RuleType::Alerting.name()) => Ok(RuleType::Alerting),
-            _ => Err(format!("unknown rule type: {}", s)),
+            _ => Err(format!("unknown rules type: {}", s)),
         }
     }
 }
@@ -83,7 +72,7 @@ impl<'a> EvalContext<'a> {
     }
 }
 
-/// Rule represents alerting or recording rule that has unique id, can be executed
+/// Rule represents alerting or recording rules that has unique id, can be executed
 /// and updated with other Rule.
 pub trait Rule: Debug + Any {
     /// id returns unique id that may be used for identifying this Rule among others.
@@ -95,10 +84,10 @@ pub trait Rule: Debug + Any {
     
     fn expr(&self) -> &str;
     
-    /// exec executes the rule with given context at the given timestamp and limit.
+    /// exec executes the rules with given context at the given timestamp and limit.
     /// returns an err if number of resulting time series exceeds the limit.
     fn exec(&mut self, querier: &AlertDatasource, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>>;
-    /// exec_range executes the rule on the given time range.
+    /// exec_range executes the rules on the given time range.
     fn exec_range(&mut self, querier: &AlertDatasource, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>>;
     
     fn update_with(&mut self, other: &dyn Rule) -> AlertsResult<()>;
@@ -111,11 +100,11 @@ pub trait Rule: Debug + Any {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[derive(GetSize)]
 pub struct RuleStateEntry {
-    /// stores last moment of time rule.exec() was called
+    /// stores last moment of time rules.exec() was called
     pub time: Timestamp,
-    /// stores the timestamp with which rule.exec() was called
+    /// stores the timestamp with which rules.exec() was called
     pub at: Timestamp,
-    /// stores the duration of the last rule.exec() call
+    /// stores the duration of the last rules.exec() call
     pub duration: Duration,
     /// stores last error that happened in exec func resets on every successful exec
     /// may be used as Health ruleState
@@ -198,7 +187,7 @@ impl Rule for MetricRule {
         self
     }
 }
-// var errDuplicate = "result contains metrics with the same labelset after applying rule labels. See https://docs.victoriametrics.com/vmalert.html#series-with-the-same-labelset for details";
+// var errDuplicate = "result contains metrics with the same labelset after applying rules labels. See https://docs.victoriametrics.com/vmalert.html#series-with-the-same-labelset for details";
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[derive(GetSize)]

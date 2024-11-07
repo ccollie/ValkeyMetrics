@@ -299,9 +299,9 @@ impl TimeSeries {
         }
 
         let mut size = 0;
-        for (chunk_index, mut samples) in grouping {
+        for (chunk_index, samples) in grouping {
             let chunk = self.chunks.get_mut(chunk_index).unwrap();
-            size += chunk.merge_samples(&mut samples, Some(dp_policy))?;
+            size += chunk.merge_samples(&samples, Some(dp_policy))?;
         }
 
         Ok(size)

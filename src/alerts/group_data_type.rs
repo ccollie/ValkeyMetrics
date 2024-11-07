@@ -1,5 +1,5 @@
-use crate::alerts::dispatcher::GROUP_MANAGER;
-use crate::alerts::rule::Group;
+use crate::alerts::GROUP_MANAGER;
+use crate::alerts::rules::Group;
 use crate::alerts::serialization::{load_group, save_group};
 use crate::common::current_time_millis;
 use std::ffi::c_int;
@@ -45,7 +45,7 @@ pub static VKM_RULE_GROUP: ValkeyType = ValkeyType::new(
 
 /// Stores all group keys during initialization. We need these keys for later use in the group
 /// manager and dispatcher.
-pub static GROUP_KEYS: LazyLock<Vec<Box<[u8]>>> = LazyLock::new(std::vec::Vec::new);
+pub static GROUP_KEYS: LazyLock<Vec<Box<[u8]>>> = LazyLock::new(Vec::new);
 
 
 /// # Safety

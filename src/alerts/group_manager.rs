@@ -1,5 +1,6 @@
+use crate::alerts::GROUP_MANAGER;
 use std::hash::Hasher;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::sync::atomic::{Ordering, AtomicBool};
 use std::time::Duration;
 use crate::common::types::{Timestamp, TimestampTrait};
@@ -7,14 +8,17 @@ use papaya::{HashMap};
 use valkey_module::{Context, RedisModuleTimerID, ThreadSafeContext, ValkeyError, ValkeyString};
 use tracing::info;
 use xxhash_rust::xxh3::Xxh3;
-use crate::alerts::rule::{should_skip_rand_sleep_on_group_start, Group, Executor};
+use crate::alerts::rules::{should_skip_rand_sleep_on_group_start, Group, Executor};
 use crate::common::{current_time_millis};
-use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, QuerierBuilder, QuerierParams, WriteQueue};
+use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, QuerierBuilder, QuerierParams, WriteQueue, VKM_RULE_GROUP};
 use crate::alerts::utils::with_group_mut;
 use crate::config::GLOBAL_SETTINGS;
 
 pub type GroupId = u64;
 
+// holds a mapping of group id => timer_id for each group started after a delay. Valkey only has
+// interval (as opposed to one-shot) timers, so we have to cancel timers after the first run
+static DELAY_TIMER_IDS: LazyLock<HashMap<GroupId, RedisModuleTimerID>> = LazyLock::new(HashMap::new);
 
 #[derive(Clone)]
 struct GroupTimerMeta {
@@ -28,7 +32,7 @@ impl GroupTimerMeta {
 
         with_group_mut(ctx, &key, |group| {
             // start group
-            info!("started rule group \"{}\"",  group.name);
+            info!("started rules group \"{}\"",  group.name);
 
             // run the first evaluation immediately
             let ts = current_time_millis();
@@ -63,10 +67,6 @@ impl GroupTimerMeta {
 struct TimerMeta {
     hash: u64,
     timer_id: u64,
-}
-
-struct Inner {
-
 }
 
 #[derive(Default)]
@@ -105,7 +105,31 @@ impl GroupManager {
         self.flush_timer_id = ctx.create_timer(self.write_queue.flush_interval, flush_callback, self.write_queue.clone());
     }
 
-    pub fn add_group(&self, ctx: &Context, group: &Group, key: ValkeyString) -> bool {
+    // pub fn add_group(&self, ctx: &Context, group: &Group, key: &ValkeyString) {
+    //     if group.disabled {
+    //         return;
+    //     }
+    //     let start_delay = get_start_delay(group, current_time_millis());
+    //     if start_delay.is_zero() {
+    //         self.schedule_group(ctx, group, key.as_slice());
+    //     }  else {
+    //         let data = GroupDelayedStart {
+    //             group_id: group.id,
+    //             key,
+    //         };
+    //         // kill any in-progress timer
+    //         kill_delay_timer(ctx, group.id);
+    //         // todo: error if we have scheduled a callback for this group already
+    //         let timer_id = ctx.create_timer(start_delay, delayed_start_group_callback, data);
+    //         let timer_map = DELAY_TIMER_IDS.pin();
+    //         timer_map.insert(group.id, timer_id);
+    //     }
+    // }
+
+    pub fn add_group(&self, ctx: &Context, group: &Group, key: &ValkeyString) -> bool {
+        if group.disabled {
+            return false;
+        }
         self.schedule_group(ctx, group, key.as_slice());
         true
     }
@@ -149,7 +173,7 @@ impl GroupManager {
     }
 
 
-    pub fn update_group(&mut self, ctx: &Context, group: &Group, key: ValkeyString) -> bool {
+    pub fn update_group(&self, ctx: &Context, group: &Group, key: &ValkeyString) -> bool {
         let group_id = group.id;
 
         // Unschedule group if it's running but is currently disabled
@@ -294,4 +318,34 @@ fn delay_before_start(ts: Timestamp, key: u64, interval: Duration, offset: Optio
     }
 
     rand_sleep
+}
+
+struct GroupDelayedStart {
+    group_id: GroupId,
+    key: ValkeyString,
+}
+
+fn delayed_start_group_callback(ctx: &Context, msg: GroupDelayedStart) {
+    // kill the timer
+    kill_delay_timer(ctx, msg.group_id);
+    let redis_key = ctx.open_key(&msg.key);
+    match redis_key.get_value::<Group>(&VKM_RULE_GROUP) {
+        Ok(Some(group)) => {
+            GROUP_MANAGER.add_group(ctx, group, &msg.key);
+        }
+        Err(e) => {
+            ctx.log_warning(&format!("Error getting group: {}", e));
+        }
+        _ => {}
+    }
+}
+
+fn kill_delay_timer(ctx: &Context, group_id: GroupId) {
+    // kill the timer
+    let timers = DELAY_TIMER_IDS.pin();
+    if let Some(timer_id) = timers.remove(&group_id) {
+        if let Err(e) = ctx.stop_timer::<GroupDelayedStart>(*timer_id) {
+            ctx.log_warning(&format!("Error stopping timer: {:?}", e));
+        }
+    }
 }

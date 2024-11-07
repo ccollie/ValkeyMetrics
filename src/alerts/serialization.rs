@@ -1,5 +1,5 @@
-use crate::alerts::notifier::{Alert, AlertState};
-use crate::alerts::rule::{AlertingRule, AlertingRuleMetrics, Group, GroupMetrics, MetricRule, RecordingRule, RecordingRuleMetrics, RuleState, RuleStateEntry};
+use crate::alerts::notifications::{Alert, AlertState};
+use crate::alerts::rules::{AlertingRule, AlertingRuleMetrics, Group, GroupMetrics, MetricRule, RecordingRule, RecordingRuleMetrics, RuleState, RuleStateEntry};
 use crate::alerts::AlertsError;
 use crate::common::serialization::*;
 use std::collections::{HashMap, VecDeque};
@@ -94,7 +94,7 @@ pub(crate) fn save_recording_rule(rdb: *mut RedisModuleIO, rule: &RecordingRule)
     raw::save_string(rdb, &rule.expr);
     rdb_save_string_hashmap(rdb, &rule.labels);
     raw::save_unsigned(rdb, rule.group_id);
-    // save rule state entries
+    // save rules state entries
     rdb_save_usize(rdb, rule.state.len());
     for state_entry in rule.state.iter() {
         save_rule_state_entry(rdb, state_entry);
@@ -235,7 +235,7 @@ pub fn load_metric_rule(rdb: *mut RedisModuleIO) -> ValkeyResult<MetricRule> {
     match rule_type {
         RULE_TYPE_ALERTING => Ok(MetricRule::AlertingRule(load_alerting_rule(rdb)?)),
         RULE_TYPE_RECORDING => Ok(MetricRule::RecordingRule(load_recording_rule(rdb)?)),
-        _ => Err(ValkeyError::Str("Invalid rule type")),
+        _ => Err(ValkeyError::Str("Invalid rules type")),
     }
 }
 

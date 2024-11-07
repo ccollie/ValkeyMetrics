@@ -10,12 +10,12 @@ use super::rule::RuleType;
 use crate::alerts::{AlertsError, AlertsResult};
 use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
 /***
-	rule_update_entries_limit = flag.Int("rule.updateEntriesLimit", 20, "Defines the max number of rule's state updates stored in-memory. "+
-		"Rule's updates are available on rule's Details page and are used for debugging purposes. The number of stored updates can be overridden per rule via update_entries_limit param.")
-	resendDelay = flag.Duration("rule.resendDelay", 0, "Minimum amount of time to wait before resending an alert to notifier")
-	maxResolveDuration = flag.Duration("rule.maxResolveDuration", 0, "Limits the maximum duration for automatic alert expiration, "+
+	rule_update_entries_limit = flag.Int("rules.updateEntriesLimit", 20, "Defines the max number of rules's state updates stored in-memory. "+
+		"Rule's updates are available on rules's Details page and are used for debugging purposes. The number of stored updates can be overridden per rules via update_entries_limit param.")
+	resendDelay = flag.Duration("rules.resendDelay", 0, "Minimum amount of time to wait before resending an alert to notifications")
+	maxResolveDuration = flag.Duration("rules.maxResolveDuration", 0, "Limits the maximum duration for automatic alert expiration, "+
 		"which by default is 4 times evaluationInterval of the parent group")
-	evalDelay = flag.Duration("rule.evalDelay", 30*time.Second, "Adjustment of the `time` parameter for rule evaluation requests to compensate intentional data delay from the datasource."+
+	evalDelay = flag.Duration("rules.evalDelay", 30*time.Second, "Adjustment of the `time` parameter for rules evaluation requests to compensate intentional data delay from the datasource."+
 		"Normally, should be equal to `-search.latencyOffset` (cmd-line flag configured for VictoriaMetrics single-node or vmselect).")
 	disableAlertGroupLabel = flag.Bool("disableAlertgroupLabel", false, "Whether to disable adding group's Name as label to generated alerts and time series.")
 	remoteReadLookBack     = flag.Duration("remoteRead.lookback", time.Hour, "Lookback defines how far to look into past for alerts timeseries."+
@@ -26,7 +26,7 @@ use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
 /// ValidateTplFn must validate the given annotations
 pub type ValidateTplFn = fn(annotations: &HashMap<String, String>) -> AlertsResult<()>;
 
-/// `RuleConfig` describes entity that represent either recording rule or alerting rule.
+/// `RuleConfig` describes entity that represent either recording rules or alerting rules.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RuleConfig {
     #[serde(skip)]
@@ -41,8 +41,8 @@ pub struct RuleConfig {
     pub labels: HashMap<String, String>,
     pub annotations: HashMap<String, String>,
     pub debug: bool,
-    /// update_entries_limit defines max number of rule's state updates stored in memory.
-    /// Overrides `-rule.updateEntriesLimit`.
+    /// update_entries_limit defines max number of rules's state updates stored in memory.
+    /// Overrides `-rules.updateEntriesLimit`.
     pub update_entries_limit: Option<usize>,
 }
 
@@ -78,19 +78,19 @@ impl RuleConfig {
         let name = self.name();
 
         let err = |msg: &str| -> AlertsResult<()> {
-            return Err(AlertsError::InvalidRule(msg.to_string()));
+            Err(AlertsError::InvalidRule(msg.to_string()))
         };
 
         if self.record.is_empty() && self.alert.is_empty() {
-            let msg = format!("rule \"{name}\" must have either record or alert field set");
+            let msg = format!("rules \"{name}\" must have either record or alert field set");
             return err(&msg);
         }
         if !self.record.is_empty() && !self.alert.is_empty() {
-            let msg = format!("rule \"{name}\" should have either record or alert field set, not both");
+            let msg = format!("rules \"{name}\" should have either record or alert field set, not both");
             return err(&msg);
         }
         if self.expr.is_empty() {
-            let msg = format!("rule \"{name}\" must have expression set");
+            let msg = format!("rules \"{name}\" must have expression set");
             return err(&msg);
         }
         Ok(())
@@ -103,7 +103,7 @@ impl Display for RuleConfig {
         if !self.alert.is_empty() {
             rule_type = "alerting"
         }
-        write!(f, "{} rule {}; expr: {}", rule_type, self.name(), self.expr)?;
+        write!(f, "{} rules {}; expr: {}", rule_type, self.name(), self.expr)?;
         let mut keys = self.labels.keys().collect::<Vec<_>>();
         keys.sort();
 
@@ -145,10 +145,10 @@ pub struct GroupConfig {
     pub limit: usize,
     pub rules: Vec<RuleConfig>,
     pub concurrency: usize,
-    /// Labels is a set of label value pairs, that will be added to every rule.
+    /// Labels is a set of label value pairs, that will be added to every rules.
     /// It has priority over the external labels.
     pub labels: HashMap<String, String>,
-    /// Optional parameters added to each rule request
+    /// Optional parameters added to each rules request
     pub params: Option<HashMap<String, String>>,
     /// optional headers sent to notifiers for generated notifications
     pub notifier_headers: Vec<Header>,
@@ -164,38 +164,6 @@ pub struct Header {
     pub value: String,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Headers(pub Vec<Header>);
-
-impl Headers {
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn iter(&self) -> std::slice::Iter<'_, Header> {
-        self.0.iter()
-    }
-}
-
-impl From<&Headers> for HashMap<String, String> {
-    fn from(h: &Headers) -> Self {
-        let mut map = HashMap::with_capacity(h.0.len());
-        for header in h.0.iter() {
-            map.insert(header.key.clone(), header.value.clone());
-        }
-        map
-    }
-}
-
-impl From<Headers> for HashMap<String, String> {
-    fn from(h: Headers) -> Self {
-        h.into()
-    }
-}
 impl GroupConfig {
     pub fn validate(&self, validate_tpl_fn: ValidateTplFn, validate_expressions: bool) -> AlertsResult<()> {
         fn err(msg: &str) -> AlertsResult<()> {
@@ -232,20 +200,20 @@ impl GroupConfig {
             if validate_expressions {
                 validate_expr(&r.expr)
                     .map_err(|err| {
-                        let msg = format!("invalid expression for rule {}: {:?}", rule_name, err);
+                        let msg = format!("invalid expression for rules {}: {:?}", rule_name, err);
                         AlertsError::InvalidRule(msg)
                     })?;
             }
 
             validate_tpl_fn(&r.annotations)
                 .map_err(|err| {
-                    let msg = format!("invalid annotations for rule {}: {:?}", rule_name, err);
+                    let msg = format!("invalid annotations for rules {}: {:?}", rule_name, err);
                     AlertsError::InvalidRule(msg)
                 })?;
 
             validate_tpl_fn(&r.labels)
                 .map_err(|err| {
-                    let msg = format!("invalid labels for rule {}: {:?}", rule_name, err);
+                    let msg = format!("invalid labels for rules {}: {:?}", rule_name, err);
                     AlertsError::InvalidRule(msg)
                 })?;
         }

@@ -1,8 +1,24 @@
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
-use crate::alerts::rule::{Group, MetricRule};
+use valkey_module_macros::command;
+use crate::alerts::rules::{Group, MetricRule};
 use crate::alerts::utils::with_group_mut;
 
-/// VM.DELETE_RULE groupKey ruleName
+/// VM.DELETE-RULE groupKey ruleName
+#[command(
+    {
+        name: "VM.DELETE-RULE",
+        flags: [Write],
+        arity: 3,
+        key_spec: [
+            {
+                notes: "Delete a rules",
+                flags: [Delete],
+                begin_search: Index({ index : 1 }),
+                find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),
+            }
+        ]
+    }
+)]
 pub fn delete_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1);
     if args.len()!= 2 {
@@ -13,14 +29,14 @@ pub fn delete_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     
     with_group_mut(ctx, &group_key, |group| {
         if !handle_delete(ctx, group, rule_name, false) {
-            return Err(ValkeyError::Str("Err rule does not exist"));
+            return Err(ValkeyError::Str("Err rules does not exist"));
         }
         VALKEY_OK
     })
 }
 
 fn handle_delete(ctx: &Context, group: &mut Group, name: &str, remove_dest: bool) -> bool {
-    // if it's a recording rule and remove_dest is true, we also remove the key
+    // if it's a recording rules and remove_dest is true, we also remove the key
     if remove_dest {
         if let Some(MetricRule::RecordingRule(rr)) = group.get_rule_by_name(name) {
             if !rr.dest_key.is_empty() {
@@ -28,6 +44,7 @@ fn handle_delete(ctx: &Context, group: &mut Group, name: &str, remove_dest: bool
             }
         }
     }
+    // todo: emit event, replicate
     
     group.remove_rule(name)
 }

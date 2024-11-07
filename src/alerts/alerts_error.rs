@@ -10,7 +10,7 @@ pub enum AlertsError {
     #[error("Invalid configuration. {0}")]
     InvalidConfiguration(String),
 
-    #[error("Invalid rule. {0}")]
+    #[error("Invalid rules. {0}")]
     InvalidRule(String),
 
     #[error("Serialization error. {0}")]
@@ -25,7 +25,7 @@ pub enum AlertsError {
     #[error("Duplicate series. {0}")] // need better error
     DuplicateSeries(String),
     
-    #[error("A rule named \"{0}\" already exists")]
+    #[error("A rules named \"{0}\" already exists")]
     RuleAlreadyExists(String),
 
     #[error("Invalid series selector: {0}")]
@@ -58,7 +58,7 @@ pub enum AlertsError {
     #[error("{0}")]
     Generic(String),
 
-    #[error("Failure restoring rule: {0}")]
+    #[error("Failure restoring rules: {0}")]
     RuleRestoreError(String)
 }
 
@@ -67,28 +67,12 @@ pub enum AlertsError {
 pub struct ErrorGroup(pub Vec<AlertsError>);
 
 impl ErrorGroup {
-    pub fn new() -> Self {
-        ErrorGroup(Vec::new())
-    }
-
-    pub fn push(&mut self, err: AlertsError) {
-        self.0.push(err);
-    }
-
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = &AlertsError> {
         self.0.iter()
-    }
-
-    pub fn into_iter(self) -> impl Iterator<Item = AlertsError> {
-        self.0.into_iter()
     }
 }
 

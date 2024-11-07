@@ -9,7 +9,7 @@ pub fn init_runtime() {
 
 
 fn create_runtime() -> Runtime {
-    // todo: may need to change once we have rule/alerts, since they will run independent of
+    // todo: may need to change once we have rules/alerts, since they will run independent of
     // requests and can be parallelized
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)

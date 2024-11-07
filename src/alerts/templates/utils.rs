@@ -66,8 +66,6 @@ pub(super) fn get_array_arg<'a>(args: &'a [Value], idx: usize, func: &str) -> Re
     }
 }
 
-const EMPTY_VALUE: Value = Value::NoValue;
-
 pub(super) fn get_hash_value<'a>(val: &'a Value, key: &str, must_exist: bool) -> Result<Option<&'a Value>, FuncError> {
     match val {
         Value::Object(hash) |

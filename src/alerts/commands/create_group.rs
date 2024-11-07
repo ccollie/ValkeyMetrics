@@ -1,5 +1,6 @@
+use crate::alerts::GROUP_MANAGER;
 use crate::alerts::group_data_type::VKM_RULE_GROUP;
-use crate::alerts::rule::{Group, GroupConfig};
+use crate::alerts::rules::{Group, GroupConfig};
 use crate::error_consts;
 use crate::module::arg_parse::*;
 use std::time::Duration;
@@ -38,7 +39,7 @@ const EVAL_ALIGNMENT: &str = "EVAL_ALIGNMENT";
         arity: -3,
         key_spec: [
             {
-                notes: "Creates a rule group",
+                notes: "Creates a rules group",
                 flags: [Insert, Access],
                 begin_search: Index({ index : 1 }),
                 find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),
@@ -60,12 +61,17 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
     let mut options = GroupConfig::default();
 
     let key = args.next().ok_or(ValkeyError::Str("Err missing key argument"))?;
-    options.name = args.next_string()?;
+    let name = args.next_string()?;
     
-    if !is_valid_identifier(&options.name) {
+    if !is_valid_identifier(&name) {
         return Err(ValkeyError::Str("ERR invalid group name"));
     }
 
+    if name.is_empty() {
+        return Err(ValkeyError::Str("ERR missing group name"));
+    }
+    options.name = name;
+    
     const CREATE_TOKENS: [&str; 6] = [
         EVAL_ALIGNMENT,
         EVAL_DELAY,
@@ -117,11 +123,13 @@ pub(crate) fn create_group(ctx: &Context, key: &ValkeyString, options: GroupConf
         return Err(ValkeyError::Str("ERR: the key already exists"));
     }
     let group = Group::from_config(options, Duration::from_millis(0), vec![]);
-    _key.set_value(&VKM_RULE_GROUP, group)?;
+    _key.set_value(&VKM_RULE_GROUP, group.clone())?;
 
     ctx.replicate_verbatim();
     ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.CREATE-RULE-GROUP", key);
     ctx.log_verbose("group created");
+
+    GROUP_MANAGER.add_group(ctx, &group, key);
 
     Ok(())
 }

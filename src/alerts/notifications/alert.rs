@@ -38,9 +38,6 @@ impl AlertState {
             AlertState::Firing => "Firing",
         }
     }
-    pub fn is_firing(&self) -> bool {
-        matches!(self, AlertState::Firing)
-    }
 }
 
 impl Display for AlertState {

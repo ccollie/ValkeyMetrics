@@ -1,4 +1,4 @@
-use crate::alerts::rule::{EvalContext, Group, Rule};
+use crate::alerts::rules::{EvalContext, Group, Rule};
 use crate::alerts::types::RawTimeSeries;
 use crate::alerts::{AlertsError, AlertsResult, WriteQueue};
 use crate::config::get_global_settings;
@@ -14,13 +14,13 @@ pub struct ReplayOptions {
     /// The time filter to select time series with timestamp equal or lower than provided value.
     pub to: Timestamp,
     /// Delay between rules evaluation within the group. Could be important if there are chained rules inside the group
-    /// and processing need to wait for previous rule results to be persisted by remote storage before evaluating the next rule.
+    /// and processing need to wait for previous rules results to be persisted by remote storage before evaluating the next rules.
     /// Keep it equal or bigger than -remoteWrite.flushInterval.
     pub rules_delay: Duration,
     /// Max number of data points expected in one request. It affects the max time range for
     /// every `query_range` request during the replay.
     pub max_data_points: usize,
-    /// Defines how many retries to make before giving up on rule if request for it returns an error.
+    /// Defines how many retries to make before giving up on rules if request for it returns an error.
     pub rule_retry_attempts: usize,
 }
 
@@ -67,9 +67,9 @@ pub(crate) fn replay(
     Ok(total)
 }
 
-fn replay_group<'a>(
+fn replay_group(
     group: &mut Group,
-    ctx: &'a EvalContext,
+    ctx: &EvalContext,
     options: &ReplayOptions,
     rw: &WriteQueue,
 ) -> AlertsResult<usize> {
@@ -85,7 +85,7 @@ fn replay_group<'a>(
     let step_millis = (group.interval.as_millis() * *max_data_points as u128) as u64;
     let step = Duration::from_millis(step_millis);
     let start = group.adjust_req_timestamp(*start);
-    let iterations = ((end - start).abs() as u64 / step_millis) + 1;
+    let iterations = ((end - start).unsigned_abs() / step_millis) + 1;
     let msg = format!(
         "\nGroup {}\ninterval: \t{}\nrequests to make: \t{}\nmax range per request: \t{}\n",
         group.name,
@@ -111,8 +111,8 @@ fn replay_group<'a>(
     Ok(total)
 }
 
-fn replay_range<'a>(
-    ctx: &'a EvalContext,
+fn replay_range(
+    ctx: &EvalContext,
     rule: &mut impl Rule,
     start: Timestamp,
     end: Timestamp,
@@ -132,7 +132,7 @@ fn replay_range<'a>(
                 ctx.log_info(&msg);
             }
             Err(err) => {
-                let msg = format!("rule {:?}: {:?}", rule, err);
+                let msg = format!("rules {:?}: {:?}", rule, err);
                 ctx.log_warning(&msg);
             }
         }
@@ -165,7 +165,7 @@ fn replay_rule(
             }
             Err(e) => {
                 let msg = format!(
-                    "attempt {} to execute rule {:?} failed: {:?}",
+                    "attempt {} to execute rules {:?} failed: {:?}",
                     i + 1,
                     rule,
                     err

@@ -24,4 +24,3 @@ pub static MISSING_FILTER: &str = "ERR missing filter";
 pub static NO_SERIES_FOUND: &str = "ERR no series found";
 pub static SAMPLE_TOO_OLD: &str = "ERR sample timestamp exceeds retention period";
 pub static SERIES_NOT_FOUND: &str = "ERR series not found";
-pub static SERIALIZATION_FAIL: &str = "ERR serialization failure";

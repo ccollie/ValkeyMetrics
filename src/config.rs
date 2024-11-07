@@ -29,10 +29,10 @@ pub struct Settings {
     /// This option allows limiting memory usage
     pub max_series_limit: usize,  
 
-    /// Minimum amount of time to wait before resending an alert to notifier
+    /// Minimum amount of time to wait before resending an alert to notifications
     pub resend_delay: Duration,
 
-    /// Optional label in the form 'Name=value' to add to all generated recording rule and alerts.
+    /// Optional label in the form 'Name=value' to add to all generated recording rules and alerts.
     /// Pass multiple -label flags in order to add multiple label sets.
     pub external_labels: HashMap<String, String>,
 
@@ -40,7 +40,7 @@ pub struct Settings {
     /// For example, if look_back=1h then range from now() to now()-1h will be scanned.
     pub look_back: Duration,
 
-    /// Adjustment of the `time` parameter for rule evaluation requests to compensate for intentional data delay
+    /// Adjustment of the `time` parameter for rules evaluation requests to compensate for intentional data delay
     /// from the datasource.
     /// Normally, should be equal to `-search.latencyOffset`
     pub eval_delay: Duration,
@@ -55,19 +55,19 @@ pub struct Settings {
     /// Whether to disable adding group's Name as label to generated alerts and time series.
     pub disable_alert_group_labels: bool,
 
-    /// How often to evaluate the rule
+    /// How often to evaluate the rules
     pub evaluation_interval: Duration,
 
-    ///  Defines the max number of rule's state updates stored in-memory.
-    /// The number of stored updates can be overridden per rule via update_entries_limit param.
+    ///  Defines the max number of rules's state updates stored in-memory.
+    /// The number of stored updates can be overridden per rules via update_entries_limit param.
     pub rule_update_entries_limit: usize,
 
     /// Whether to align "time" parameter with evaluation interval.
     pub query_time_alignment: bool,
 
-    /// Delay between rule evaluation within the group. Could be important if there are chained rule
-    /// inside the group and processing need to wait for previous rule results to be persisted by
-    /// remote series before evaluating the next rule.
+    /// Delay between rules evaluation within the group. Could be important if there are chained rules
+    /// inside the group and processing need to wait for previous rules results to be persisted by
+    /// remote series before evaluating the next rules.
     /// Keep it equal or bigger than -remoteWrite.flushInterval.
     pub replay_rules_delay: Duration,
 

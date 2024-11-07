@@ -185,9 +185,6 @@ fn status_element(success: bool) -> (ValkeyValueKey, ValkeyValue) {
     )
 }
 
-pub fn std_duration_to_redis_value(duration: &std::time::Duration) -> ValkeyValue {
-    ValkeyValue::Integer(duration.as_secs() as i64 * 1000 + duration.subsec_millis() as i64)
-}
 
 pub(super) fn get_ts_metric_selector(ts: &TimeSeries, key: Option<&ValkeyString>) -> ValkeyValue {
     let mut map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::with_capacity(ts.labels.len() + 1);

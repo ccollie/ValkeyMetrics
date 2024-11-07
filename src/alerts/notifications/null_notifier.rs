@@ -4,7 +4,7 @@ use valkey_module::Context;
 use crate::alerts::AlertsResult;
 use super::{Alert, Notifier};
 
-/// NullNotifier is a notifier that does nothing.
+/// NullNotifier is a notifications that does nothing.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NullNotifier {
     addr: String,

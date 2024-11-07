@@ -1,6 +1,6 @@
 use valkey_module::{Context, ThreadSafeContext, ValkeyError, ValkeyResult, ValkeyString};
 use crate::alerts::group_data_type::VKM_RULE_GROUP;
-use crate::alerts::rule::Group;
+use crate::alerts::rules::Group;
 
 pub(crate) fn with_write_context<F, STATE>(state: &mut STATE, mut f: F)
 where F: FnMut(&mut STATE, &Context) {

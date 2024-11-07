@@ -21,33 +21,3 @@ impl SampleLike for Sample {
     }
 }
 
-#[derive(Debug)]
-pub struct TaggedSample<T: Copy + Clone + SampleLike> {
-    pub(crate) tag: T,
-    pub(crate) sample: Sample,
-}
-
-impl<T: Copy + Clone + SampleLike> TaggedSample<T> {
-    pub fn new(tag: T, sample: Sample) -> Self {
-        TaggedSample { tag, sample }
-    }
-}
-
-impl<T: Copy + Clone + SampleLike> PartialEq for TaggedSample<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.tag == other.tag && self.sample == other.sample
-    }
-}
-
-impl<T: Copy + Clone + SampleLike> Eq for TaggedSample<T> {}
-
-impl<T: Copy + Clone + SampleLike> PartialOrd for TaggedSample<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) }
-}
-
-impl<T: Copy + Clone + SampleLike> Ord for TaggedSample<T> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap()
-    }
-}
-
