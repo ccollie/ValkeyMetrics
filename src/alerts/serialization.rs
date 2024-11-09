@@ -61,6 +61,7 @@ pub(crate) fn load_rule_state_entry(rdb: *mut RedisModuleIO) -> ValkeyResult<Rul
 }
 
 fn save_rule_state(rdb: *mut RedisModuleIO, state: &RuleState) {
+    rdb_save_usize(rdb, state.0.capacity());
     rdb_save_usize(rdb, state.len());
     for rule in state.iter() {
         save_rule_state_entry(rdb, rule);
@@ -68,8 +69,9 @@ fn save_rule_state(rdb: *mut RedisModuleIO, state: &RuleState) {
 }
 
 fn load_rule_state(rdb: *mut RedisModuleIO) -> ValkeyResult<RuleState> {
+    let capacity = rdb_load_usize(rdb)?;
     let len = rdb_load_usize(rdb)?;
-    let mut state = VecDeque::with_capacity(len);
+    let mut state = VecDeque::with_capacity(capacity);
     for _ in 0..len {
         state.push_back(load_rule_state_entry(rdb)?);
     }
@@ -88,41 +90,29 @@ fn load_recording_rule_metrics(rdb: *mut RedisModuleIO) -> ValkeyResult<Recordin
 }
 
 pub(crate) fn save_recording_rule(rdb: *mut RedisModuleIO, rule: &RecordingRule) {
-    raw::save_unsigned(rdb, rule.id);
+    raw::save_unsigned(rdb, rule.rule_id);
     raw::save_string(rdb, &rule.name);
-    raw::save_string(rdb, &rule.dest_key);
     raw::save_string(rdb, &rule.expr);
     rdb_save_string_hashmap(rdb, &rule.labels);
     raw::save_unsigned(rdb, rule.group_id);
-    // save rules state entries
-    rdb_save_usize(rdb, rule.state.len());
-    for state_entry in rule.state.iter() {
-        save_rule_state_entry(rdb, state_entry);
-    }
+    save_rule_state(rdb, &rule.state);
     save_recording_rule_metrics(rdb, &rule.metrics);
 }
 
 pub(crate) fn load_recording_rule(rdb: *mut RedisModuleIO) -> ValkeyResult<RecordingRule> {
     let id = raw::load_unsigned(rdb)?;
     let name = rdb_load_string(rdb)?;
-    let key = raw::load_string(rdb)?;
     let expr = rdb_load_string(rdb)?;
     let labels = rdb_load_string_hashmap(rdb)?;
     let group_id = raw::load_unsigned(rdb)?;
-    let state_count = rdb_load_usize(rdb)?;
-    let mut state = Vec::with_capacity(state_count);
-    for _ in 0..state_count {
-        state.push(load_rule_state_entry(rdb)?);
-    }
+    let state = load_rule_state(rdb)?;
     let metrics = load_recording_rule_metrics(rdb)?;
     Ok(RecordingRule {
-        id,
-        dest_key: key.to_string_lossy(),
+        rule_id: id,
         name,
         expr,
         labels,
         group_id,
-        max_entries_limit: None,
         state,
         metrics,
     })

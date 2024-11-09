@@ -1,15 +1,17 @@
-use std::any::Any;
 use crate::alerts::rules::{AlertingRule, RecordingRule};
 use crate::alerts::types::RawTimeSeries;
 use crate::alerts::{AlertDatasource, AlertsError, AlertsResult};
 use crate::common::types::Timestamp;
+use get_size::GetSize;
+use metricsql_common::hash::FastHasher;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::any::Any;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Display};
+use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::Duration;
-use get_size::GetSize;
-use valkey_module::Context as ValkeyContext;
+use crate::config::GLOBAL_SETTINGS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum RuleType {
@@ -46,31 +48,6 @@ impl FromStr for RuleType {
     }
 }
 
-pub struct EvalContext<'a> {
-    pub querier: AlertDatasource,
-    pub redis_ctx: &'a ValkeyContext
-}
-
-impl<'a> EvalContext<'a> {
-    pub fn new(querier: AlertDatasource, redis_ctx: &'a ValkeyContext) -> Self {
-        EvalContext {
-            querier,
-            redis_ctx
-        }
-    }
-
-    pub fn log_debug(&self, msg: &str) {
-        self.redis_ctx.log_debug(msg);
-    }
-
-    pub fn log_info(&self, msg: &str) {
-        self.redis_ctx.log_debug(msg);
-    }
-
-    pub fn log_warning(&self, msg: &str) {
-        self.redis_ctx.log_warning(msg);
-    }
-}
 
 /// Rule represents alerting or recording rules that has unique id, can be executed
 /// and updated with other Rule.
@@ -91,6 +68,11 @@ pub trait Rule: Debug + Any {
     fn exec_range(&mut self, querier: &AlertDatasource, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>>;
     
     fn update_with(&mut self, other: &dyn Rule) -> AlertsResult<()>;
+    
+    fn get_last_entry(&self) -> Option<&RuleStateEntry>;
+    
+    fn get_rule_state_count(&self) -> usize;
+    fn get_all_entries(&self) -> Vec<RuleStateEntry>;
     
     fn as_any(&self) -> &dyn Any;
     
@@ -113,7 +95,7 @@ pub struct RuleStateEntry {
     /// stores the number of samples returned during the last evaluation
     pub samples: usize,
     /// stores the number of time series fetched during the last evaluation.
-    pub series_fetched: usize
+    pub series_fetched: Option<usize>
 }
 
 
@@ -180,6 +162,27 @@ impl Rule for MetricRule {
         }
     }
 
+    fn get_last_entry(&self) -> Option<&RuleStateEntry> {
+        match self {
+            MetricRule::AlertingRule(rule) => rule.get_last_entry(),
+            MetricRule::RecordingRule(rule) => rule.get_last_entry(),
+        }
+    }
+
+    fn get_rule_state_count(&self) -> usize {
+        match self {
+            MetricRule::AlertingRule(rule) => rule.get_rule_state_count(),
+            MetricRule::RecordingRule(rule) => rule.get_rule_state_count(),
+        }
+    }
+
+    fn get_all_entries(&self) -> Vec<RuleStateEntry> {
+        match self {
+            MetricRule::AlertingRule(rule) => rule.get_all_entries(),
+            MetricRule::RecordingRule(rule) => rule.get_all_entries(),
+        }
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -189,16 +192,70 @@ impl Rule for MetricRule {
 }
 // var errDuplicate = "result contains metrics with the same labelset after applying rules labels. See https://docs.victoriametrics.com/vmalert.html#series-with-the-same-labelset for details";
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+impl Display for MetricRule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt_rule(self, f)
+    }
+}
+
+pub(super) fn fmt_rule(rule: &dyn Rule, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let rule_type = rule.rule_type().name();
+
+    write!(f, "{} rule {}; expr: {}", rule_type, rule.name(), rule.expr())?;
+    let labels = match rule.rule_type() {
+        RuleType::Alerting => {
+            let alert_rule = rule.as_any().downcast_ref::<AlertingRule>().unwrap();
+            &alert_rule.labels
+        },
+        RuleType::Recording => {
+            let recording_rule = rule.as_any().downcast_ref::<RecordingRule>().unwrap();
+            &recording_rule.labels
+        },
+    };
+    let mut keys = labels.keys().collect::<Vec<_>>();
+    keys.sort();
+    
+    if !keys.is_empty() {
+        write!(f, "; labels:")?;
+    }
+
+    for (i, key) in keys.iter().enumerate() {
+        if let Some(value) = labels.get(*key) {
+            write!(f, " ")?;
+            write!(f, "{}={}", key, value)?;
+            if i < keys.len() - 1 {
+                write!(f, ",")?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[derive(GetSize)]
 pub struct RuleState(pub VecDeque<RuleStateEntry>);
 
+impl Default for RuleState {
+    fn default() -> Self {
+        let limit = GLOBAL_SETTINGS.rule_update_entries_limit;
+        RuleState(VecDeque::with_capacity(limit))
+    }
+}
+
 impl RuleState {
-    pub fn new(size: usize) -> RuleState {
+    pub fn with_capacity(size: usize) -> Self {
         let queue = VecDeque::with_capacity(size);
         RuleState(queue)
     }
 
+    pub fn push(&mut self, entry: RuleStateEntry) {
+        // drop oldest entry if capacity is reached
+        if self.0.len() == self.0.capacity() {
+            self.0.pop_front();
+        }
+        self.0.push_back(entry);
+    }
+    
     pub fn get_last(&self) -> Option<&RuleStateEntry> {
         self.0.iter().last()
     }
@@ -222,10 +279,7 @@ impl RuleState {
     }
 
     pub fn add(&mut self, e: RuleStateEntry) {
-        if self.0.len() == self.0.capacity() {
-            let _ = self.0.pop_front();
-        }
-        self.0.push_back(e);
+        self.push(e);
     }
 
     pub fn reset(&mut self) {
@@ -235,5 +289,41 @@ impl RuleState {
     pub fn iter(&self) -> std::collections::vec_deque::Iter<RuleStateEntry> {
         self.0.iter()
     }
+}
 
+pub fn calc_rule_hash(rule: &dyn Rule) -> AlertsResult<u64> {
+    let mut h = FastHasher::default();
+
+    fn hash_labels(h: &mut FastHasher, labels: &HashMap<String, String>) -> Result<(), String> {
+        if!labels.is_empty() {
+            let mut keys: Vec<_> = labels.keys().collect();
+            keys.sort();
+            h.write("labels".as_bytes());
+            for k in keys {
+                h.write(k.as_bytes());
+                h.write(labels.get(k).unwrap().as_bytes());
+                h.write("\0xff".as_ref());
+            }
+        }
+        Ok(())
+    }
+
+    rule.expr().hash(&mut h);
+
+    let rule_type_name = rule.rule_type().name();
+    std::hash::Hasher::write(&mut h, rule_type_name.as_bytes());
+    h.write(rule.name().as_bytes());
+
+    match rule.rule_type() {
+        RuleType::Alerting => {
+            let rule = &rule.as_any().downcast_ref::<AlertingRule>().unwrap();
+            hash_labels(&mut h, &rule.labels)
+        },
+        RuleType::Recording => {
+            let rule = &rule.as_any().downcast_ref::<RecordingRule>().unwrap();
+            hash_labels(&mut h, &rule.labels)
+        },
+    }.map_err(|_| AlertsError::Generic("ERR hashing rule".to_string()))?;
+
+    Ok(h.finish())
 }

@@ -1,9 +1,10 @@
 use std::any::Any;
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
-use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, Querier};
-use crate::common::types::{Label, Sample, Timestamp, TimestampTrait};
+use crate::alerts::{AlertDatasource, AlertsError, AlertsResult};
+use crate::common::types::{Label, MetricName, Sample, Timestamp, TimestampTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 use std::ops::{Sub};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,14 +14,16 @@ use enquote::enquote;
 use get_size::GetSize;
 use metricsql_common::hash::FastHasher;
 use metricsql_common::prelude::humanize_duration;
-use metricsql_runtime::prelude::MetricName;
+use metricsql_parser::ast::Expr;
 use tracing::debug;
-use valkey_module::Context;
+use valkey_module::{Context, ValkeyError, ValkeyResult};
 use crate::alerts::constants::*;
 use crate::alerts::notifications::{exec_template, Alert, AlertState, AlertTplData};
 use crate::alerts::rules::{Group, Rule, RuleConfig, RuleState, RuleStateEntry, RuleType};
+use crate::alerts::rules::rule::fmt_rule;
 use crate::alerts::templates::{TemplateQueryContext};
 use crate::alerts::types::{hashmap_to_labels, RawTimeSeries};
+use crate::query::Querier;
 // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmalert/alerting.go#L612
 
 /// the duration for which a resolved alert instance is kept in memory state and consequently
@@ -90,7 +93,7 @@ pub struct AlertingRule {
     pub metrics: AlertingRuleMetrics,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq)]
 struct LabelSet {
     /// `origin` labels extracted from received time series plus extra labels (group labels, service
     /// labels like `ALERT_NAME_LABEL`). In case of conflicts, origin labels from time series preferred.
@@ -100,6 +103,12 @@ struct LabelSet {
     /// like `ALERT_NAME_LABEL`). In case of conflicts, extra labels are preferred.
     /// Used as labels attached to notifications.Alert and ALERTS series written to remote storage.
     processed: HashMap<String, String>,
+}
+
+impl Display for AlertingRule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt_rule(self, f)
+    }
 }
 
 impl AlertingRule {
@@ -117,7 +126,7 @@ impl AlertingRule {
             group_name: group.name.clone(),
             eval_interval: group.interval,
             debug: rule.debug,
-            state: RuleState::new(updates_limit),
+            state: RuleState::with_capacity(updates_limit),
             metrics: AlertingRuleMetrics::default(),
             ..Default::default()
         }
@@ -129,7 +138,7 @@ impl AlertingRule {
     pub fn restore(
         &mut self,
         ctx: &Context,
-        querier: &impl Querier,
+        querier: &Box<dyn Querier>,
         ts: Timestamp,
         look_back: Duration,
     ) -> AlertsResult<()> {
@@ -363,7 +372,7 @@ impl AlertingRule {
 
     pub fn series_fetched(&self) -> usize {
         if let Some(last) = self.state.iter().last() {
-            return last.series_fetched
+            return last.series_fetched.unwrap_or(0)
         }
         0usize
     }
@@ -484,7 +493,7 @@ impl Rule for AlertingRule {
             duration: Duration::from_millis(0),
             samples: 0,
             err: None,
-            series_fetched: 0,
+            series_fetched: None,
         };
 
         let res = match querier.query(&self.expr, ts) {
@@ -494,7 +503,7 @@ impl Rule for AlertingRule {
                 cur_state.err = Some(e.clone());
                 cur_state.duration = Duration::from_millis((current_time_millis() - start) as u64);
                 let msg = format!("failed to execute query {}: {:?}", self.expr, e);
-                self.state.add(cur_state);
+                self.state.push(cur_state);
                 return Err(AlertsError::QueryExecutionError(msg));
             }
         };
@@ -726,6 +735,18 @@ impl Rule for AlertingRule {
         Ok(())
     }
 
+    fn get_rule_state_count(&self) -> usize {
+        self.state.len()
+    }
+    
+    fn get_all_entries(&self) -> Vec<RuleStateEntry> {
+        self.state.get_all()
+    }
+    
+    fn get_last_entry(&self) -> Option<&RuleStateEntry> {
+        self.state.get_last()
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -761,12 +782,31 @@ pub(crate) fn make_series_key(labels: &[Label]) -> String {
         if name == METRIC_NAME_LABEL {
             measurement .push('{');
             measurement.push_str(value);
-            measurement.push_str("}::");
+            measurement.push_str("}:");
         } else {
             value.hash(&mut hasher);
             hasher.write_u8(0xfe);
         }
     }
-    format!("{measurement}{:x}", hasher.finish())
+    format!("x-vm:{measurement}{:x}", hasher.finish())
 }
-// {alert_for_name}::name=joe::foo=bar::bar=baz
+// maybe x-vm:{alert_for_name}::name=joe::foo=bar::bar=baz
+
+pub(crate) fn validate_alert_expr(expr: &str) -> ValkeyResult<()> {
+    let expr = expr.trim();
+    if expr.is_empty() {
+        return Err(ValkeyError::Str("ERR missing expression"))
+    }
+    match metricsql_parser::parser::parse(expr) {
+        Ok(expr) => {
+            // ensure we have a comparison
+            if let Expr::BinaryOperator(binop) = &expr {
+                if !binop.op.is_comparison() {
+                    return Err(ValkeyError::Str("ERR expected comparison operator"));
+                }
+            }
+            Ok(())
+        },
+        Err(err) => Err(ValkeyError::String(format!("ERR invalid expression: {:?}", err)))
+    }
+}

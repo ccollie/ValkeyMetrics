@@ -12,10 +12,6 @@ mod commands;
 mod group_manager;
 mod serialization;
 
-use std::sync::LazyLock;
-pub(crate) use datasource::*;
 pub use alerts_error::*;
+pub(crate) use datasource::*;
 pub use group_data_type::VKM_RULE_GROUP;
-use crate::alerts::group_manager::GroupManager;
-
-pub static GROUP_MANAGER: LazyLock<GroupManager> = LazyLock::new(GroupManager::default);

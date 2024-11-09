@@ -1,8 +1,7 @@
-use crate::alerts::{AlertDatasource, AlertsResult};
-use crate::common::types::Timestamp;
-use crate::query::{InstantQueryResult, RangeQueryResult};
+use crate::alerts::AlertsResult;
+use crate::common::types::{MetricName, Sample, Timestamp};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::fmt::Display;
 use std::time::Duration;
 
 /// Querier trait wraps query and query_range methods
@@ -15,7 +14,24 @@ pub trait Querier {
     fn query_range(&self, query: &str, from: Timestamp, to: Timestamp) -> AlertsResult<RangeResult>;
 }
 
-pub type QuerierRef = Arc<dyn Querier>;
+
+#[derive(Debug)]
+pub struct InstantQueryResult {
+    pub metric: MetricName,
+    pub sample: Sample
+}
+
+#[derive(Debug, Clone)]
+pub struct RangeQueryResult {
+    pub metric: MetricName,
+    pub samples: Vec<Sample>
+}
+
+impl Display for RangeQueryResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RangeQueryResult {{ metric: {}, samples: {:?} }}", self.metric, self.samples)
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct InstantResult(pub Vec<InstantQueryResult>);
@@ -59,10 +75,9 @@ impl RangeResult {
 /// QuerierBuilder builds Querier with given params.
 pub trait QuerierBuilder {
     /// build_with_params creates a new Querier object with the given params
-    fn build_with_params(&self, params: QuerierParams) -> AlertDatasource;
+    fn build_with_params(&self, params: QuerierParams) -> Box<dyn Querier>;
 }
 
-pub type QuerierBuilderRef = Arc<dyn QuerierBuilder>;
 
 /// QuerierParams params for Querier.
 #[derive(Debug, Clone, PartialEq)]

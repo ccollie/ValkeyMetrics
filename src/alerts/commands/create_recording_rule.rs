@@ -1,4 +1,4 @@
-use crate::alerts::rules::{MetricRule, RecordingRule};
+use crate::alerts::rules::{calc_rule_hash, MetricRule, RecordingRule, RuleState};
 use crate::alerts::utils::with_group_mut;
 use crate::module::arg_parse::{
     parse_key_value_pairs,
@@ -10,6 +10,8 @@ use crate::module::arg_parse::{
 use metricsql_parser::parser::is_valid_identifier;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
 use valkey_module_macros::command;
+use crate::alerts::notifications::validate_templates;
+use crate::error_consts;
 
 const CMD_ARG_MAX_ENTRIES: &str = "MAX_ENTRIES";
 
@@ -38,10 +40,10 @@ pub fn create_recording_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRe
 
     with_group_mut(ctx, &group_key, move |group| {
         let rule = parse_rule_config(args)?;
-        if group.contains_rule(&rule.name) {
-            return Err(ValkeyError::Str("Err rules already exists"));
-        }
-        group.rules.push(MetricRule::RecordingRule(rule));
+        let to_add = MetricRule::RecordingRule(rule);
+        group.add_rule(to_add)
+            .map_err(|_e| ValkeyError::Str(error_consts::ALERTS_DUPLICATE_RULE))?;
+        
         VALKEY_OK
     })
     
@@ -73,11 +75,15 @@ fn parse_rule_config(mut args: CommandArgIterator) -> ValkeyResult<RecordingRule
                 rule.expr = parse_promql_vector_expr(&mut args)?;
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_LABELS) => {
-                rule.labels = parse_key_value_pairs(&mut args, is_cmd_token)?;
+                let labels = parse_key_value_pairs(&mut args, is_cmd_token)?;
+                validate_templates(&labels)
+                    .map_err(|_err| ValkeyError::Str("ERR error parsing label templates"))?;
+                rule.labels = labels;
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_MAX_ENTRIES) => {
                 let max_entries = args.next_u64()? as usize;
-                rule.max_entries_limit = Some(max_entries);
+                // todo: limit
+                rule.state = RuleState::with_capacity(max_entries);
             }
             _ => {
                 return Err(ValkeyError::Str("ERR invalid argument"))
@@ -88,6 +94,9 @@ fn parse_rule_config(mut args: CommandArgIterator) -> ValkeyResult<RecordingRule
     if rule.expr.is_empty() {
         return Err(ValkeyError::Str("ERR missing expression"));
     }
+    
+    rule.rule_id = calc_rule_hash(&rule)
+        .map_err(|_err| ValkeyError::Str("ERR hashing rule"))?;
     
     Ok(rule)
 }

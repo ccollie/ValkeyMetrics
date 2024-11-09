@@ -25,7 +25,7 @@ pub enum AlertsError {
     #[error("Duplicate series. {0}")] // need better error
     DuplicateSeries(String),
     
-    #[error("A rules named \"{0}\" already exists")]
+    #[error("Duplicate rule \"{0}\"")]
     RuleAlreadyExists(String),
 
     #[error("Invalid series selector: {0}")]

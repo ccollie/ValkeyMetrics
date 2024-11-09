@@ -41,7 +41,7 @@ pub struct RuleConfig {
     pub labels: HashMap<String, String>,
     pub annotations: HashMap<String, String>,
     pub debug: bool,
-    /// update_entries_limit defines max number of rules's state updates stored in memory.
+    /// update_entries_limit defines max number of the rule's state updates stored in memory.
     /// Overrides `-rules.updateEntriesLimit`.
     pub update_entries_limit: Option<usize>,
 }

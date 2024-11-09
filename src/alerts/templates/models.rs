@@ -165,22 +165,29 @@ impl From<DateTimeModel> for Value {
 #[derive(Debug, Clone, Default)]
 pub struct DurationModel(pub Duration);
 
+impl DurationModel {
+    pub fn to_value(&self) -> Value {
+        let d = self.0;
+        let mut result: HashMap<String, Value> = HashMap::new();
+        let milliseconds = d.as_millis() as u64;
+        let minutes = d.as_secs() / 60;
+        result.insert("minutes".to_owned(), Value::from(minutes));
+        result.insert("seconds".to_owned(), Value::from(d.as_secs_f64()));
+        result.insert("milliseconds".to_owned(), Value::from(milliseconds));
+        result.insert("nanoseconds".to_owned(), Value::from(d.subsec_nanos() as f64));
+        Value::Object(result)
+    }
+}
+
 impl From<&DurationModel> for Value {
     fn from(d: &DurationModel) -> Self {
-        let mut result: HashMap<String, Value> = HashMap::new();
-        let milliseconds = d.0.as_millis() as u64;
-        let minutes = d.0.as_secs() / 60;
-        result.insert("minutes".to_owned(), Value::from(minutes));
-        result.insert("seconds".to_owned(), Value::from(d.0.as_secs_f64()));
-        result.insert("milliseconds".to_owned(), Value::from(milliseconds));
-        result.insert("nanoseconds".to_owned(), Value::from(d.0.subsec_nanos() as f64));
-        Value::Object(result)
+        d.to_value()
     }
 }
 
 impl From<DurationModel> for Value {
     fn from(value: DurationModel) -> Self {
-        value.into()
+        (&value).into()
     }
 }
 
@@ -245,7 +252,7 @@ pub fn label_to_template_value(label: &Label) -> Value {
     Value::Object(m)
 }
 
-pub fn template_value_to_label(value: &Value) -> Result<Label, FuncError> {
+fn template_value_to_label(value: &Value) -> Result<Label, FuncError> {
     match value {
         Value::Map(_) |
         Value::Object(_) => {

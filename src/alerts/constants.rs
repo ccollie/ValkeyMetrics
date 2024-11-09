@@ -1,5 +1,3 @@
-use std::sync::LazyLock;
-
 /// `ALERT_METRIC_NAME` is the metric name for synthetic alert timeseries.
 pub static ALERT_METRIC_NAME: &str = "ALERTS";
 
@@ -19,9 +17,12 @@ pub static ALERT_GROUP_NAME_LABEL: &str = "alertgroup";
 /// This mark is put by Prometheus at the end of time series for improving staleness detection.
 /// See https://www.robustperception.io/staleness-and-promql
 /// StaleNaN is a special NaN value, which is used as Prometheus staleness mark.
-const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
-pub const STALE_NAN: LazyLock<f64> = LazyLock::new(get_stale_nan_value);
+pub const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
 
 fn get_stale_nan_value() -> f64 {
     f64::from_bits(STALE_NAN_BITS)
+}
+
+pub fn is_stale_nan(value: f64) -> bool {
+    value == f64::from_bits(STALE_NAN_BITS)
 }

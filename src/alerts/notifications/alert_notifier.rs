@@ -4,7 +4,7 @@ use valkey_module::Context;
 use crate::alerts::AlertsResult;
 use super::{Alert, Notifier, NullNotifier, PubSubNotifier, StreamNotifier};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub enum AlertNotifier {
     Stream(StreamNotifier),
     PubSub(PubSubNotifier),
@@ -19,8 +19,8 @@ impl AlertNotifier {
         AlertNotifier::PubSub(PubSubNotifier::new(topic))
     }
 
-    pub fn null(addr: Option<String>) -> Self {
-        AlertNotifier::Null(NullNotifier::new(addr.unwrap_or(String::from("null_notifier"))))
+    pub fn null() -> Self {
+        AlertNotifier::Null(NullNotifier {})
     }
 }
 

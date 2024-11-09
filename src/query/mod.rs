@@ -1,35 +1,14 @@
-use std::fmt::Display;
-use crate::common::types::{Label, Sample};
-use crate::series::TimeSeries;
-use crate::common::async_runtime::block_on;
-use metricsql_runtime::execution::query::{query, query_range};
-use metricsql_runtime::prelude::{Context as QueryContext, MetricName};
-use metricsql_runtime::RuntimeError;
-use std::sync::{Arc, LazyLock};
-use valkey_module::{ValkeyError, ValkeyResult};
 pub use common::types::QueryParams;
+use metricsql_runtime::prelude::Context as QueryContext;
+use std::sync::{Arc, LazyLock};
 
 use crate::common;
 
-#[derive(Debug)]
-pub struct InstantQueryResult {
-    pub metric: MetricName,
-    pub sample: Sample
-}
-
-#[derive(Debug, Clone)]
-pub struct RangeQueryResult {
-    pub metric: MetricName,
-    pub samples: Vec<Sample>
-}
-
-impl Display for RangeQueryResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "RangeQueryResult {{ metric: {}, samples: {:?} }}", self.metric, self.samples)
-    }
-}
-
 mod vm_metric_storage;
+pub mod datasource;
+mod series_querier;
+mod handlers;
+
 cfg_if::cfg_if! {
     if #[cfg(test)] {
         mod bench_test;
@@ -49,76 +28,16 @@ pub fn get_query_context() -> &'static QueryContext {
     &QUERY_CONTEXT
 }
 
-fn create_query_context() -> QueryContext {
+pub(super) fn create_query_context() -> QueryContext {
     // todo: read settings from config
+    #[cfg(test)]
+    let provider = Arc::new(TestMetricStorage::new());
+    #[cfg(not(test))]
     let provider = Arc::new(VMMetricStorage {});
     let ctx = QueryContext::new();
     ctx.with_metric_storage(provider)
 }
 
-fn map_error(err: RuntimeError) -> ValkeyError {
-    let err_msg = format!("ERR: query execution error: {:?}", err);
-    // todo: log errors
-    ValkeyError::String(err_msg.to_string())
-}
-
-pub(crate) fn run_instant_query_internal(ctx: &QueryContext, params: &QueryParams) -> ValkeyResult<Vec<InstantQueryResult>> {
-    let results = block_on(async move {
-        match query(ctx, params) {
-            Ok(samples) => Ok(samples),
-            Err(e) => Err(map_error(e))
-        }
-    })?;
-    Ok(
-        results.into_iter()
-            .map(|result| {
-                // if this panics, we have problems in the base library
-                let sample = Sample {
-                    timestamp: result.timestamps[0],
-                    value: result.values[0]
-                };
-                InstantQueryResult {
-                    metric: result.metric,
-                    sample
-                }
-            }).collect()
-    )
-}
-
-pub(crate) fn run_instant_query(params: &QueryParams) -> ValkeyResult<Vec<InstantQueryResult>> {
-    run_instant_query_internal(&QUERY_CONTEXT, params)
-}
-
-pub(crate) fn run_range_query_internal(ctx: &QueryContext, params: &QueryParams) -> ValkeyResult<Vec<RangeQueryResult>> {
-    let results = block_on(async move {
-        match query_range(ctx, params) {
-            Ok(samples) => Ok(samples),
-            Err(e) => Err(map_error(e))
-        }
-    })?;
-    Ok(
-        results.into_iter().map(|result| {
-            let samples = result.timestamps.iter()
-                .zip(result.values.iter())
-                .map(|(&ts, &value)| Sample { timestamp: ts, value })
-                .collect();
-            RangeQueryResult {
-                metric: result.metric,
-                samples,
-            }
-        }).collect()
-    )
-}
-
-pub(crate) fn run_range_query(params: &QueryParams) -> ValkeyResult<Vec<RangeQueryResult>> {
-    run_range_query_internal(&QUERY_CONTEXT, params)
-}
-
-
-pub(super) fn to_metric_name(ts: &TimeSeries) -> MetricName {
-    let mut mn = MetricName::new(&ts.metric_name);
-    for Label { name, value } in ts.labels.iter() {
-        mn.add_label(name, value);
-    }
-    mn
-}
+pub use datasource::*;
+pub(crate) use handlers::*;
+pub use series_querier::*;

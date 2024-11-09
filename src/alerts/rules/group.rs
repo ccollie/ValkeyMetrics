@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap};
 use std::default::Default;
 use std::hash::Hasher;
 use std::ops::Add;
@@ -15,12 +15,12 @@ use topologic::AcyclicDependencyGraph;
 use tracing::info;
 use valkey_module::{Context, DetachedContextGuard};
 use xxhash_rust::xxh3::Xxh3;
-use crate::alerts::{AlertsError, AlertsResult, QuerierBuilder, QuerierParams};
+use crate::alerts::{AlertsError, AlertsResult};
 use crate::alerts::rules::{AlertingRule, GroupConfig, MetricRule, RecordingRule, Rule, RuleType};
 use crate::alerts::rules::executor::Executor;
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::config::get_global_settings;
-
+use crate::query::{QuerierBuilder, QuerierParams};
 
 // `DependencyMap` describes the dependency associations between rules in a group whereby one rules uses the
 // output metric produced by another rules in its expression (i.e. as its "input"). Basically an adjacency list
@@ -58,7 +58,7 @@ pub struct Group {
     /// On exceeding the limit, rules will be marked with an error and all its results will be discarded.
     /// 0 is no limit.
     pub limit: usize,
-    /// Optional list of labels added to every rules within a group.
+    /// Optional list of labels added to every rule within a group.
     /// It has priority over the external labels.
     /// Labels are commonly used for adding environment or tenant-specific tag.
     pub labels: HashMap<String, String>,
@@ -260,6 +260,8 @@ impl Group {
         self.notifier_headers.clone_from(&new_group.notifier_headers);
         self.labels.clone_from(&new_group.labels);
         self.limit = new_group.limit;
+        self.update_dependencies();
+
         Ok(())
     }
 
@@ -272,26 +274,35 @@ impl Group {
     }
 
     pub fn add_rule(&mut self, rule: MetricRule) -> AlertsResult<()> {
-        let name = rule.name();
-        if self.contains_rule(name) {
-            return Err(AlertsError::RuleAlreadyExists(name.to_string()));
+        if rule.id() == 0 {
+          // todo: error
+        }
+        if self.get_rule_by_id(rule.id()).is_some() {
+            let as_string = rule.to_string();
+            return Err(AlertsError::RuleAlreadyExists(as_string));
         }
         self.rules.push(rule);
+        self.update_dependencies();
         Ok(())
     }
 
-    pub fn get_rule_by_name(&self, name: &str) -> Option<&MetricRule> {
-        self.rules.iter().find(|r| r.name() == name)
+    pub fn get_rule_by_id(&self, id: u64) -> Option<&MetricRule> {
+        self.rules.iter().find(|r| r.id() == id)
     }
 
-    pub fn contains_rule(&self, name: &str) -> bool {
-        self.get_rule_by_name(name).is_some()
+    pub fn contains_rule_by_id(&self, id: u64) -> bool {
+        self.get_rule_by_id(id).is_some()
     }
 
-    pub fn remove_rule(&mut self, name: &str) -> bool {
+
+    pub fn remove_rule_by_id(&mut self, id: u64) -> bool {
         let len = self.rules.len();
-        self.rules.retain(|x| x.name() != name);
-        len != self.rules.len()
+        self.rules.retain(|x| x.id()!= id);
+        let changed = len != self.rules.len();
+        if changed {
+            self.update_dependencies();
+        }
+        changed
     }
 
     /// `build_dependencies` builds an adjacency list based DAG of the relationships between rules within a group.
@@ -376,6 +387,10 @@ impl Group {
         }
 
         Some(result)
+    }
+
+    fn update_dependencies(&mut self) {
+        self.dependencies = self.build_dependencies();
     }
     
     pub fn get_last_evaluation(&self) -> Timestamp {

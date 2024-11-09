@@ -1,11 +1,11 @@
-use crate::alerts::rules::{EvalContext, Group, Rule};
+use crate::alerts::rules::{Group, Rule};
 use crate::alerts::types::RawTimeSeries;
-use crate::alerts::{AlertsError, AlertsResult, WriteQueue};
-use crate::config::get_global_settings;
+use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, WriteQueue};
 use metricsql_common::humanize::humanize_duration;
 use metricsql_runtime::types::{Timestamp, TimestampTrait};
 use std::thread;
 use std::time::Duration;
+use valkey_module::Context as ValkeyContext;
 
 #[derive(Debug, Clone)]
 pub struct ReplayOptions {
@@ -39,7 +39,8 @@ impl Default for ReplayOptions {
 // todo: ReplayError
 
 pub(crate) fn replay(
-    ctx: &EvalContext,
+    querier: &AlertDatasource,
+    ctx: &ValkeyContext,
     group: &mut Group,
     options: &ReplayOptions,
     rw: &WriteQueue,
@@ -61,15 +62,15 @@ pub(crate) fn replay(
         options.max_data_points
     );
 
-    ctx.log_info(&msg);
+    ctx.log_debug(&msg);
 
-    let total: usize = replay_group(group, ctx, options, rw)?;
-    Ok(total)
+    replay_group(group, querier, ctx, options, rw)
 }
 
 fn replay_group(
     group: &mut Group,
-    ctx: &EvalContext,
+    querier: &AlertDatasource,
+    ctx: &ValkeyContext,
     options: &ReplayOptions,
     rw: &WriteQueue,
 ) -> AlertsResult<usize> {
@@ -94,25 +95,26 @@ fn replay_group(
         humanize_duration(&step)
     );
 
-    ctx.log_info(&msg);
+    ctx.log_debug(&msg);
     if group.limit > 0 {
         let msg = format!(
             "\nPlease note, `limit: {}` param has no effect during replay.\n",
             group.limit
         );
-        ctx.log_info(&msg);
+        ctx.log_debug(&msg);
     }
-    // todo: rayon::join
+    // todo: rayon
 
     for rule in group.rules.iter_mut() {
-        total += replay_range(ctx, rule, start, *end, step, *rule_retry_attempts, rw)?;
+        total += replay_range(ctx, querier, rule, start, *end, step, *rule_retry_attempts, rw)?;
     }
 
     Ok(total)
 }
 
 fn replay_range(
-    ctx: &EvalContext,
+    ctx: &ValkeyContext,
+    querier: &AlertDatasource,
     rule: &mut impl Rule,
     start: Timestamp,
     end: Timestamp,
@@ -120,16 +122,15 @@ fn replay_range(
     retry_attempts: usize,
     rw: &WriteQueue,
 ) -> AlertsResult<usize> {
-    let settings = get_global_settings();
     let mut total: usize = 0;
 
-    ctx.log_info(&format!("> Rule {:?} (ID: {})\n", rule, rule.id()));
+    ctx.log_debug(&format!("> Rule {:?} (ID: {})\n", rule, rule.id()));
     for ri in RangeIterator::new(start, end, step) {
-        match replay_rule(ctx, rule, ri.start, ri.end, retry_attempts, rw) {
+        match replay_rule(ctx, querier, rule, ri.start, ri.end, retry_attempts, rw) {
             Ok(n) => {
                 let msg = format!("{} samples imported", n);
                 total += n;
-                ctx.log_info(&msg);
+                ctx.log_debug(&msg);
             }
             Err(err) => {
                 let msg = format!("rules {:?}: {:?}", rule, err);
@@ -138,14 +139,15 @@ fn replay_range(
         }
     }
 
-    // sleep to let remote storage to flush data on-disk
-    // so chained rules could be calculated correctly
-    thread::sleep(settings.replay_rules_delay);
+    // flush data so chained rules could be calculated correctly
+    rw.flush();
+
     Ok(total)
 }
 
 fn replay_rule(
-    ctx: &EvalContext,
+    ctx: &ValkeyContext,
+    querier: &AlertDatasource,
     rule: &mut impl Rule,
     start: Timestamp,
     end: Timestamp,
@@ -156,7 +158,7 @@ fn replay_rule(
     let mut err: Option<AlertsError> = None;
 
     for i in 0..rule_retry_attempts {
-        match rule.exec_range(&ctx.querier, start, end) {
+        match rule.exec_range(querier, start, end) {
             Ok(res) => {
                 for ts in res.into_iter() {
                     tss.push(ts);
@@ -176,15 +178,20 @@ fn replay_rule(
             }
         }
     }
+
     if let Some(err) = err {
         // means all attempts failed
         return Err(err);
     }
+
     if tss.is_empty() {
         return Ok(0);
     }
+
     let n = tss.len();
     rw.push(tss);
+    rw.flush();
+
     Ok(n)
 }
 

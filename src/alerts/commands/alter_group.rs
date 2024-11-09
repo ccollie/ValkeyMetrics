@@ -15,6 +15,7 @@ use valkey_module::{
     VALKEY_OK
 };
 use valkey_module_macros::command;
+use crate::error_consts::EVAL_OFFSET_EXCEEDS_INTERVAL;
 
 const INTERVAL: &str = "INTERVAL";
 const EVAL_OFFSET: &str = "EVAL_OFFSET";
@@ -99,7 +100,7 @@ pub fn parse_alter_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStrin
             CMD_ARG_NAME => {
                 let name = args.next_string()?;
                 if !is_valid_identifier(&name) {
-                    return Err(ValkeyError::Str("Err invalid rules name"));
+                    return Err(ValkeyError::Str("Err invalid group name"));
                 }
                 config.name = Some(name);
                 changed = true;
@@ -142,6 +143,7 @@ pub fn parse_alter_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStrin
             }
         };
     }
+    
 
     Ok((key, config, changed))
 }
@@ -157,11 +159,29 @@ pub(crate) fn update_group(ctx: &Context, key: &ValkeyString, options: AlterGrou
                 changed = true;
             }
         }
+        
+        if options.eval_offset.is_some() || options.interval.is_some() {
+            let offset = options.eval_offset.unwrap_or(group.eval_offset);
+            let interval = options.interval.unwrap_or(group.interval);
+
+            if !offset.is_zero() && !interval.is_zero() {
+                // if `eval_offset` is set, interval won't use global evaluationInterval flag and
+                // must be bigger than offset.
+                if group.eval_offset > group.interval {
+                    return Err(ValkeyError::Str(EVAL_OFFSET_EXCEEDS_INTERVAL));
+                }
+            }
+        }
+        
         if let Some(eval_offset) = options.eval_offset {
             if group.eval_offset != eval_offset {
                 group.eval_offset = eval_offset;
                 changed = true;
             }
+        }
+        
+        if let Some(interval) = options.interval {
+            group.interval = interval;
         }
         if options.eval_delay.is_some() && group.eval_delay != options.eval_delay {
             group.eval_delay = options.eval_delay;
@@ -182,9 +202,6 @@ pub(crate) fn update_group(ctx: &Context, key: &ValkeyString, options: AlterGrou
                 group.labels = labels;
                 changed = true;
             }
-        }
-        if let Some(interval) = options.interval {
-            group.interval = interval;
         }
         if let Some(limit) = options.limit {
             if group.limit!= limit {

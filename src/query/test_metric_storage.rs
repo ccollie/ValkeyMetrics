@@ -18,7 +18,7 @@ use valkey_module::{ValkeyError, ValkeyResult};
 
 /// Interface between the time series database and the metricsql runtime.
 /// Testing only
-pub(super) struct TestMetricStorage {
+pub(crate) struct TestMetricStorage {
     index: TimeSeriesIndex,
     series: RwLock<HashMap<KeyType, TimeSeries>>
 }

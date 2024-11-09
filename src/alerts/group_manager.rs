@@ -3,6 +3,7 @@ use std::hash::Hasher;
 use std::sync::{Arc, LazyLock};
 use std::sync::atomic::{Ordering, AtomicBool};
 use std::time::Duration;
+use get_size::GetSize;
 use crate::common::types::{Timestamp, TimestampTrait};
 use papaya::{HashMap};
 use valkey_module::{Context, RedisModuleTimerID, ThreadSafeContext, ValkeyError, ValkeyString};
@@ -10,15 +11,17 @@ use tracing::info;
 use xxhash_rust::xxh3::Xxh3;
 use crate::alerts::rules::{should_skip_rand_sleep_on_group_start, Group, Executor};
 use crate::common::{current_time_millis};
-use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, QuerierBuilder, QuerierParams, WriteQueue, VKM_RULE_GROUP};
+use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, WriteQueue, VKM_RULE_GROUP};
 use crate::alerts::utils::with_group_mut;
 use crate::config::GLOBAL_SETTINGS;
+use crate::query::{QuerierBuilder, QuerierParams};
 
 pub type GroupId = u64;
 
 // holds a mapping of group id => timer_id for each group started after a delay. Valkey only has
 // interval (as opposed to one-shot) timers, so we have to cancel timers after the first run
 static DELAY_TIMER_IDS: LazyLock<HashMap<GroupId, RedisModuleTimerID>> = LazyLock::new(HashMap::new);
+pub static GROUP_MANAGER: LazyLock<GroupManager> = LazyLock::new(GroupManager::default);
 
 #[derive(Clone)]
 struct GroupTimerMeta {
@@ -64,6 +67,14 @@ impl GroupTimerMeta {
 }
 
 
+#[derive(GetSize, Default)]
+struct GroupMeta {
+    hash: u64,
+    timer_id: u64,
+    name: String,
+    group_key: String,
+}
+
 struct TimerMeta {
     hash: u64,
     timer_id: u64,
@@ -75,6 +86,7 @@ pub struct GroupManager {
     pub querier_builder: Arc<AlertDatasource>,
     group_timers: HashMap<RedisModuleTimerID, GroupId>,
     timers_by_group: HashMap<GroupId, TimerMeta>,
+    groups_by_id: HashMap<GroupId, GroupMeta>,
     is_stopped: AtomicBool,
     flush_timer_id: RedisModuleTimerID
 }
@@ -98,6 +110,7 @@ impl GroupManager {
             is_stopped: Default::default(),
             flush_timer_id: 0,
             timers_by_group: Default::default(),
+            groups_by_id: Default::default(),
         }
     }
 
@@ -229,7 +242,9 @@ impl GroupManager {
     }
 
     fn create_querier(&self, group: &Group) -> AlertDatasource {
-        self.querier_builder.build_with_params(QuerierParams {
+        // Ugly
+        let source = *self.querier_builder.clone();
+        source.apply_params(QuerierParams {
             evaluation_interval: group.interval,
             eval_offset: group.eval_offset,
             query_params: group.params.clone(),

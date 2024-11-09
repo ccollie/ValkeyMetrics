@@ -2,7 +2,7 @@
 VM.CREATE-ALERTING-RULE groupKey NAME ruleName EXPR expression
     [LABELS [label value ...]]
     [ANNOTATIONS [label value ...]]
-    [FOR forDuration]
+    [FOR waitDuration]
     [KEEP-FIRING-FOR firingDuration]
     [MAX-ENTRIES maxEntries]
 ```
@@ -29,8 +29,8 @@ The name of the time series to output to. Must be a valid metric name.
 </details>
 
 ### Optional Arguments 
-<details open><summary><code>forDuration</code></summary>
-Alerts are considered firing once they have been returned for this long.
+<details open><summary><code>waitDuration</code></summary>
+The duration for which the alert condition must be true before the alert becomes active.
 Alerts which have not yet fired for long enough are considered pending.
 </details>
 

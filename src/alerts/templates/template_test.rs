@@ -1,11 +1,9 @@
-use serde_json;
-use std::error::Error;
-
 #[cfg(test)]
 mod tests {
+    use gtmpl_value::Value;
     use crate::alerts::templates::template_funcs;
-
-    // Define a function to test template functions
+    
+    #[test]
     fn test_template_funcs_string_conversion() {
         let test_cases = vec![
             ("title", "foo bar", "Foo Bar"),
@@ -26,12 +24,13 @@ mod tests {
         let func_map = template_funcs();
         for (func_name, input, expected) in test_cases {
             let func = func_map.get(func_name).unwrap();
-            let actual = func(input.into()).unwrap();
+            let value: Value = input.into();
+            let actual = func(&[value]).unwrap();
             assert_eq!(actual.to_string(), expected, "unexpected result for {}({})", func_name, input);
         }
     }
 
-    // Define a function to test match function
+    #[test]
     fn test_template_funcs_match() {
         let func_map = template_funcs();
         let match_func = func_map["match"];
@@ -40,13 +39,13 @@ mod tests {
         assert!(result.is_err(), "expecting non-nil error on invalid regexp");
 
         let result = match_func(&["abc".into(), "def".into()]).unwrap();
-        assert!(!result, "unexpected match");
+        assert!(matches!(result, Value::Bool(v) if !v), "unexpected match");
 
         let result = match_func(&["a.+b".into(), "acsdb".into()]).unwrap();
-        assert!(result, "unexpected mismatch");
+        assert!(matches!(result, Value::Bool(v) if v == true), "unexpected mismatch");
     }
 
-    // Define a function to test formatting functions
+    #[test]
     fn test_template_funcs_formatting() {
         let test_cases = vec![
             ("humanize_1024", 0.0, "0"),
@@ -76,7 +75,8 @@ mod tests {
         let func_map = template_funcs();
         for (func_name, input, expected) in test_cases {
             let func = func_map.get(func_name).unwrap();
-            let actual= func(input.into()).unwrap().to_string();
+            let value: Value = input.into();
+            let actual= func(&[value]).unwrap().to_string();
             
             assert_eq!(actual, expected, "unexpected result for {}({})", func_name, input);
         }

@@ -1,10 +1,10 @@
 use crate::alerts::notifications::validate_templates;
-use crate::alerts::rules::{AlertingRule, MetricRule};
+use crate::alerts::rules::{calc_rule_hash, validate_alert_expr, AlertingRule, MetricRule, RuleState};
 use crate::alerts::utils::with_group_mut;
+use crate::error_consts;
 use crate::module::arg_parse::{
     parse_duration,
     parse_key_value_pairs,
-    parse_promql_expr,
     CommandArgIterator,
     CMD_ARG_ANNOTATIONS,
     CMD_ARG_EXPR,
@@ -17,6 +17,7 @@ use valkey_module_macros::command;
 const CMD_ARG_ALERT_FOR: &str = "FOR"; // todo: rename to THRESHOLD
 const CMD_ARG_KEEP_FIRING_FOR: &str = "KEEP_FIRING_FOR";
 const CMD_ARG_EVAL_INTERVAL: &str = "EVAL_INTERVAL";
+const CMD_ARG_MAX_ENTRIES: &str = "MAX_ENTRIES";
 
 
 /// VM.CREATE-ALERTING-RULE groupKey ruleName
@@ -46,10 +47,10 @@ pub fn create_alerting_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRes
 
     with_group_mut(ctx, &group_key, move |group| {
         let rule = parse_alerting_rule_config(args)?;
-        if group.contains_rule(&rule.name) {
-            return Err(ValkeyError::Str("Err rules already exists"));
-        }
-        group.rules.push(MetricRule::AlertingRule(rule));
+        
+        let to_add = MetricRule::AlertingRule(rule);
+        group.add_rule(to_add)
+            .map_err(|_e| ValkeyError::Str(error_consts::ALERTS_DUPLICATE_RULE))?;
         
         // todo: Replicate
         VALKEY_OK
@@ -58,13 +59,14 @@ pub fn create_alerting_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRes
 
 fn parse_alerting_rule_config(mut args: CommandArgIterator) -> ValkeyResult<AlertingRule> {
     fn is_cmd_token(token: &str) -> bool {
-        const TOKENS: [&str; 6] = [
+        const TOKENS: [&str; 7] = [
             CMD_ARG_EXPR,
             CMD_ARG_LABELS,
             CMD_ARG_ALERT_FOR,
             CMD_ARG_KEEP_FIRING_FOR,
             CMD_ARG_ANNOTATIONS,
             CMD_ARG_EVAL_INTERVAL,
+            CMD_ARG_MAX_ENTRIES
         ];
         TOKENS.contains(&token)
     }
@@ -89,10 +91,15 @@ fn parse_alerting_rule_config(mut args: CommandArgIterator) -> ValkeyResult<Aler
                 rule.eval_interval = parse_duration(args.next_str()?)?;
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_EXPR) => {
-                rule.expr = parse_promql_expr(&mut args)?;
+                let expr = args.next_string()?;
+                validate_alert_expr(&expr)?;
+                rule.expr = expr;
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_LABELS) => {
-                rule.labels = parse_key_value_pairs(&mut args, is_cmd_token)?;
+                let labels = parse_key_value_pairs(&mut args, is_cmd_token)?;
+                validate_templates(&labels)
+                    .map_err(|_err| ValkeyError::Str("ERR error parsing label templates"))?;
+                rule.labels = labels;
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_ALERT_FOR) => {
                 rule.r#for = parse_duration(args.next_str()?)?;
@@ -100,17 +107,25 @@ fn parse_alerting_rule_config(mut args: CommandArgIterator) -> ValkeyResult<Aler
             arg if arg.eq_ignore_ascii_case(CMD_ARG_ANNOTATIONS) => {
                 let annotations = parse_key_value_pairs(&mut args, is_cmd_token)?;
                 validate_templates(&annotations)
-                    .map_err(|_err| ValkeyError::Str("ERR error parsing annotations"))?;
+                    .map_err(|_err| ValkeyError::Str("ERR error parsing annotation templates"))?;
                 rule.annotations = annotations;
             }
             arg if arg.eq_ignore_ascii_case(CMD_ARG_KEEP_FIRING_FOR) => {
                 rule.keep_firing_for = parse_duration(args.next_str()?)?;
+            }
+            arg if arg.eq_ignore_ascii_case(CMD_ARG_MAX_ENTRIES) => {
+                let max_entries = args.next_u64()? as u16;
+                // todo: limit
+                rule.state = RuleState::with_capacity(max_entries as usize);
             }
             _ => {
                 return Err(ValkeyError::Str("ERR invalid argument"))
             }
         }
     }
+    
+    rule.rule_id = calc_rule_hash(&rule)
+        .map_err(|_err| ValkeyError::Str("ERR hashing rule"))?;
     
     Ok(rule)
 }

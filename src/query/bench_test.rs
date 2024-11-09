@@ -1,8 +1,5 @@
-use crate::common::types::Timestamp;
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::query::test_metric_storage::TestMetricStorage;
     use crate::query::test_utils::{create_context, range_query_cases, setup_range_query_test_data};
     use criterion::Criterion;

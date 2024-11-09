@@ -1,7 +1,3 @@
-### VM.DELETE-RANGE
-
-#### Syntax
-
 ```
 VM.DELETE-RANGE selector.. [START fromTimestamp] [END toTimestamp]
 ```

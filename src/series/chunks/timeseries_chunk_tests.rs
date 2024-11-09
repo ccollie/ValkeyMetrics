@@ -1,5 +1,3 @@
-use crate::series::PcoChunk;
-
 #[cfg(test)]
 mod tests {
     use crate::common::types::Sample;

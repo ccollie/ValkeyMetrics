@@ -5,16 +5,8 @@ use crate::alerts::AlertsResult;
 use super::{Alert, Notifier};
 
 /// NullNotifier is a notifications that does nothing.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct NullNotifier {
-    addr: String,
-}
-
-impl NullNotifier {
-    pub fn new(addr: String) -> Self {
-        NullNotifier { addr }
-    }
-}
+#[derive(Debug, Clone, Default)]
+pub struct NullNotifier {}
 
 impl Notifier for NullNotifier {
     fn send(
@@ -27,10 +19,6 @@ impl Notifier for NullNotifier {
     }
 
     fn addr(&self) -> String {
-        if self.addr.is_empty() {
-            "null".to_string()
-        } else {
-            self.addr.clone()
-        }
+        "null".to_string()
     }
 }

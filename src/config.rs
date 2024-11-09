@@ -58,7 +58,7 @@ pub struct Settings {
     /// How often to evaluate the rules
     pub evaluation_interval: Duration,
 
-    ///  Defines the max number of rules's state updates stored in-memory.
+    ///  Defines the max number of rule's state updates stored in-memory.
     /// The number of stored updates can be overridden per rules via update_entries_limit param.
     pub rule_update_entries_limit: usize,
 

@@ -1,19 +1,21 @@
-use std::any::Any;
-use std::collections::HashMap;
 use crate::alerts::rules::config::RuleConfig;
-use crate::alerts::rules::{Group, Rule, RuleStateEntry, RuleType};
+use crate::alerts::rules::rule::fmt_rule;
+use crate::alerts::rules::{make_series_key, Group, Rule, RuleState, RuleStateEntry, RuleType};
 use crate::alerts::types::RawTimeSeries;
-use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, Querier};
+use crate::alerts::{AlertDatasource, AlertsError, AlertsResult};
 use crate::common::types::{Label, MetricName, Sample, Timestamp};
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
-use crate::query::{InstantQueryResult, RangeQueryResult};
+use crate::query::{InstantQueryResult, Querier, RangeQueryResult};
+use ahash::AHashSet;
 use enquote::enquote;
 use get_size::GetSize;
 use serde::{Deserialize, Serialize};
+use std::any::Any;
+use std::collections::HashMap;
+use std::fmt::Display;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use ahash::AHashSet;
 
 const ERR_DUPLICATE: &str =
     "result contains metrics with the same labelset after applying rules labels.";
@@ -23,9 +25,7 @@ const ERR_DUPLICATE: &str =
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[derive(GetSize)]
 pub struct RecordingRule {
-    pub id: u64,
-    /// The valkey db key of the time series to output to. Optional.
-    pub dest_key: String,
+    pub rule_id: u64,
     /// The name of the time series to output to. Must be a valid metric name.
     pub name: String,
     /// The PromQL expression to evaluate. Every evaluation cycle this is
@@ -35,10 +35,8 @@ pub struct RecordingRule {
     /// Labels to add or overwrite before storing the result.
     pub labels: HashMap<String, String>,
     pub group_id: u64,
-    /// The maximum number of state entries to store.
-    pub max_entries_limit: Option<usize>,
     /// state stores recent state changes during evaluations
-    pub state: Vec<RuleStateEntry>,
+    pub state: RuleState,
     pub metrics: RecordingRuleMetrics,
 }
 
@@ -58,22 +56,27 @@ impl Clone for RecordingRuleMetrics {
     }
 }
 
+impl Display for RecordingRule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt_rule(self, f)
+    }
+}
+
 impl RecordingRule {
     pub fn new(group: &Group, cfg: RuleConfig) -> Self {
+        let max_entries = cfg.update_entries_limit.unwrap_or(DEFAULT_RULE_UPDATE_ENTRIES_LIMIT);
         RecordingRule {
-            id: cfg.id,
-            dest_key: Default::default(),
+            rule_id: cfg.id,
             name: cfg.record,
             expr: cfg.expr,
             labels: cfg.labels,
             group_id: group.id(),
             metrics: Default::default(),
-            max_entries_limit: cfg.update_entries_limit,
-            state: Vec::new(),
+            state: RuleState::with_capacity(max_entries),
         }
     }
 
-    fn to_time_series(&self, key: String, metric: MetricName, samples: &[Sample]) -> RawTimeSeries {
+    fn to_time_series(&self, metric: MetricName, samples: &[Sample]) -> RawTimeSeries {
         let mut metric = metric;
 
         // Collect label updates to avoid borrowing conflicts
@@ -100,6 +103,8 @@ impl RecordingRule {
             value: self.name.clone(),
         });
 
+        let key = make_series_key(&labels);
+        
         RawTimeSeries {
             key,
             samples: samples.to_vec(),
@@ -108,31 +113,21 @@ impl RecordingRule {
     }
 
     fn to_instant_time_series(&self, r: InstantQueryResult) -> RawTimeSeries {
-        // TODO: properly construct name
-        let key = self.dest_key.clone();
-        self.to_time_series(key, r.metric, &[r.sample])
+        self.to_time_series(r.metric, &[r.sample])
     }
 
     fn to_range_time_series(&self, r: RangeQueryResult) -> RawTimeSeries {
-        // TODO: properly construct name
-        let key = self.dest_key.clone();
-        // todo: generate key for range query
-        self.to_time_series(key, r.metric, &r.samples)
+        self.to_time_series(r.metric, &r.samples)
     }
 
     fn push_state(&mut self, state: RuleStateEntry) {
         self.state.push(state);
-        let max_entries = self.max_entries_limit.unwrap_or(DEFAULT_RULE_UPDATE_ENTRIES_LIMIT);
-        while self.state.len() > max_entries {
-            self.state.remove(0);
-        }
     }
-    
 }
 
 impl Rule for RecordingRule {
     fn id(&self) -> u64 {
-        self.id
+        self.rule_id
     }
 
     fn name(&self) -> &str {
@@ -179,7 +174,7 @@ impl Rule for RecordingRule {
             return Err(err);
         }
 
-        cur_state.series_fetched = num_series;
+        cur_state.series_fetched = Some(num_series);
 
         let mut duplicates: AHashSet<String> = AHashSet::with_capacity(num_series);
         let mut tss: Vec<RawTimeSeries> = Vec::with_capacity(num_series);
@@ -241,6 +236,18 @@ impl Rule for RecordingRule {
         Ok(())
     }
 
+    fn get_rule_state_count(&self) -> usize {
+        self.state.len()
+    }
+
+    fn get_all_entries(&self) -> Vec<RuleStateEntry> {
+        self.state.get_all()
+    }
+    
+    fn get_last_entry(&self) -> Option<&RuleStateEntry> {
+        self.state.get_last()
+    }
+    
     fn as_any(&self) -> &dyn Any {
         self
     }

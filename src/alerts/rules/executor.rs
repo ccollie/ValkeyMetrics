@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::alerts::constants::STALE_NAN;
+use crate::alerts::constants::STALE_NAN_BITS;
 use crate::alerts::notifications::{AlertNotifier, Notifier};
 use crate::alerts::rules::group::labels_to_string;
 use crate::alerts::rules::{make_series_key, AlertingRule, Group, MetricRule, Rule, RuleType};
@@ -61,18 +61,17 @@ impl Executor {
         // check whether there are series which disappeared and need to be marked as stale
         let mut map = self.previously_sent_series.lock().unwrap();
 
-        if let Some(entry) = map.get_mut(&rid) {
-            for (key, labels) in entry.iter_mut() {
+        if let Some(entry) = map.get(&rid) {
+            for (key, labels) in entry.iter() {
                 if rule_labels.contains_key(key) {
                     continue;
                 }
-                // todo: is this correct ?
                 let key = make_series_key(labels);
                 // previously sent series are missing in current series, so we mark them as stale
                 let ss = RawTimeSeries {
                     key,
                     labels: labels.clone(),
-                    samples: vec![Sample { timestamp, value: *STALE_NAN }],
+                    samples: vec![Sample { timestamp, value: f64::from_bits(STALE_NAN_BITS) }],
                 };
                 stales.push(ss)
             }

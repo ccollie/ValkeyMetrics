@@ -13,7 +13,7 @@
 
 use super::models::{instant_result_to_value, DateTimeModel, DurationModel, Metric};
 use super::utils::*;
-use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, InstantResult, Querier};
+use crate::alerts::{AlertDatasource, AlertsError, AlertsResult};
 use crate::common::types::Timestamp;
 use crate::common::METRIC_NAME_LABEL;
 use chrono::DateTime;
@@ -25,8 +25,10 @@ use regex::Regex;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
+use std::time::Duration;
 use titlecase::titlecase;
 use url::Url;
+use crate::query::{Querier};
 
 pub type FuncMap = HashMap<String, Func>;
 
@@ -38,10 +40,6 @@ pub(crate) struct TextTemplate {
 }
 
 impl TextTemplate {
-    pub(crate) fn new() -> Self {
-        TextTemplate::default()
-    }
-
     pub fn clone(&self) -> AlertsResult<Self> {
         Ok(TextTemplate {
             current: clone_template(&self.current)?,
@@ -90,8 +88,6 @@ pub(crate) fn clone_template(tpl: &Template) -> AlertsResult<Template> {
     Ok(result)
 }
 
-// QueryFn is used to wrap a call to provider into simple-to-use function for templating functions.
-pub type QueryFn = fn(query: &str) -> AlertsResult<InstantResult>;
 
 #[derive(Clone)]
 pub enum TemplateQueryContext {
@@ -103,13 +99,6 @@ thread_local!(static QUERY_TS: RefCell<TemplateQueryContext> = RefCell::new(
     TemplateQueryContext::Error("Query function is not set".to_string())
 ));
 
-
-/// update_with_funcs updates existing or sets a new function map for a template
-pub(crate) fn update_with_funcs(funcs: &FuncMap) {
-    let master_template = get_master_template_ref();
-    let mut writer = master_template.write().unwrap();
-    writer.current.funcs.clone_from(funcs);
-}
 
 /// returns a copy of current template with additional FuncMap provided with funcs argument
 pub(crate) fn get_with_funcs(funcs: FuncMap) -> AlertsResult<Template> {
@@ -225,17 +214,13 @@ fn parse_duration(args: &[Value]) -> Result<Value, FuncError> {
 }
 
 /// same with parseDuration but returns a std::time::Duration
-fn parse_duration_time(args: &[Value]) -> Result<DurationModel, FuncError> {
+fn parse_duration_time(args: &[Value]) -> Result<Value, FuncError> {
     let s = ensure_single_arg(args, "parseDurationTime")?.to_string();
-    match metricsql_parser::prelude::parse_duration_value(&s, 1) {
-        Ok(d) => Ok(
-            // TODO: ensure only positive
-            DurationModel(std::time::Duration::from_millis(d as u64))
-        ),
-        Err(_e) => Ok(
-            DurationModel(std::time::Duration::from_millis(0))
-        )
-    }
+    let millis = match metricsql_parser::prelude::parse_duration_value(&s, 1) {
+        Ok(d) => d as u64,
+        Err(_e) => 0
+    };
+    Ok(DurationModel::from(Duration::from_millis(millis)).to_value())
 }
 
 /// `re_replace_all` returns a copy of src, replacing matches of the Regexp with
@@ -534,7 +519,7 @@ fn humanize_percentage(args: &[Value]) -> Result<Value, FuncError> {
     }
 }
 
-/// humanize_timestamp converts given timestamp to a human readable time equivalent
+/// humanize_timestamp converts given timestamp to a human-readable time equivalent
 fn humanize_timestamp(args: &[Value]) -> Result<Value, FuncError> {
     match ensure_single_f64(args, "humanizeTimestamp") {
         Ok(v) => {
@@ -581,7 +566,7 @@ pub fn template_funcs() -> FuncMap {
     funcs.insert("reReplaceAll".to_string(), re_replace_all);
 
     funcs.insert("parseDuration".to_string(), parse_duration);
-    //    funcs.insert("parseDurationTime".to_string(), parse_duration_time);
+    funcs.insert("parseDurationTime".to_string(), parse_duration_time);
 
     /* Number */
     funcs.insert("humanize".to_string(), humanize);

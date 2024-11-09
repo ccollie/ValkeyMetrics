@@ -1,6 +1,6 @@
-use valkey_module::ValkeyResult;
 use metricsql_parser::parser::is_valid_identifier;
 use valkey_module::ValkeyError;
+use valkey_module::ValkeyResult;
 
 pub(super) fn validate_group_name(name: &str) -> ValkeyResult<()> {
 

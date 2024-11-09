@@ -490,12 +490,6 @@ pub fn parse_grouping_params(args: &mut CommandArgIterator) -> ValkeyResult<Rang
     )
 }
 
-pub fn parse_promql_expr(args: &mut CommandArgIterator) -> ValkeyResult<String> {
-    let expr = args.next_string()?;
-    parse_expr(&expr)
-        .map_err(|_| ValkeyError::Str("ERR: invalid PromQL expression"))?;
-    Ok(expr)
-}
 
 pub fn parse_promql_vector_expr(args: &mut CommandArgIterator) -> ValkeyResult<String> {
     const ERROR_MSG: &str = "ERR: invalid PromQL vector expression";

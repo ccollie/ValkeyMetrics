@@ -1,7 +1,6 @@
 pub static CANNOT_ADD_SAMPLE: &str = "ERR could not add sample";
 pub static CAPACITY_FULL: &str = "ERR capacity full";
 pub static CHUNK_DECOMPRESSION: &str = "ERR cannot decompress chunk";
-pub static DESERIALIZE_ERROR: &str = "ERR cannot deserialize";
 pub static DUPLICATE_SAMPLE: &str = "ERR duplicate sample";
 pub static DUPLICATE_SERIES: &str = "ERR duplicate series";
 pub static ERROR_FETCHING_SAMPLE: &str = "ERR fetching sample";
@@ -10,7 +9,6 @@ pub static INVALID_ALIGN: &str = "ERR invalid ALIGN argument";
 pub static INVALID_ARGUMENT: &str = "ERR invalid argument";
 pub static INVALID_CHUNK_COMPRESSION: &str = "ERR invalid chunk compression method";
 pub static INVALID_CHUNK_SIZE: &str = "ERR invalid chunk size";
-pub static INVALID_CONFIGURATION: &str = "ERR invalid configuration";
 pub static INVALID_DUPLICATE_POLICY: &str = "ERR invalid duplicate policy";
 pub static INVALID_DURATION: &str = "ERR invalid duration";
 pub static INVALID_INTEGER: &str = "ERR invalid integer";
@@ -24,3 +22,7 @@ pub static MISSING_FILTER: &str = "ERR missing filter";
 pub static NO_SERIES_FOUND: &str = "ERR no series found";
 pub static SAMPLE_TOO_OLD: &str = "ERR sample timestamp exceeds retention period";
 pub static SERIES_NOT_FOUND: &str = "ERR series not found";
+
+// Alerts
+pub static ALERTS_DUPLICATE_RULE: &str = "ERR a rule with the same name and labels already exists";
+pub static EVAL_OFFSET_EXCEEDS_INTERVAL: &str = "ERR eval_offset should be smaller than evaluation interval;";
