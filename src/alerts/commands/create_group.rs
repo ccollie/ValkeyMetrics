@@ -37,9 +37,9 @@ const EVAL_ALIGNMENT: &str = "EVAL_ALIGNMENT";
         name: "VM.CREATE-RULE-GROUP",
         flags: [Write],
         arity: -3,
+        summary: "Create a new rules group",
         key_spec: [
             {
-                notes: "Creates a rules group",
                 flags: [Insert, Access],
                 begin_search: Index({ index : 1 }),
                 find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),

@@ -28,7 +28,7 @@ start at 5th minute of the hour. See https://github.com/VictoriaMetrics/Victoria
 </details>
 
 <details open><summary><code>evalDelay</code></summary>
-Adjust the `time` parameter of group evaluation requests to compensate intentional query delay from the datasource.
+Adjust the `time` parameter of group evaluation requests to compensate for intentional query delays from the datasource.
 By default, the value is inherited from the `-rule.evalDelay` cmd-line flag - see its description for details.
 If group has `latency_offset` set in `params`, then it is recommended to set `eval_delay` equal to `latency_offset`.
 See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5155 and https://docs.victoriametrics.com/keyconcepts/#query-latency.
@@ -51,11 +51,6 @@ When comparing with raw queries, remember to use `step` equal to evaluation inte
 Default: `true`
 
 See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5049
-</details>
-
-<details open><summary><code>concurrency</code></summary>
-How many rules execute at once within a group. Increasing concurrency may speed
-up group's evaluation duration (exposed via `vmalert_iteration_duration_seconds` metric).
 </details>
 
 <details open><summary><code>params</code></summary>

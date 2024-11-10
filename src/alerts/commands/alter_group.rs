@@ -50,7 +50,7 @@ pub struct AlterGroupOptions {
     {
         name: "VM.ALTER-RULE-GROUP",
         flags: [Write],
-        arity: -2,
+        arity: -3,
         summary: "Updates a rules group",
         key_spec: [
             {

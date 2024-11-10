@@ -28,7 +28,6 @@ pub fn alerts(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     
     struct GroupState {
         name: String,
-        id: u64,
         group: ValkeyValue,
         alerts: ValkeyValue
     }
@@ -49,7 +48,6 @@ pub fn alerts(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         if !alerts.is_empty() {
             state.push(GroupState {
                 name: group.name.clone(),
-                id: group.id,
                 group: group_to_api(group, None),
                 alerts: alerts.into(),
             });

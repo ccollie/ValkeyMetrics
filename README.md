@@ -16,10 +16,11 @@ Substantially based on the [VictoriaMetrics](https://victoriametrics.com) projec
 - Supports [Metadata](https://prometheus.io/docs/prometheus/latest/querying/api/#querying-metadata) like lookups
 - Exposes an API similar to the Prometheus HTTP-API
 - Over 200 supported [functions](https://docs.victoriametrics.com/MetricsQL.html#metricsql-functions) (Label, Aggregation, Rollup and Transformation)
+- [Recording](https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/#recording-rules) and [alerting](https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/) rule support with pubsub notifications (stream support also planned)
 
 ## Caveats
 - Is highly experimental and not yet ready for production use
-- The library does up-front query optimization and caching, so one-off ad-hoc queries are not as fast as repeated queries. These behaviours will be made configurable in future releases.
+- The underlying library does up-front query optimization and caching, so one-off ad-hoc queries are not as fast as repeated queries. These behaviours will be made configurable in future releases.
 
 ## Quick Example
 
@@ -104,6 +105,12 @@ VM.LABEL-NAMES
 VM.LABEL-VALUES
 VM.STATS
 VM.RESET-ROLLUP-CACHE
+VM.CREATE-RULE-GROUP
+VM.ALTER-RULE-GROUP
+VM.ALERTS
+VM.GROUPS
+VM.CREATE-ALERTING-RULE
+VM.CREATE-RECORDING-RULE
 ```
 
 

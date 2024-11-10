@@ -3,7 +3,7 @@ use crate::alerts::{AlertsError, AlertsResult};
 use crate::module::commands::create_and_store_series;
 use crate::module::get_timeseries_mut;
 use crate::series::{TimeSeries, TimeSeriesOptions};
-use std::sync::{Arc, RwLock, RwLockWriteGuard};
+use std::sync::{RwLock, RwLockWriteGuard};
 use std::time::Duration;
 use valkey_module::{ContextGuard, ThreadSafeContext, ValkeyString};
 
@@ -27,7 +27,6 @@ impl Default for WriteQueue {
         }
     }
 }
-pub type WriteQueueRef = Arc<WriteQueue>;
 
 /// `WriteQueueConfig` is config for remote write.
 #[derive(Clone, Default, Debug)]

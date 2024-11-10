@@ -1,11 +1,11 @@
-use crate::alerts::rules::{RuleType, RulesFilter};
 use crate::alerts::commands::api::group_to_api;
 use crate::alerts::group_manager::GROUP_MANAGER;
-use crate::module::arg_parse::{parse_boolean, parse_label_list};
+use crate::alerts::rules::{RuleType, RulesFilter};
+use crate::error_consts;
+use crate::module::arg_parse::parse_label_list;
 use std::cmp::Ordering;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 use valkey_module_macros::command;
-use crate::error_consts;
 
 /// VM.GROUPS [RULE_GROUP groupName...] [RULE_NAME ruleName...] [RULE_TYPE alert|record] [EXCLUDE_ALERTS]
 #[command(

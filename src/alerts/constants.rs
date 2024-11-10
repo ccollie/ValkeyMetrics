@@ -19,10 +19,5 @@ pub static ALERT_GROUP_NAME_LABEL: &str = "alertgroup";
 /// StaleNaN is a special NaN value, which is used as Prometheus staleness mark.
 pub const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
 
-fn get_stale_nan_value() -> f64 {
-    f64::from_bits(STALE_NAN_BITS)
-}
-
-pub fn is_stale_nan(value: f64) -> bool {
-    value == f64::from_bits(STALE_NAN_BITS)
-}
+// todo: have global configurable key prefix
+pub const KEY_PREFIX: &'static str = "__VM__";

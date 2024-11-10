@@ -1,13 +1,6 @@
-use valkey_module::{Context, ThreadSafeContext, ValkeyError, ValkeyResult, ValkeyString};
 use crate::alerts::group_data_type::VKM_RULE_GROUP;
 use crate::alerts::rules::Group;
-
-pub(crate) fn with_write_context<F, STATE>(state: &mut STATE, mut f: F)
-where F: FnMut(&mut STATE, &Context) {
-    let thread_ctx = ThreadSafeContext::new();
-    let guard = thread_ctx.lock();
-    f(state, &guard)
-}
+use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
 
 pub(crate) fn with_group<T>(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&Group) -> ValkeyResult<T>) -> ValkeyResult<T> {
     let redis_key = ctx.open_key(key);

@@ -168,6 +168,15 @@ impl Alert {
         }
         self.last_sent.saturating_add(resend_delay) < ts
     }
+
+    /// get the timestamp of the Alert's state transition
+    pub fn get_transition_timestamp(&self) -> Timestamp {
+        match self.state {
+            AlertState::Inactive => self.resolved_at,
+            AlertState::Pending => self.active_at,
+            AlertState::Firing => self.start
+        }
+    }
 }
 
 /// exec_template executes the given template for given annotations map.

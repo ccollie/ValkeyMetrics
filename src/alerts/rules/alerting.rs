@@ -597,8 +597,7 @@ impl Rule for AlertingRule {
                     self.log_debug(ts, Some(alert), "PENDING => DELETED: is absent in current evaluation round");
                     continue;
                 }
-                // check if alert should keep Firing if rules has
-                // `keep_firing_for` field
+                // check if alert should keep Firing if rules has `keep_firing_for` field
                 if alert.state == AlertState::Firing {
                     if !self.keep_firing_for.is_zero() && alert.keep_firing_since == 0 {
                         alert.keep_firing_since = ts
