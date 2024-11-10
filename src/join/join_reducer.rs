@@ -35,7 +35,7 @@ pub enum JoinReducer {
     Unless,
 }
 
-pub static BINARY_OPS_MAP: phf::Map<&'static str, JoinReducer> = phf_map! {
+static BINARY_OPS_MAP: phf::Map<&'static str, JoinReducer> = phf_map! {
     "+" => JoinReducer::Add,
     "-" => JoinReducer::Sub,
     "*" => JoinReducer::Mul,
