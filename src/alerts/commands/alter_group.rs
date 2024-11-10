@@ -1,4 +1,3 @@
-use crate::alerts::GROUP_MANAGER;
 use std::collections::HashMap;
 use crate::alerts::utils::with_group_mut;
 use crate::error_consts;
@@ -15,6 +14,7 @@ use valkey_module::{
     VALKEY_OK
 };
 use valkey_module_macros::command;
+use crate::alerts::group_manager::GROUP_MANAGER;
 use crate::error_consts::EVAL_OFFSET_EXCEEDS_INTERVAL;
 
 const INTERVAL: &str = "INTERVAL";
@@ -51,9 +51,9 @@ pub struct AlterGroupOptions {
         name: "VM.ALTER-RULE-GROUP",
         flags: [Write],
         arity: -2,
+        summary: "Updates a rules group",
         key_spec: [
             {
-                notes: "Updates a rules group",
                 flags: [Update, Access],
                 begin_search: Index({ index : 1 }),
                 find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),

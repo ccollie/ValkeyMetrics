@@ -33,7 +33,7 @@ pub(crate) fn save_rule_state_entry(rdb: *mut RedisModuleIO, state_entry: &RuleS
         raw::save_string(rdb, "");
     }
     rdb_save_usize(rdb, state_entry.samples);
-    rdb_save_usize(rdb, state_entry.series_fetched);
+    rdb_save_optional_usize(rdb, state_entry.series_fetched);
 }
 
 pub(crate) fn load_rule_state_entry(rdb: *mut RedisModuleIO) -> ValkeyResult<RuleStateEntry> {
@@ -42,7 +42,7 @@ pub(crate) fn load_rule_state_entry(rdb: *mut RedisModuleIO) -> ValkeyResult<Rul
     let duration = rdb_load_duration(rdb)?;
     let err_msg = raw::load_string(rdb)?;
     let samples = rdb_load_usize(rdb)?;
-    let series_fetched = rdb_load_usize(rdb)?;
+    let series_fetched = rdb_load_optional_usize(rdb)?;
 
     let err = if err_msg.is_empty() {
         None
@@ -94,7 +94,6 @@ pub(crate) fn save_recording_rule(rdb: *mut RedisModuleIO, rule: &RecordingRule)
     raw::save_string(rdb, &rule.name);
     raw::save_string(rdb, &rule.expr);
     rdb_save_string_hashmap(rdb, &rule.labels);
-    raw::save_unsigned(rdb, rule.group_id);
     save_rule_state(rdb, &rule.state);
     save_recording_rule_metrics(rdb, &rule.metrics);
 }
@@ -104,7 +103,6 @@ pub(crate) fn load_recording_rule(rdb: *mut RedisModuleIO) -> ValkeyResult<Recor
     let name = rdb_load_string(rdb)?;
     let expr = rdb_load_string(rdb)?;
     let labels = rdb_load_string_hashmap(rdb)?;
-    let group_id = raw::load_unsigned(rdb)?;
     let state = load_rule_state(rdb)?;
     let metrics = load_recording_rule_metrics(rdb)?;
     Ok(RecordingRule {
@@ -112,7 +110,6 @@ pub(crate) fn load_recording_rule(rdb: *mut RedisModuleIO) -> ValkeyResult<Recor
         name,
         expr,
         labels,
-        group_id,
         state,
         metrics,
     })

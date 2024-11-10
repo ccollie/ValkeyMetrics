@@ -105,13 +105,13 @@ impl Default for Settings {
     }
 }
 
-pub static GLOBAL_SETTINGS: LazyLock<Settings> = LazyLock::new(load_setings);
+pub static GLOBAL_SETTINGS: LazyLock<Settings> = LazyLock::new(load_settings);
 
 pub fn get_global_settings() -> &'static Settings {
     &GLOBAL_SETTINGS
 }
 
-fn load_setings() -> Settings {
+fn load_settings() -> Settings {
     // todo: load settings from config file
     Settings::default()
 }

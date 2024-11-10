@@ -1,4 +1,3 @@
-use crate::alerts::GROUP_MANAGER;
 use std::hash::Hasher;
 use std::sync::{Arc, LazyLock};
 use std::sync::atomic::{Ordering, AtomicBool};
@@ -6,13 +5,13 @@ use std::time::Duration;
 use get_size::GetSize;
 use crate::common::types::{Timestamp, TimestampTrait};
 use papaya::{HashMap};
-use valkey_module::{Context, RedisModuleTimerID, ThreadSafeContext, ValkeyError, ValkeyString};
+use valkey_module::{Context, RedisModuleTimerID, ThreadSafeContext, ValkeyError, ValkeyResult, ValkeyString};
 use tracing::info;
 use xxhash_rust::xxh3::Xxh3;
 use crate::alerts::rules::{should_skip_rand_sleep_on_group_start, Group, Executor};
 use crate::common::{current_time_millis};
-use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, WriteQueue, VKM_RULE_GROUP};
-use crate::alerts::utils::with_group_mut;
+use crate::alerts::{AlertDatasource, WriteQueue, VKM_RULE_GROUP};
+use crate::alerts::utils::{with_group, with_group_mut};
 use crate::config::GLOBAL_SETTINGS;
 use crate::query::{QuerierBuilder, QuerierParams};
 
@@ -25,13 +24,23 @@ pub static GROUP_MANAGER: LazyLock<GroupManager> = LazyLock::new(GroupManager::d
 
 #[derive(Clone)]
 struct GroupTimerMeta {
-    group_key: Box<[u8]>,
+    group_id: GroupId,
     executor: Executor
 }
 
 impl GroupTimerMeta {
-    fn start(&self, ctx: &Context, qb: Option<impl QuerierBuilder>) -> AlertsResult<()> {
-        let key = ctx.create_string(&*self.group_key);
+    fn get_key(&self, ctx: &Context) -> Option<ValkeyString> {
+        GROUP_MANAGER.get_group_key(ctx, self.group_id)
+    }
+    
+    fn start(&self, ctx: &Context, qb: Option<impl QuerierBuilder>) -> ValkeyResult<()> {
+        let key = if let Some(key) = self.get_key(ctx) {
+            key
+        } else {
+            let msg = format!("ERR fetching group key for group id: {}", self.group_id);
+            ctx.log_debug(&msg);
+            return Err(ValkeyError::String(msg));
+        };
 
         with_group_mut(ctx, &key, |group| {
             // start group
@@ -51,18 +60,17 @@ impl GroupTimerMeta {
                 }
             }
             Ok(())
-        }).map_err(|_| AlertsError::ErrorFetchingGroup(key.to_string_lossy()))?;
-
-        Ok(())
+        })
     }
 
     fn on_tick(&self, ctx: &Context) {
-        let key = ctx.create_string(&*self.group_key);
-        let _ = with_group_mut(ctx, &key, |group: &mut Group| {
-            let current = current_time_millis();
-            group.on_tick(&self.executor, current);
-            Ok(())
-        });
+        if let Some(key) = self.get_key(ctx) {
+            let _ = with_group_mut(ctx, &key, |group: &mut Group| {
+                let current = current_time_millis();
+                group.on_tick(&self.executor, current);
+                Ok(())
+            });
+        } // todo: else remove group
     }
 }
 
@@ -70,14 +78,10 @@ impl GroupTimerMeta {
 #[derive(GetSize, Default)]
 struct GroupMeta {
     hash: u64,
-    timer_id: u64,
+    started: bool,
+    timer_id: RedisModuleTimerID,
     name: String,
-    group_key: String,
-}
-
-struct TimerMeta {
-    hash: u64,
-    timer_id: u64,
+    group_key: Box<[u8]>,
 }
 
 #[derive(Default)]
@@ -85,7 +89,6 @@ pub struct GroupManager {
     pub write_queue: Arc<WriteQueue>,
     pub querier_builder: Arc<AlertDatasource>,
     group_timers: HashMap<RedisModuleTimerID, GroupId>,
-    timers_by_group: HashMap<GroupId, TimerMeta>,
     groups_by_id: HashMap<GroupId, GroupMeta>,
     is_stopped: AtomicBool,
     flush_timer_id: RedisModuleTimerID
@@ -109,7 +112,6 @@ impl GroupManager {
             querier_builder: Arc::clone(&querier_builder),
             is_stopped: Default::default(),
             flush_timer_id: 0,
-            timers_by_group: Default::default(),
             groups_by_id: Default::default(),
         }
     }
@@ -140,9 +142,6 @@ impl GroupManager {
     // }
 
     pub fn add_group(&self, ctx: &Context, group: &Group, key: &ValkeyString) -> bool {
-        if group.disabled {
-            return false;
-        }
         self.schedule_group(ctx, group, key.as_slice());
         true
     }
@@ -150,58 +149,67 @@ impl GroupManager {
     fn schedule_group(&self, ctx: &Context, group: &Group, key: &[u8]) {
         let executor = self.create_executor(group);
 
-        let timers = self.timers_by_group.pin();
+        let groups = self.groups_by_id.pin();
 
         let meta = GroupTimerMeta {
-            group_key: key.to_vec().into_boxed_slice(),
+            group_id: group.id,
             executor,
         };
 
         let hash = get_hash(group);
         let timer_id = ctx.create_timer(group.interval, group_timer_callback, meta);
-        let timer_meta = TimerMeta {
+
+        let group_meta = GroupMeta {
             hash,
             timer_id,
+            started: false,
+            name: group.name.clone(),
+            group_key: key.to_vec().into_boxed_slice(),
         };
-
-        timers.insert(group.id, timer_meta);
+        
+        groups.insert(group.id, group_meta);
 
         let timer_group_map = self.group_timers.pin();
         timer_group_map.insert(timer_id, group.id);
     }
 
     fn stop_group_timer(&self, ctx: &Context, group_id: GroupId) -> bool {
-        let timers = self.timers_by_group.pin();
-        if let Some(timer_meta) = timers.remove(&group_id) {
-            let timer_id = timer_meta.timer_id;
-            let group_timers = self.group_timers.pin();
-            let _ = group_timers.remove(&timer_id);
-            if let Err(e) = ctx.stop_timer::<GroupTimerMeta>(timer_id) {
+        let groups = self.groups_by_id.pin();
+        let v = groups.update(group_id, |meta| {
+            if let Err(e) = ctx.stop_timer::<GroupTimerMeta>(meta.timer_id) {
                 let msg = format!("Failed to stop timer for group {}: {}", group_id, e);
                 ctx.log_warning(&msg);
             }
-            return true
-        }
-        false
+            let group_timers = self.group_timers.pin();
+            let _ = group_timers.remove(&meta.timer_id);
+            GroupMeta {
+                hash: meta.hash,
+                timer_id: 0,
+                started: false,
+                name: meta.name.clone(),
+                group_key: meta.group_key.clone(),
+            }
+        });
+        v.is_some()
     }
 
 
     pub fn update_group(&self, ctx: &Context, group: &Group, key: &ValkeyString) -> bool {
         let group_id = group.id;
-
-        // Unschedule group if it's running but is currently disabled
-        if group.disabled {
-            self.stop_group_timer(ctx, group.id);
-            return false;
-        }
-
+        
         let hash = get_hash(group);
-        let timers = self.timers_by_group.pin();
+        let groups = self.groups_by_id.pin();
 
-        if let Some(timer_meta) = timers.get(&group_id) {
-            // changes would affect the execution of queries
-            if timer_meta.hash != hash {
+        if let Some(meta) = groups.get(&group_id) {
+            let hash_changed = meta.hash != hash;
+            
+            let should_stop = (meta.timer_id != 0 && group.disabled) || hash_changed;
+            if should_stop {
                 self.stop_group_timer(ctx, group.id);
+            }
+            
+            // changes would affect the execution of queries
+            if hash_changed {
                 self.schedule_group(ctx, group, key.as_slice());
                 return true;
             }
@@ -215,6 +223,8 @@ impl GroupManager {
 
     pub fn delete_group(&self, ctx: &Context, group: &Group) {
         self.stop_group(ctx, group.id);
+        let groups = self.groups_by_id.pin();
+        groups.remove(&group.id);
     }
 
     fn stop_flush_timer(&mut self) {
@@ -251,7 +261,46 @@ impl GroupManager {
             debug: false,
         })
     }
-
+    
+    fn get_group_key(&self, ctx: &Context, group_id: GroupId) -> Option<ValkeyString> {
+        let groups = self.groups_by_id.pin();
+        groups
+            .get(&group_id)
+            .map(|meta| ctx.create_string(&*meta.group_key))
+    }
+    
+    pub fn group_count(&self) -> usize {
+        self.groups_by_id.pin().len()
+    }
+    
+    pub fn with_group_by_id<F, R>(&self, ctx: &Context, group_id: GroupId, f: F) -> ValkeyResult<R>
+    where F: FnOnce(&Group) -> R
+    {
+        let groups = self.groups_by_id.pin();
+        if let Some(meta) = groups.get(&group_id) {
+            let key = ctx.create_string(&*meta.group_key);
+            return with_group(ctx, &key, move |group|
+                Ok(f(&group))
+            );
+        }
+        Err(ValkeyError::Str("ERR TSDB: the group does not exist"))
+    }
+    
+    pub fn with_groups<F, STATE>(&self, ctx: &Context, names: &[String], state: &mut STATE, mut f: F) 
+    where F: FnMut(&mut STATE, &Group)
+    {
+        let groups = self.groups_by_id.pin();
+        
+        for meta in groups.values() {
+            if names.is_empty() || names.iter().any(|n| n == &meta.name) {
+                let key = ctx.create_string(&*meta.group_key);
+                let redis_key = ctx.open_key(&key);
+                if let Ok(Some(group)) = redis_key.get_value::<Group>(&VKM_RULE_GROUP) {
+                    f(state, group);
+                }
+            }
+        }
+    }
 }
 
 fn group_timer_callback(ctx: &Context, meta: GroupTimerMeta) {

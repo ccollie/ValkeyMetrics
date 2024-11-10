@@ -98,6 +98,13 @@ pub struct RuleStateEntry {
     pub series_fetched: Option<usize>
 }
 
+#[derive(Default)]
+pub struct RulesFilter {
+    pub(crate) group_names: Vec<String>,
+    pub(crate) rule_names: Vec<String>,
+    pub(crate) rule_type: Option<RuleType>,
+    pub(crate) exclude_alerts: Option<bool>
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[derive(GetSize)]

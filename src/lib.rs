@@ -8,6 +8,7 @@ extern crate phf;
 extern crate smallvec;
 extern crate topologic;
 extern crate valkey_module_macros;
+extern crate core;
 
 use valkey_module::server_events::{FlushSubevent, LoadingSubevent};
 use valkey_module::{valkey_module, Context as ValkeyContext, Context, NotifyEvent, Status, ValkeyString};

@@ -31,9 +31,9 @@ const CMD_ARG_MAX_ENTRIES: &str = "MAX_ENTRIES";
         name: "VM.CREATE-ALERTING-RULE",
         flags: [Write],
         arity: -4,
+        summary: "Create an Alerting rules to define alert conditions based on PromQL expressions and to send notifications about firing alerts through PUBSUB or streams.",
         key_spec: [
             {
-                notes: "Create an Alerting rules to define alert conditions based on PromQL expressions and to send notifications about firing alerts through PUBSUB or streams.",
                 flags: [Insert, Access],
                 begin_search: Index({ index : 1 }),
                 find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),

@@ -26,6 +26,21 @@ fn rdb_save_optional_marker(rdb: *mut raw::RedisModuleIO, is_some: bool) {
     }
 }
 
+/// WARNING!: internal and *ONLY* for ints < 64bits! We used a signed integer with value.abs() if a value
+/// is present, and -1 otherwise
+fn save_optional_unsigned(rdb: *mut raw::RedisModuleIO, value: Option<u64>) {
+    if let Some(value) = value {
+        raw::save_signed(rdb, value as i64);
+    } else {
+        raw::save_signed(rdb, -1);
+    }
+}
+
+fn load_optional_unsigned(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<Option<u64>> {
+    let value = raw::load_signed(rdb)?;
+    Ok(if value == -1 {  None } else { Some(value as u64) })
+}
+
 pub fn rdb_save_duration(rdb: *mut raw::RedisModuleIO, duration: &Duration) {
     let millis = duration.as_millis() as i64;
     raw::save_signed(rdb, millis);
@@ -62,6 +77,15 @@ pub(crate) fn rdb_save_usize(rdb: *mut raw::RedisModuleIO, value: usize) {
 pub(crate) fn rdb_load_usize(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<usize> {
     let value = raw::load_unsigned(rdb)?;
     Ok(value as usize)
+}
+
+pub(crate) fn rdb_save_optional_usize(rdb: *mut raw::RedisModuleIO, value: Option<usize>) {
+    save_optional_unsigned(rdb, value.map(|x| x as u64));
+}
+
+pub(crate) fn rdb_load_optional_usize(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<Option<usize>> {
+    let value = load_optional_unsigned(rdb)?;
+    Ok(value.map(|x| x as usize))
 }
 
 #[inline]

@@ -80,7 +80,7 @@ pub struct AlertingRule {
     pub labels: HashMap<String, String>,
     pub annotations: HashMap<String, String>,
     pub group_id: u64, // I don't think this needs to be stored
-    pub group_name: String,
+    pub group_name: String, // neither this
     pub eval_interval: Duration,
     pub debug: bool,
 

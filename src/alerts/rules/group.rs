@@ -16,6 +16,7 @@ use tracing::info;
 use valkey_module::{Context, DetachedContextGuard};
 use xxhash_rust::xxh3::Xxh3;
 use crate::alerts::{AlertsError, AlertsResult};
+use crate::alerts::notifications::Alert;
 use crate::alerts::rules::{AlertingRule, GroupConfig, MetricRule, RecordingRule, Rule, RuleType};
 use crate::alerts::rules::executor::Executor;
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
@@ -290,6 +291,18 @@ impl Group {
         self.rules.iter().find(|r| r.id() == id)
     }
 
+    pub fn get_alert(&self, id: u64) -> Option<&Alert> {
+        for rule in self.rules.iter() {
+            if let MetricRule::AlertingRule(alerting_rule) = rule {
+                let alert = alerting_rule.alerts.get(&id);
+                if alert.is_some() {
+                    return alert;
+                }
+            }
+        }
+        None
+    }
+    
     pub fn contains_rule_by_id(&self, id: u64) -> bool {
         self.get_rule_by_id(id).is_some()
     }

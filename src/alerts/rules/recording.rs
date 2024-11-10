@@ -34,7 +34,6 @@ pub struct RecordingRule {
     pub expr: String,
     /// Labels to add or overwrite before storing the result.
     pub labels: HashMap<String, String>,
-    pub group_id: u64,
     /// state stores recent state changes during evaluations
     pub state: RuleState,
     pub metrics: RecordingRuleMetrics,
@@ -63,14 +62,13 @@ impl Display for RecordingRule {
 }
 
 impl RecordingRule {
-    pub fn new(group: &Group, cfg: RuleConfig) -> Self {
+    pub fn new(_group: &Group, cfg: RuleConfig) -> Self {
         let max_entries = cfg.update_entries_limit.unwrap_or(DEFAULT_RULE_UPDATE_ENTRIES_LIMIT);
         RecordingRule {
             rule_id: cfg.id,
             name: cfg.record,
             expr: cfg.expr,
             labels: cfg.labels,
-            group_id: group.id(),
             metrics: Default::default(),
             state: RuleState::with_capacity(max_entries),
         }

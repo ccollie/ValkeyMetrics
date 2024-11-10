@@ -1,4 +1,3 @@
-use crate::alerts::GROUP_MANAGER;
 use crate::alerts::rules::Group;
 use crate::alerts::serialization::{load_group, save_group};
 use crate::common::current_time_millis;
@@ -8,6 +7,7 @@ use std::ptr::null_mut;
 use std::sync::LazyLock;
 use valkey_module::native_types::ValkeyType;
 use valkey_module::{raw, Context, RedisModuleDefragCtx, RedisModuleString, ValkeyString};
+use crate::alerts::group_manager::GROUP_MANAGER;
 
 const VM_GROUP_VERSION: i32 = 0;
 

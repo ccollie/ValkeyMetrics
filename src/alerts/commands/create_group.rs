@@ -1,4 +1,3 @@
-use crate::alerts::GROUP_MANAGER;
 use crate::alerts::group_data_type::VKM_RULE_GROUP;
 use crate::alerts::rules::{Group, GroupConfig};
 use crate::error_consts;
@@ -16,6 +15,7 @@ use valkey_module::{
     VALKEY_OK
 };
 use valkey_module_macros::command;
+use crate::alerts::group_manager::GROUP_MANAGER;
 
 const INTERVAL: &str = "INTERVAL";
 const EVAL_OFFSET: &str = "EVAL_OFFSET";

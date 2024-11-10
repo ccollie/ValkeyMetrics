@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use valkey_module::Context;
-use crate::alerts::AlertsResult;
 use super::{Alert, Notifier};
+use crate::alerts::AlertsResult;
+use std::collections::HashMap;
+use valkey_module::Context;
 
 /// NullNotifier is a notifications that does nothing.
 #[derive(Debug, Clone, Default)]

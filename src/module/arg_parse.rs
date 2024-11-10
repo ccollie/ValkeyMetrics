@@ -8,11 +8,12 @@ use crate::series::types::*;
 use crate::series::{DuplicatePolicy, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
 use crate::series::{TimestampRange, TimestampValue};
 use chrono::DateTime;
+use metricsql_parser::common::{Value, ValueType};
 use metricsql_parser::parser::{
+    parse as parse_expr,
     parse_duration_value,
     parse_metric_name as parse_metric,
-    parse_number, 
-    parse as parse_expr
+    parse_number
 };
 use metricsql_parser::prelude::Matchers;
 use metricsql_runtime::parse_metric_selector;
@@ -20,7 +21,6 @@ use std::collections::{BTreeSet, HashMap};
 use std::iter::{Peekable, Skip};
 use std::time::Duration;
 use std::vec::IntoIter;
-use metricsql_parser::common::{Value, ValueType};
 use valkey_module::{NextArg, ValkeyError, ValkeyResult, ValkeyString};
 
 const MAX_TS_VALUES_FILTER: usize = 16;

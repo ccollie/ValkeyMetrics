@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use valkey_module::Context;
 use crate::alerts::AlertsResult;
 use super::{Alert, Notifier, NullNotifier, PubSubNotifier, StreamNotifier};
