@@ -3,7 +3,7 @@ use crate::common::current_time_millis;
 use crate::common::types::{Label, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
-use crate::series::join_reducer::JoinReducer;
+use crate::join::join_reducer::JoinReducer;
 use crate::series::types::*;
 use crate::series::{DuplicatePolicy, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
 use crate::series::{TimestampRange, TimestampValue};

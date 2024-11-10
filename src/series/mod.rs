@@ -6,7 +6,6 @@ mod defrag;
 pub mod index;
 pub mod chunks;
 pub mod types;
-pub(crate) mod join_reducer;
 mod merge;
 mod timestamp_range;
 

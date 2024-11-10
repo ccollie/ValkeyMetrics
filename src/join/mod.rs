@@ -14,11 +14,12 @@ mod join_right_iter;
 mod join_asof_iter;
 mod join_iter;
 pub mod asof;
+pub(crate) mod join_reducer;
 
 pub use join_iter::*;
 use crate::join::asof::AsOfJoinStrategy;
 use crate::series::TimestampRange;
-use crate::series::join_reducer::JoinReducer;
+use join_reducer::JoinReducer;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct JoinValue {
