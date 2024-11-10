@@ -100,7 +100,7 @@ mod tests {
     }
     #[test]
     fn test_round_to_decimal_digits_zero_digits() {
-        let f = 3.14159;
+        let f = f64::consts::PI;
         let digits = 0;
         let expected = 3.0;
         let result = round_to_decimal_digits(f, digits);

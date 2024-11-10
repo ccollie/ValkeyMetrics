@@ -1,7 +1,7 @@
 use crate::aggregators::{AggOp, Aggregator};
 use crate::common::types::{Sample, Timestamp};
 use crate::globals::with_timeseries_index;
-use crate::iter::{MultiSeriesSampleIter, SampleIter};
+use crate::iterators::{MultiSeriesSampleIter, SampleIter};
 use crate::module::commands::range_arg_parse::parse_range_options;
 use crate::module::commands::range_utils::{aggregate_samples, get_series_labels, group_samples_internal};
 use crate::module::result::sample_to_value;

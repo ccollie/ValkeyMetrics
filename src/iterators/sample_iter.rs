@@ -1,5 +1,5 @@
 use crate::common::types::Sample;
-use crate::iter::vec_sample_iterator::VecSampleIterator;
+use crate::iterators::vec_sample_iterator::VecSampleIterator;
 use crate::series::time_series::SeriesSampleIterator;
 use crate::series::{ChunkSampleIterator, GorillaChunkIterator, PcoSampleIterator};
 

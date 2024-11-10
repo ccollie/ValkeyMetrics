@@ -34,9 +34,9 @@ impl Notifier for PubSubNotifier {
            
             let ts = alert.get_transition_timestamp();
             
-            // PUBLISH __vm__alert:<group_id>:<alert_id> state,value,ts
+            // PUBLISH __vm__alert:<group_id>:<alert_id> value,ts,state
             let channel = format!("{channel_prefix}:{}:{}", alert.group_id, alert.id);
-            let mut payload = format!("{},{},{ts}", alert.state, alert.value);
+            let mut payload = format!("{},{ts},{}", alert.value, alert.state);
             
             self.publish(ctx, &channel, &payload);
 

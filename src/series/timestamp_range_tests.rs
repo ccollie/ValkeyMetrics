@@ -1,12 +1,11 @@
 #[cfg(test)]
 mod tests {
-    use std::cmp::Ordering;
-    use valkey_module::ValkeyError;
     use crate::common::current_time_millis;
-    use crate::error_consts;
     use crate::error_consts::INVALID_TIMESTAMP;
     use crate::series::timestamp_range::TimestampValue;
     use crate::series::{TimeSeries, TimestampRange};
+    use std::cmp::Ordering;
+    use valkey_module::ValkeyError;
 
     #[test]
     fn test_timestamp_range_value_try_from_earliest() {

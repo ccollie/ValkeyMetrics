@@ -1,7 +1,7 @@
 use crate::aggregators::{AggOp, Aggregator};
 use crate::common::types::{Sample, Timestamp};
-use crate::iter::MultiSeriesSampleIter;
-use crate::iter::sample_iter::SampleIter;
+use crate::iterators::MultiSeriesSampleIter;
+use crate::iterators::sample_iter::SampleIter;
 
 pub struct GroupAggregationIter<'a> {
     last_sample: Sample,

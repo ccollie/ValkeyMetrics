@@ -1,7 +1,7 @@
 use crate::common::binary_search::{find_last_ge_index, ExponentialSearch};
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
-use crate::iter::SampleIter;
+use crate::iterators::SampleIter;
 use crate::series::chunks::pco::pco_utils::{compress_timestamps, compress_values, decompress_timestamps, decompress_values};
 use crate::series::chunks::pco::PcoSampleIterator;
 use crate::series::chunks::Chunk;
@@ -168,7 +168,7 @@ impl PcoChunk {
             );
         } else {
             decompress_timestamps(&self.timestamps, timestamps)?;
-            decompress_values(&self.values, values)?
+            decompress_values(&self.values, values)?;
         }
         Ok(())
     }

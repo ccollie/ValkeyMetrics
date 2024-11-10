@@ -1,6 +1,6 @@
 use crate::common::types::{Sample, Timestamp};
 use crate::error::TsdbResult;
-use crate::iter::SampleIter;
+use crate::iterators::SampleIter;
 use crate::series::types::ValueFilter;
 use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value};
 use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, UncompressedChunk, SPLIT_FACTOR};

@@ -734,16 +734,16 @@ impl Rule for AlertingRule {
         Ok(())
     }
 
+    fn get_last_entry(&self) -> Option<&RuleStateEntry> {
+        self.state.get_last()
+    }
+
     fn get_rule_state_count(&self) -> usize {
         self.state.len()
     }
-    
+
     fn get_all_entries(&self) -> Vec<RuleStateEntry> {
         self.state.get_all()
-    }
-    
-    fn get_last_entry(&self) -> Option<&RuleStateEntry> {
-        self.state.get_last()
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -769,7 +769,6 @@ fn hash_map(labels: &HashMap<String, String>) -> u64 {
 }
 
 // Generate a unique key for a series based on its labels. Assumes that labels are sorted,
-// with __name__ occurring first.
 pub(crate) fn make_series_key(labels: &[Label]) -> String {
     let mut hasher = FastHasher::default();
     let mut measurement: String = "".to_string();
@@ -778,12 +777,14 @@ pub(crate) fn make_series_key(labels: &[Label]) -> String {
             measurement .push('{');
             measurement.push_str(value);
             measurement.push_str("}:");
-        } else {
             value.hash(&mut hasher);
+        } else {
+            name.hash(&mut hasher);
             hasher.write_u8(0xfe);
+            value.hash(&mut hasher);
         }
     }
-    format!("x-vm:{measurement}{:x}", hasher.finish())
+    format!("{KEY_PREFIX}:{measurement}{:x}", hasher.finish())
 }
 // maybe x-vm:{alert_for_name}::name=joe::foo=bar::bar=baz
 

@@ -2,7 +2,7 @@ use super::{XOREncoder, XORIterator};
 use crate::common::current_time_millis;
 use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
-use crate::iter::SampleIter;
+use crate::iterators::SampleIter;
 use crate::series::chunks::chunk::Chunk;
 use crate::series::merge::merge_samples;
 use crate::common::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};

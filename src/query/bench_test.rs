@@ -19,7 +19,7 @@ mod tests {
 
         for c in cases {
             let name = format!("expr={},steps={}", c.expr, c.steps);
-            // crit.iter(|| {
+            // crit.iterators(|| {
             //     let start_ofs = (num_intervals - c.steps) as u64 * TEN_SECONDS;
             //     let end_ofs = num_intervals * TEN_SECONDS;
             //

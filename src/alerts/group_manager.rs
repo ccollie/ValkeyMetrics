@@ -11,6 +11,7 @@ use xxhash_rust::xxh3::Xxh3;
 use crate::alerts::rules::{should_skip_rand_sleep_on_group_start, Group, Executor};
 use crate::common::{current_time_millis};
 use crate::alerts::{AlertDatasource, WriteQueue, VKM_RULE_GROUP};
+use crate::alerts::notifications::AlertNotifier;
 use crate::alerts::utils::{with_group, with_group_mut};
 use crate::config::GLOBAL_SETTINGS;
 use crate::query::{QuerierBuilder, QuerierParams};
@@ -20,7 +21,19 @@ pub type GroupId = u64;
 // holds a mapping of group id => timer_id for each group started after a delay. Valkey only has
 // interval (as opposed to one-shot) timers, so we have to cancel timers after the first run
 static DELAY_TIMER_IDS: LazyLock<HashMap<GroupId, RedisModuleTimerID>> = LazyLock::new(HashMap::new);
-pub static GROUP_MANAGER: LazyLock<GroupManager> = LazyLock::new(GroupManager::default);
+pub static GROUP_MANAGER: LazyLock<GroupManager> = LazyLock::new(create_group_manager);
+
+// todo: read configuration and construct accordingly
+fn create_group_manager() -> GroupManager {
+    let mut manager = GroupManager::default();
+    // todo: get from config
+    let notifiers = vec![
+        AlertNotifier::pubsub(),
+        // AlertNotifier::stream(Some(50)),
+    ];
+    manager.notifiers = Arc::new(notifiers);
+    manager
+}
 
 #[derive(Clone)]
 struct GroupTimerMeta {
@@ -84,28 +97,40 @@ struct GroupMeta {
     group_key: Box<[u8]>,
 }
 
+impl GroupMeta {
+    fn with_group<F, R>(&self, ctx: &Context, f: F) -> R 
+    where F: FnOnce(&mut Group) -> R
+    {
+        let key = ctx.create_string(&*self.group_key);
+        with_group_mut(ctx, &key, |group| {
+            let r = f(group);
+            Ok(r)   
+        }).unwrap() // F is infallible, so this unwrap is ok
+    }    
+}
+
 #[derive(Default)]
 pub struct GroupManager {
     pub write_queue: Arc<WriteQueue>,
     pub querier_builder: Arc<AlertDatasource>,
+    pub notifiers: Arc<Vec<AlertNotifier>>,
     group_timers: HashMap<RedisModuleTimerID, GroupId>,
     groups_by_id: HashMap<GroupId, GroupMeta>,
     is_stopped: AtomicBool,
     flush_timer_id: RedisModuleTimerID
 }
 
-
 impl Drop for GroupManager {
     fn drop(&mut self) {
-        // todo: i don't think we need a thread-safe context here
-        let thread_ctx = ThreadSafeContext::new();
-        let guard = thread_ctx.lock();
-        self.stop(&guard);
+        let ctx_guard = valkey_module::MODULE_CONTEXT.lock();
+        self.stop(&ctx_guard);
     }
 }
 
 impl GroupManager {
-    pub fn new(write_queue: Arc<WriteQueue>, querier_builder: Arc<AlertDatasource>) -> Self {
+    pub fn new(write_queue: Arc<WriteQueue>, 
+               querier_builder: Arc<AlertDatasource>,
+               notifiers: Arc<Vec<AlertNotifier>>) -> Self {
         Self {
             group_timers: Default::default(),
             write_queue: Arc::clone(&write_queue),
@@ -113,6 +138,7 @@ impl GroupManager {
             is_stopped: Default::default(),
             flush_timer_id: 0,
             groups_by_id: Default::default(),
+            notifiers: Arc::clone(&notifiers)
         }
     }
 
@@ -171,6 +197,37 @@ impl GroupManager {
 
         let timer_group_map = self.group_timers.pin();
         timer_group_map.insert(timer_id, group.id);
+    }
+    
+    fn start_group_timer(&self, ctx: &Context, group_id: GroupId) -> bool {
+        let groups = self.groups_by_id.pin();
+        
+        groups.update(group_id, |group_meta| {
+            // cancel timer if it's already running
+            if group_meta.timer_id != 0 {
+                let _ = ctx.stop_timer::<GroupTimerMeta>(group_meta.timer_id);
+            }
+            
+            group_meta.with_group(ctx, |group| {
+                let executor = self.create_executor(group);
+                let meta = GroupTimerMeta {
+                    group_id,
+                    executor,
+                };
+                
+                let timer_id = ctx.create_timer(group.interval, group_timer_callback, meta);
+                
+                GroupMeta {
+                    hash: group_meta.hash,
+                    timer_id,
+                    started: true,
+                    name: group.name.clone(),
+                    group_key: group_meta.group_key.clone(),
+                }
+            })
+            
+        }).is_some()
+        
     }
 
     fn stop_group_timer(&self, ctx: &Context, group_id: GroupId) -> bool {
@@ -247,7 +304,8 @@ impl GroupManager {
         let querier = self.create_querier(group);
         Executor::new(
             self.write_queue.clone(),
-            querier
+            querier,
+            self.notifiers.clone()
         )
     }
 
@@ -392,16 +450,7 @@ struct GroupDelayedStart {
 fn delayed_start_group_callback(ctx: &Context, msg: GroupDelayedStart) {
     // kill the timer
     kill_delay_timer(ctx, msg.group_id);
-    let redis_key = ctx.open_key(&msg.key);
-    match redis_key.get_value::<Group>(&VKM_RULE_GROUP) {
-        Ok(Some(group)) => {
-            GROUP_MANAGER.add_group(ctx, group, &msg.key);
-        }
-        Err(e) => {
-            ctx.log_warning(&format!("Error getting group: {}", e));
-        }
-        _ => {}
-    }
+    GROUP_MANAGER.start_group_timer(ctx, msg.group_id);
 }
 
 fn kill_delay_timer(ctx: &Context, group_id: GroupId) {

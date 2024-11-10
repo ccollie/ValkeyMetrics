@@ -1,24 +1,26 @@
 use crate::alerts::notifications::{Alert, AlertState};
-use crate::alerts::rules::{AlertingRule, AlertingRuleMetrics, Group, GroupMetrics, MetricRule, RecordingRule, RecordingRuleMetrics, RuleState, RuleStateEntry};
+use crate::alerts::rules::{
+    AlertingRule,
+    AlertingRuleMetrics,
+    Group,
+    GroupMetrics,
+    MetricRule,
+    RecordingRule,
+    RecordingRuleMetrics,
+    RuleState,
+    RuleStateEntry
+};
 use crate::alerts::AlertsError;
 use crate::common::serialization::*;
 use std::collections::{HashMap, VecDeque};
 use std::ffi::c_int;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicI64, AtomicU64};
+use std::sync::atomic::AtomicI64;
 use valkey_module::{raw, RedisModuleIO, ValkeyError, ValkeyResult};
 
 const RULE_TYPE_ALERTING: u8 = 1;
 const RULE_TYPE_RECORDING: u8 = 2;
 
-fn save_atomic_u64(rdb: *mut RedisModuleIO, value: &AtomicU64) {
-    raw::save_unsigned(rdb, value.load(std::sync::atomic::Ordering::Relaxed))
-}
-
-fn load_atomic_u64(rdb: *mut RedisModuleIO) -> ValkeyResult<AtomicU64> {
-    let value = raw::load_unsigned(rdb)?;
-    Ok(AtomicU64::new(value))
-}
 
 pub(crate) fn save_rule_state_entry(rdb: *mut RedisModuleIO, state_entry: &RuleStateEntry) {
     rdb_save_timestamp(rdb, state_entry.time);
@@ -335,21 +337,15 @@ pub(crate) fn save_group(rdb: *mut RedisModuleIO, group: &Group) {
     rdb_save_duration(rdb, &group.eval_offset);
     rdb_save_optional_duration(rdb, &group.eval_delay);
     
-    let eval_alignment = if let Some(val) = group.eval_alignment {
-        if val { 1 } else { 0 }
-    } else {
-        2 // null marker
-    };
-    
     let last_evaluation = group.get_last_evaluation();
-    rdb_save_u8(rdb, eval_alignment);
+    save_optional_bool(rdb, group.eval_alignment);
     rdb_save_usize(rdb, group.limit);
     rdb_save_timestamp(rdb, last_evaluation);
     rdb_save_string_hashmap(rdb, &group.labels);
     rdb_save_string_hashmap(rdb, &group.params);
     rdb_save_string_hashmap(rdb, &group.notifier_headers);
     save_group_metrics(rdb, &group.metrics);
-    // todo: notifiers
+
     rdb_save_bool(rdb, group.disabled);
 }
 
@@ -363,19 +359,13 @@ pub(crate) fn load_group(rdb: *mut RedisModuleIO, _encver: c_int) -> ValkeyResul
     let eval_offset = rdb_load_duration(rdb)?;
     let eval_delay = rdb_load_optional_duration(rdb)?;
     
-    let eval_alignment = match rdb_load_u8(rdb)? {
-        1 => Some(true),
-        0 => Some(false),
-        2 => None, // null marker
-        _ => return Err(ValkeyError::Str("Invalid eval alignment")),
-    };
+    let eval_alignment = load_optional_bool(rdb)?;
     let limit = rdb_load_usize(rdb)?;
     let last_evaluation = rdb_load_timestamp(rdb)?;
     let labels = rdb_load_string_hashmap(rdb)?;
     let params = rdb_load_string_hashmap(rdb)?;
     let notifier_headers = rdb_load_string_hashmap(rdb)?;
     let metrics = load_group_metrics(rdb)?;
-    // todo: notifiers
     let disabled = rdb_load_bool(rdb)?;
     
     Ok(Group {

@@ -1,6 +1,6 @@
 use crate::aggregators::AggOp;
 use crate::common::types::{Sample, Timestamp};
-use crate::iter::aggregator::AggrIterator;
+use crate::iterators::aggregator::AggrIterator;
 use crate::series::get_series_range_filtered;
 use crate::series::time_series::TimeSeries;
 use crate::series::types::{AggregationOptions, RangeGroupingOptions, RangeOptions};

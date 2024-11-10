@@ -1,6 +1,6 @@
 use crate::common::types::{Sample, Timestamp};
 use crate::error::TsdbResult;
-use crate::iter::{SampleIter, SampleMergeIterator};
+use crate::iterators::{SampleIter, SampleMergeIterator};
 use crate::series::{Chunk, DuplicatePolicy, TimeSeriesChunk};
 
 pub fn merge_samples<'a, F, STATE>(

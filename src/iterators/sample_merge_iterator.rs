@@ -1,6 +1,6 @@
 use std::iter::Peekable;
 use crate::common::types::Sample;
-use crate::iter::SampleIter;
+use crate::iterators::SampleIter;
 use crate::series::DuplicatePolicy;
 
 pub struct SampleMergeIterator<'a> {

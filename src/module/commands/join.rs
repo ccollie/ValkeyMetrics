@@ -1,5 +1,5 @@
 use crate::common::types::{Sample, Timestamp};
-use crate::iter::aggregator::aggregate;
+use crate::iterators::aggregator::aggregate;
 use crate::module::arg_parse::*;
 use crate::module::result::sample_to_value;
 use crate::module::{invalid_series_key_error, VKM_SERIES_TYPE};

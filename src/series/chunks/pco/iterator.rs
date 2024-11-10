@@ -1,14 +1,14 @@
 use crate::common::types::Sample;
 use crate::error_consts;
 use metricsql_runtime::types::Timestamp;
-use pco::data_types::NumberLike;
+use pco::data_types::Number;
 use pco::errors::PcoError;
 use pco::standalone::{FileDecompressor, MaybeChunkDecompressor};
 use pco::FULL_BATCH_N;
 use valkey_module::{ValkeyError, ValkeyResult};
 
 const EMPTY_SLICE: [u8; 0] = [];
-struct StreamState<'a, T: NumberLike> {
+struct StreamState<'a, T: Number> {
     decompressor: FileDecompressor,
     chunk_decompressor: MaybeChunkDecompressor<T, &'a [u8]>,
     cursor: &'a [u8],
@@ -17,7 +17,7 @@ struct StreamState<'a, T: NumberLike> {
     finished_chunk: bool,
 }
 
-impl<'a, T: NumberLike> StreamState<'a, T> {
+impl<'a, T: Number> StreamState<'a, T> {
     fn new(src: &'a [u8]) -> ValkeyResult<Self> {
         let (decompressor, cursor) = FileDecompressor::new(src)
             .map_err(|_| ValkeyError::Str(error_consts::CHUNK_DECOMPRESSION))?;

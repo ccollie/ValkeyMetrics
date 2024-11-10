@@ -8,6 +8,7 @@ pub mod chunks;
 pub mod types;
 mod merge;
 mod timestamp_range;
+mod serialization;
 
 use crate::common::types::Sample;
 pub(super) use chunks::*;
@@ -20,7 +21,6 @@ pub(crate) use types::*;
 
 cfg_if::cfg_if! {
     if #[cfg(test)] {
-        mod types_tests;
         mod timestamp_range_tests;
         mod timeseries_tests;
         pub mod test_utils;

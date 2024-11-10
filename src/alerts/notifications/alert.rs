@@ -146,7 +146,7 @@ impl Alert {
 
     // pub fn to_prom_labels(&self, relabel_cfg: Option<ParsedRelabelConfig>) -> Vec<Label> {
     //     let mut labels = Vec::with_capacity(self.labels.len());
-    //     for (k, v) in self.labels.iter() {
+    //     for (k, v) in self.labels.iterators() {
     //         labels.push(Label {
     //             name: k.clone(),
     //             value: v.clone(),

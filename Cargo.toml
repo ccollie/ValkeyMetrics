@@ -17,7 +17,6 @@ bitstream-io = "2.6"
 cfg-if = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 croaring = "2.1"
-dynamic-lru-cache = "0.2"
 enquote = "1.1"
 get-size = { version = "^0.1", features = ["derive"] }
 gtmpl = "0.7.1"
@@ -26,7 +25,6 @@ gtmpl_value = "0.5"
 htmlescape = "0.3"
 integer-encoding = "4.0"
 linkme = "0.3"
-lru_time_cache = "0.11"
 min-max-heap = "1.3"
 metricsql_common = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
 metricsql_runtime = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
@@ -34,8 +32,7 @@ metricsql_parser = { git = "https://github.com/ccollie/metricsql", branch = "dev
 joinkit = "0.2.0"
 nom = "7.1"
 papaya = "0.1"
-futures = "0.3.31"
-pco = "0.3"
+pco = "0.4"
 phf = "0.11"
 scopeguard = "1.2.0"
 serde = { version = "1.0", features = ["derive"] }
@@ -44,7 +41,6 @@ smallvec = { version = "2.0.0-alpha.7", features = ["specialization", "std"] }
 thiserror = "2.0"
 rayon = "1.10"
 regex = "1"
-regex-syntax = { version = "0.8", features = [] }
 titlecase = "3.3"
 xxhash-rust = { version = "0.8", features = ["xxh3", "xxh32", "std"] }
 rand = "0.8"

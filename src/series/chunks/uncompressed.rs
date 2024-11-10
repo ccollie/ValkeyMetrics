@@ -1,6 +1,6 @@
 use crate::common::types::{Timestamp, Sample};
 use crate::error::{TsdbError, TsdbResult};
-use crate::iter::SampleIter;
+use crate::iterators::SampleIter;
 use crate::series::merge::merge_samples;
 use crate::series::chunks::Chunk;
 use crate::common::serialization::{rdb_load_usize, rdb_save_usize};
@@ -303,29 +303,4 @@ impl Chunk for UncompressedChunk {
 
 #[cfg(test)]
 mod tests {
-    use crate::error::TsdbError;
-    use crate::series::chunks::uncompressed::UncompressedChunk;
-    use crate::common::types::{Sample};
-    use crate::tests::generators::create_rng;
-    use rand::Rng;
-    use crate::series::Chunk;
-
-    pub(crate) fn saturate_uncompressed_chunk(chunk: &mut UncompressedChunk) {
-        let mut rng = create_rng(None).unwrap();
-        let mut ts: i64 = 1;
-        loop {
-            let sample = Sample {
-                timestamp: ts,
-                value: rng.gen_range(0.0..100.0),
-            };
-            ts += rng.gen_range(1000..20000);
-            match chunk.add_sample(&sample) {
-                Ok(_) => {}
-                Err(TsdbError::CapacityFull(_)) => {
-                    break
-                }
-                Err(e) => panic!("unexpected error: {:?}", e),
-            }
-        }
-    }
 }

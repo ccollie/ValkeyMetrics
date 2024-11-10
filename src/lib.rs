@@ -23,7 +23,7 @@ mod series;
 
 #[cfg(test)]
 mod tests;
-mod iter;
+mod iterators;
 mod error_consts;
 pub mod join;
 mod query;

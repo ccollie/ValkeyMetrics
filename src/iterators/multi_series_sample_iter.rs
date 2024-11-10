@@ -1,9 +1,9 @@
 use crate::common::types::Sample;
-use crate::iter::sample_iter::SampleIter;
+use crate::iterators::sample_iter::SampleIter;
 use min_max_heap::MinMaxHeap;
 use smallvec::SmallVec;
 
-/// Iterate over multiple Sample iter, returning the samples in timestamp order
+/// Iterate over multiple Sample iterators, returning the samples in timestamp order
 pub struct MultiSeriesSampleIter<'a> {
     heap: MinMaxHeap<Sample>,
     inner: Vec<SampleIter<'a>>,

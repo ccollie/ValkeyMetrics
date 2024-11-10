@@ -195,7 +195,7 @@ impl Rule for RecordingRule {
         Ok(tss)
     }
 
-    /// `exec_range` executes recording rules on the given time range similarly to Exec.
+    /// `exec_range` executes recording rules on the given time range similarly to `exec`.
     /// It doesn't update internal states of the Rule and meant to be used just to get time series
     /// for backfilling.
     fn exec_range(&mut self, querier: &AlertDatasource, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
@@ -234,16 +234,16 @@ impl Rule for RecordingRule {
         Ok(())
     }
 
+    fn get_last_entry(&self) -> Option<&RuleStateEntry> {
+        self.state.get_last()
+    }
+
     fn get_rule_state_count(&self) -> usize {
         self.state.len()
     }
 
     fn get_all_entries(&self) -> Vec<RuleStateEntry> {
         self.state.get_all()
-    }
-    
-    fn get_last_entry(&self) -> Option<&RuleStateEntry> {
-        self.state.get_last()
     }
     
     fn as_any(&self) -> &dyn Any {
