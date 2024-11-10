@@ -1,6 +1,6 @@
-use pco::data_types::NumberLike;
+use pco::data_types::Number;
 use pco::standalone::{simple_compress, simple_decompress};
-use pco::ChunkConfig;
+use pco::{ChunkConfig, DeltaSpec};
 use pco::DEFAULT_COMPRESSION_LEVEL;
 use std::error::Error;
 use crate::common::types::Timestamp;
@@ -22,29 +22,34 @@ impl Default for CompressorConfig {
     }
 }
 
-pub fn pco_encode<T: NumberLike>(src: &[T], dst: &mut Vec<u8>) -> Result<(), Box<dyn Error>> {
+pub fn pco_encode<T: Number>(src: &[T], dst: &mut Vec<u8>) -> Result<(), Box<dyn Error>> {
     let config = ChunkConfig::default();
+    if src.is_empty() {
+        return Ok(());
+    }
 
     let compressed = simple_compress(src, &config)?;
     dst.extend_from_slice(&compressed);
     Ok(())
 }
 
-pub fn encode_with_options<T: NumberLike>(
+pub fn encode_with_options<T: Number>(
     src: &[T],
     dst: &mut Vec<u8>,
     options: CompressorConfig,
 ) -> Result<(), Box<dyn Error>> {
     let mut config = ChunkConfig::default();
     config.compression_level = options.compression_level;
-    config.delta_encoding_order = Some(options.delta_encoding_order);
+    if options.delta_encoding_order != 0 {
+        config.delta_spec = DeltaSpec::TryConsecutive(options.delta_encoding_order);
+    }
 
     let compressed = simple_compress(src, &config)?;
     dst.extend_from_slice(&compressed);
     Ok(())
 }
 
-pub fn pco_decode<T: NumberLike>(src: &[u8], dst: &mut Vec<T>) -> Result<(), Box<dyn Error>> {
+pub fn pco_decode<T: Number>(src: &[u8], dst: &mut Vec<T>) -> Result<(), Box<dyn Error>> {
     if src.is_empty() {
         return Ok(());
     }
