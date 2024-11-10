@@ -749,10 +749,6 @@ impl Rule for AlertingRule {
     fn as_any(&self) -> &dyn Any {
         self
     }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
 }
 
 fn hash_map(labels: &HashMap<String, String>) -> u64 {

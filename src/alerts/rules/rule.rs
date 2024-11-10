@@ -75,8 +75,6 @@ pub trait Rule: Debug + Any {
     fn get_all_entries(&self) -> Vec<RuleStateEntry>;
     
     fn as_any(&self) -> &dyn Any;
-    
-    fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -191,9 +189,6 @@ impl Rule for MetricRule {
     }
 
     fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 }

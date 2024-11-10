@@ -187,15 +187,6 @@ impl fmt::Display for JoinReducer {
     }
 }
 
-#[inline]
-fn is_truthy(val: f64) -> f64 {
-    if val.is_nan() {
-        0.0 // NaN is considered false
-    } else {
-        val.signum().abs()
-    }
-}
-
 fn cmp(x: f64, y: f64) -> f64 {
     if x.is_nan() && y.is_nan() {
         return 1.0;
@@ -210,31 +201,6 @@ fn cmp(x: f64, y: f64) -> f64 {
         Ordering::Less => -1.0,
         Ordering::Equal => 0.0,
         Ordering::Greater => 1.0,
-    }
-}
-
-
-fn compare(x: f64, y: f64, op: Ordering) -> f64 {
-    match op {
-        Ordering::Less => if x < y { -1.0 } else { 0.0 },
-        Ordering::Equal => {
-            if x.is_nan() {
-                if y.is_nan() {
-                    1.0
-                } else {
-                    0.0
-                }
-            } else if x == y {
-                1.0
-            } else {
-                0.0
-            }
-        },
-        Ordering::Greater => if x > y {
-                1.0
-            } else {
-                0.0
-        }
     }
 }
 

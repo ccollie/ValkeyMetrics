@@ -249,10 +249,6 @@ impl Rule for RecordingRule {
     fn as_any(&self) -> &dyn Any {
         self
     }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
 }
 
 pub fn stringify_labels(ts: &RawTimeSeries) -> String {

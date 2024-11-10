@@ -8,7 +8,7 @@ use crate::alerts::rules::group::labels_to_string;
 use crate::alerts::rules::{make_series_key, AlertingRule, Group, MetricRule, Rule, RuleType};
 use crate::alerts::types::RawTimeSeries;
 use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, WriteQueue};
-use crate::common::types::{Label, Sample, Timestamp, TimestampTrait};
+use crate::common::types::{Label, Sample, Timestamp};
 use crate::config::get_global_settings;
 use ahash::AHashMap;
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
@@ -26,8 +26,7 @@ pub struct Executor {
     /// HashMap<RuleID, HashMap<ruleLabels, Vec<Label>>
     /// where `ruleID` is id of the Rule within a Group and `ruleLabels` is Vec<Label> marshalled
     /// to a string
-    previously_sent_series: Arc<Mutex<PreviouslySentSeries>>,
-    last_evaluation: Timestamp,
+    previously_sent_series: Arc<Mutex<PreviouslySentSeries>>
 }
 
 /// SKIP_RAND_SLEEP_ON_GROUP_START will skip random sleep delay in group first evaluation
@@ -37,13 +36,13 @@ impl Executor {
     pub fn new(
         rw: Arc<WriteQueue>,
         querier: AlertDatasource,
+        notifiers: Arc<Vec<AlertNotifier>>,
     ) -> Self {
         Executor {
             rw,
             querier,
             previously_sent_series: Arc::new(Mutex::new(HashMap::new())),
-            last_evaluation: Timestamp::now(),
-            notifiers: Arc::new(Vec::new()),
+            notifiers,
         }
     }
 
