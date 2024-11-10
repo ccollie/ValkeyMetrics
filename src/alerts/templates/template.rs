@@ -39,14 +39,6 @@ pub(crate) struct TextTemplate {
     pub(crate) current: Template,
 }
 
-impl TextTemplate {
-    pub fn clone(&self) -> AlertsResult<Self> {
-        Ok(TextTemplate {
-            current: clone_template(&self.current)?,
-        })
-    }
-}
-
 impl Default for TextTemplate {
     fn default() -> Self {
         let current = new_template();

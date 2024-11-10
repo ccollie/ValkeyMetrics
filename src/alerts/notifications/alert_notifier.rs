@@ -11,11 +11,11 @@ pub enum AlertNotifier {
 }
 
 impl AlertNotifier {
-    pub fn stream(name: String, max_len: Option<usize>) -> Self {
-        AlertNotifier::Stream(StreamNotifier::new(&name, max_len))
+    pub fn stream(max_len: Option<usize>) -> Self {
+        AlertNotifier::Stream(StreamNotifier::new(max_len))
     }
-    pub fn pubsub(topic: String) -> Self {
-        AlertNotifier::PubSub(PubSubNotifier::new(topic))
+    pub fn pubsub() -> Self {
+        AlertNotifier::PubSub(PubSubNotifier{})
     }
 
     pub fn null() -> Self {

@@ -1,19 +1,13 @@
 use super::{Alert, Notifier};
 use crate::alerts::constants::KEY_PREFIX;
 use crate::alerts::AlertsResult;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use valkey_module::Context;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PubSubNotifier {
-    pub topic: String,
-}
+#[derive(Copy, Clone, Debug)]
+pub struct PubSubNotifier {}
 
 impl PubSubNotifier {
-    pub fn new(topic: String) -> Self {
-        PubSubNotifier { topic }
-    }
     fn publish(&self, ctx: &Context, channel: &str, payload: &str) {
         match ctx.call("PUBLISH", &[channel, payload]) {
             Ok(_) => {}
@@ -56,6 +50,6 @@ impl Notifier for PubSubNotifier {
     }
 
     fn addr(&self) -> String {
-        self.topic.clone()
+        "pubsub".to_string()
     }
 }
