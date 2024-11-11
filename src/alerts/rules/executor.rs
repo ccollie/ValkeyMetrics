@@ -113,10 +113,6 @@ impl Executor {
             return self.exec_dag(group, ts, resolve_duration, limit);
         }
         
-        // if we have an indeterminate rules, it's possible that the series
-        // ALERTS or ALERTS_FOR_STATE, which means that alerting rules need to be
-        // evaluated sequentially
-        // todo: 
         let mut errors = vec![];
         self.exec_rules_sequentially(group, RuleType::Recording, ts, resolve_duration, limit, &mut errors);
         
@@ -129,6 +125,8 @@ impl Executor {
     
     fn exec_dag(&self, group: &mut Group, ts: Timestamp, resolve_duration: Duration, limit: usize) -> AlertsResult<()> {
         // Ugly Hack to avoid borrow checker issues to allow parallelism
+        // NOTE: we may well have to resort to copying here to avoid nasty side effects (suppose for
+        // example the user queries this group while this is in progress)
         let mut rules = std::mem::take(&mut group.rules);
         let dag = group.dependencies.as_ref().unwrap();
         let mut errors = Vec::new();

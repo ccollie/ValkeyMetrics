@@ -129,7 +129,8 @@ pub(crate) fn create_group(ctx: &Context, key: &ValkeyString, options: GroupConf
     ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.CREATE-RULE-GROUP", key);
     ctx.log_verbose("group created");
 
-    GROUP_MANAGER.add_group(ctx, &group, key);
+    // todo: handle errors
+    let _ = GROUP_MANAGER.add_group(ctx, &group, key);
 
     Ok(())
 }

@@ -23,16 +23,24 @@ cfg_if! {
             TOKIO_RUNTIME.spawn(future)
         }
 
+        pub fn spawn_blocking<F, R>(func: F) -> JoinHandle<R>
+        where
+            F: FnOnce() -> R + Send + 'static,
+            R: Send + 'static,
+        {
+            TOKIO_RUNTIME.spawn_blocking(func)
+        }
+        
      } else if #[cfg(feature = "async-std")] {
         mod async_std;
         pub use async_std::init_runtime;
 
-        pub use metricsql_common::async_runtime::{block_on, spawn};
+        pub use metricsql_common::async_runtime::{block_on, spawn, spawn_blocking};
      } else if #[cfg(feature = "smol")] {
         mod smol;
         pub use smol::init_runtime;
 
-        pub use metricsql_common::async_runtime::{block_on, spawn};
+        pub use metricsql_common::async_runtime::{block_on, spawn, spawn_blocking};
     } else {
         unimplemented!("No async_runtime runtime feature enabled");
      }

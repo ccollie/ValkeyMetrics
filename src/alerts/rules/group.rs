@@ -123,6 +123,12 @@ impl Clone for GroupMetrics {
 }
 
 impl Group {
+    pub fn new() -> Self {
+        let mut group = Group::default();
+        group.eval_alignment = Some(true);
+        group
+    }
+    
     pub fn from_config(cfg: GroupConfig, default_interval: Duration, labels: Vec<Label>) -> Group {
         let labels_empty = cfg.labels.is_empty();
         let mut g = Group {
