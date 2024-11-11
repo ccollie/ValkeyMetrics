@@ -21,7 +21,6 @@ pub(crate) use types::*;
 
 cfg_if::cfg_if! {
     if #[cfg(test)] {
-        mod timestamp_range_tests;
         mod timeseries_tests;
         pub mod test_utils;
     }
