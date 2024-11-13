@@ -1,18 +1,17 @@
 use super::index_key::*;
-use crate::common::types::{Label, IntMap, Timestamp, Matchers, LabelFilter, LabelFilterOp};
+use crate::common::types::{IntMap, Label, LabelFilter, LabelFilterOp, Matchers, Timestamp};
+use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
-use crate::series::index::filters::{get_ids_by_matchers_optimized, process_equals_match, process_iterator};
 use crate::module::{with_timeseries, VKM_SERIES_TYPE};
+use crate::series::index::filters::{get_ids_by_matchers_optimized, process_equals_match, process_iterator};
 use crate::series::time_series::{TimeSeries, TimeseriesId};
 use crate::series::utils::format_prometheus_metric_name;
-use crate::common::METRIC_NAME_LABEL;
-use papaya::HashMap;
+use cfg_if::cfg_if;
 use rand::Rng;
 use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 use std::ops::ControlFlow::Continue;
 use std::sync::{RwLock, RwLockReadGuard};
-use cfg_if::cfg_if;
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
@@ -29,8 +28,6 @@ cfg_if! {
 /// Type for the key of the index. Use instead of `String` because Valkey keys are binary safe not utf8 safe.
 pub type KeyType = Box<[u8]>;
 
-/// Map from db to TimeseriesIndex
-pub type TimeSeriesIndexMap = HashMap<u32, TimeSeriesIndex>;
 
 // label
 // label=value
@@ -49,7 +46,7 @@ impl PartialEq for SetOperation {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub(crate) struct IndexInner {
     /// Map from timeseries id to timeseries key.
     pub id_to_key: IntMap<TimeseriesId, KeyType>,
@@ -221,7 +218,16 @@ impl IndexInner {
 /// Index for quick access to timeseries by label, label value or metric name.
 #[derive(Default)]
 pub(crate) struct TimeSeriesIndex {
-    inner: RwLock<IndexInner>,
+    pub(super) inner: RwLock<IndexInner>,
+}
+
+impl Clone for TimeSeriesIndex {
+    fn clone(&self) -> Self {
+        let inner = self.inner.read().unwrap().clone();
+        TimeSeriesIndex {
+            inner: RwLock::new(inner)
+        }
+    }
 }
 
 impl TimeSeriesIndex {
@@ -234,6 +240,13 @@ impl TimeSeriesIndex {
     pub fn clear(&self) {
         let mut inner = self.inner.write().unwrap();
         inner.clear();
+    }
+
+    // swap the inner value with some other value
+    // this is specifically to handle the `swapdb` event callback
+    // todo: can this deadlock ?
+    pub fn swap(&mut self, other: &mut TimeSeriesIndex) {
+        std::mem::swap(&mut self.inner, &mut other.inner);
     }
 
     pub fn label_count(&self) -> usize {

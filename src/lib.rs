@@ -1,6 +1,7 @@
-#![feature(lazy_cell)]
+#![feature(iter_collect_into)]
 extern crate async_trait;
 extern crate cfg_if;
+extern crate core;
 extern crate croaring;
 extern crate get_size;
 extern crate joinkit;
@@ -8,16 +9,21 @@ extern crate phf;
 extern crate smallvec;
 extern crate topologic;
 extern crate valkey_module_macros;
-extern crate core;
 
-use valkey_module::server_events::{FlushSubevent, LoadingSubevent};
-use valkey_module::{valkey_module, Context as ValkeyContext, Context, NotifyEvent, Status, ValkeyString};
-use valkey_module_macros::{config_changed_event_handler, flush_event_handler, loading_event_handler};
+use valkey_module::{
+    raw,
+    valkey_module,
+    Context as ValkeyContext,
+    Context,
+    NotifyEvent,
+    Status,
+    ValkeyString
+};
+use valkey_module_macros::config_changed_event_handler;
 mod aggregators;
 mod common;
 mod config;
 mod error;
-mod globals;
 mod module;
 mod series;
 
@@ -28,12 +34,13 @@ mod error_consts;
 pub mod join;
 mod query;
 mod alerts;
+mod server_events;
 
-use crate::globals::{clear_timeseries_index, with_timeseries_index};
-use crate::series::time_series::TimeSeries;
-use module::*;
 use crate::alerts::VKM_RULE_GROUP;
 use crate::common::async_runtime::init_runtime;
+use crate::series::index::with_timeseries_index;
+use crate::series::time_series::TimeSeries;
+use module::*;
 
 pub const VKMETRICS_VERSION: i32 = 1;
 pub const MODULE_NAME: &str = "VKMetrics";
@@ -51,28 +58,6 @@ fn deinitialize(_ctx: &Context) -> Status {
 #[config_changed_event_handler]
 fn config_changed_event_handler(ctx: &ValkeyContext, _changed_configs: &[&str]) {
     ctx.log_notice("config changed")
-}
-
-#[flush_event_handler]
-fn flushed_event_handler(_ctx: &ValkeyContext, flush_event: FlushSubevent) {
-    if let FlushSubevent::Ended = flush_event {
-        clear_timeseries_index();
-    }
-}
-
-#[loading_event_handler]
-fn loading_event_handler(_ctx: &ValkeyContext, values: LoadingSubevent) {
-    match values {
-        LoadingSubevent::ReplStarted |
-        LoadingSubevent::AofStarted => {
-            // TODO!: limit to current db
-            clear_timeseries_index();
-        }
-        LoadingSubevent::Ended => {
-            // reset_timeseries_id_after_load();
-        }
-        _ => {}
-    }
 }
 
 fn remove_key_from_index(ctx: &ValkeyContext, key: &[u8]) {
@@ -108,13 +93,9 @@ fn on_event(ctx: &ValkeyContext, _event_type: NotifyEvent, event: &str, key: &[u
         "del" | "set" | "expired" | "evict" | "evicted" | "expire" | "trimmed" => {
             remove_key_from_index(ctx, key);
         }
-        "loaded" => {
-            index_timeseries_by_key(ctx, key);
-        }
         "rename_from" => {
             // RenameSeriesFrom(ctx, key);
         }
-        "series.alter" => remove_key_from_index(ctx, key),
         _ => {
             // ctx.log_warning(&format!("Unknown event: {}", event));
         }

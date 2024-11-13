@@ -1,12 +1,12 @@
 use crate::common::rounding::RoundingStrategy;
 use crate::error_consts;
-use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::*;
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::TimeSeries;
 use crate::series::{ChunkCompression, TimeSeriesOptions};
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
+use crate::series::index::with_timeseries_index;
 
 const MAX_SIGNIFICANT_DIGITS: u8 = 16;
 const MAX_DECIMAL_DIGITS: u8 = 16;

@@ -1,18 +1,17 @@
 use crate::aggregators::{AggOp, Aggregator};
 use crate::common::types::{IntMap, Matchers, Sample, Timestamp};
-use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::*;
 use crate::module::commands::range_utils::get_series_labels;
 use crate::module::result::sample_to_value;
-use crate::series::TimestampRange;
 use crate::module::{get_series_iterator, VKM_SERIES_TYPE};
-use crate::series::time_series::{TimeSeries, TimeseriesId};
+use crate::series::{TimeSeries, TimeseriesId, TimestampRange};
 use ahash::HashMapExt;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 use crate::error_consts;
+use crate::series::index::with_timeseries_index;
 
 const REDUCER_KEY: &str = "__reducer__";
 const SOURCE_KEY: &str = "__source__";

@@ -2,13 +2,12 @@ use std::fmt::Display;
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
 
 use crate::common::types::{Matchers, Timestamp};
-use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::parse_timestamp_range_value;
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::{SeriesSampleIterator, TimeSeries};
 use crate::series::types::ValueFilter;
 use crate::series::{TimestampRange, TimestampValue};
-
+use crate::series::index::with_timeseries_index;
 
 pub fn parse_timestamp_arg(
     arg: &str,

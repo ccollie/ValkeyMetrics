@@ -1,9 +1,9 @@
-use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::parse_series_selector;
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::TimeSeries;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 use crate::error_consts;
+use crate::series::index::with_timeseries_index;
 
 ///
 /// VM.DELETE-SERIES selector..

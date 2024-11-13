@@ -1,9 +1,8 @@
-use crate::globals::with_timeseries_index;
 use crate::module::commands::parse_create_options;
 use crate::module::with_timeseries_mut;
-use crate::series::time_series::TimeSeries;
-use crate::series::TimeSeriesOptions;
+use crate::series::{TimeSeries, TimeSeriesOptions};
 use valkey_module::{Context, NotifyEvent, ValkeyResult, ValkeyString, VALKEY_OK};
+use crate::series::index::with_timeseries_index;
 
 pub fn alter(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let (parsed_key, options) = parse_create_options(args)?;
@@ -20,7 +19,7 @@ pub fn alter(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         }
 
         ctx.replicate_verbatim();
-        ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.ALTER", &parsed_key);
+        ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.ALTER-SERIES", &parsed_key);
         VALKEY_OK
     })
 }

@@ -1,5 +1,4 @@
 use crate::common::METRIC_NAME_LABEL;
-use crate::globals::with_timeseries_index;
 use crate::module::arg_parse::parse_series_selector_list;
 use crate::module::result::{format_array_result, get_ts_metric_selector};
 use crate::series::types::MetadataFunctionArgs;
@@ -11,6 +10,7 @@ use valkey_module::{
 };
 use crate::error_consts;
 use crate::series::{normalize_range_args, TimestampValue};
+use crate::series::index::with_timeseries_index;
 // todo: series count
 
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#finding-series-by-label-matchers

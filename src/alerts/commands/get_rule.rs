@@ -1,5 +1,5 @@
+use crate::alerts::with_rule_group;
 use crate::alerts::commands::rule_to_api;
-use crate::alerts::group_manager::GROUP_MANAGER;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString};
 use valkey_module_macros::command;
 
@@ -33,7 +33,7 @@ pub fn get_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         }
     }
     
-    GROUP_MANAGER.with_group_by_id(ctx, group_id, |group| {
+    with_rule_group(ctx, group_id, |group| {
         if let Some(rule) = group.get_rule_by_id(rule_id) {
             return Ok(rule_to_api(group, rule, exclude_alerts));
         }

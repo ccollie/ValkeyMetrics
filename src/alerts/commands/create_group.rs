@@ -1,9 +1,10 @@
 use crate::alerts::group_data_type::VKM_RULE_GROUP;
 use crate::alerts::rules::{Group, GroupConfig};
+use crate::alerts::with_group_manager;
 use crate::error_consts;
 use crate::module::arg_parse::*;
-use std::time::Duration;
 use metricsql_parser::parser::is_valid_identifier;
+use std::time::Duration;
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{
     Context,
@@ -11,11 +12,10 @@ use valkey_module::{
     NotifyEvent,
     ValkeyError,
     ValkeyResult,
-    ValkeyString, 
+    ValkeyString,
     VALKEY_OK
 };
 use valkey_module_macros::command;
-use crate::alerts::group_manager::GROUP_MANAGER;
 
 const INTERVAL: &str = "INTERVAL";
 const EVAL_OFFSET: &str = "EVAL_OFFSET";
@@ -130,7 +130,7 @@ pub(crate) fn create_group(ctx: &Context, key: &ValkeyString, options: GroupConf
     ctx.log_verbose("group created");
 
     // todo: handle errors
-    let _ = GROUP_MANAGER.add_group(ctx, &group, key);
-
+    let _ = with_group_manager(ctx, |manager| manager.add_group(ctx, &group, key));
+    
     Ok(())
 }

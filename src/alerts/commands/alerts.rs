@@ -1,5 +1,5 @@
+use crate::alerts::with_rule_groups;
 use crate::alerts::commands::api::{group_to_api, rule_to_api_alerts};
-use crate::alerts::group_manager::GROUP_MANAGER;
 use crate::alerts::rules::MetricRule;
 use std::collections::HashMap;
 use valkey_module::{Context, ValkeyResult, ValkeyString, ValkeyValue};
@@ -35,7 +35,7 @@ pub fn alerts(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
     let mut groups: Vec<GroupState> = Vec::new();
     let name_filter = group_names.as_slice();
-    GROUP_MANAGER.with_groups(ctx, name_filter, &mut groups, |state, group| {
+    with_rule_groups(ctx, name_filter, &mut groups, |state, group| {
         let mut alerts = Vec::new();
 
         for r in group.rules.iter()

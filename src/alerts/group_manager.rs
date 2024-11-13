@@ -1,7 +1,7 @@
 use crate::alerts::notifications::AlertNotifier;
 use crate::alerts::rules::{should_skip_rand_sleep_on_group_start, Executor, Group};
 use crate::alerts::utils::{with_group, with_group_mut};
-use crate::alerts::{AlertDatasource, WriteQueue, VKM_RULE_GROUP};
+use crate::alerts::{with_group_manager, AlertDatasource, WriteQueue, VKM_RULE_GROUP};
 use crate::common::current_time_millis;
 use crate::common::types::{Timestamp, TimestampTrait};
 use crate::config::GLOBAL_SETTINGS;
@@ -11,8 +11,9 @@ use papaya::HashMap;
 use std::hash::Hasher;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::time::Duration;
+use nom::AsBytes;
 use valkey_module::{
     Context, RedisModuleTimerID, ThreadSafeContext, ValkeyError, ValkeyResult, ValkeyString,
 };
@@ -20,10 +21,12 @@ use xxhash_rust::xxh3::Xxh3;
 
 pub type GroupId = u64;
 
-pub static GROUP_MANAGER: LazyLock<GroupManager> = LazyLock::new(create_group_manager);
+// map a db to its group manager
+pub type GroupManagerMap = HashMap<u32, GroupManager>;
+
 
 // todo: read configuration and construct accordingly
-fn create_group_manager() -> GroupManager {
+pub(crate) fn create_group_manager() -> GroupManager {
     let mut manager = GroupManager::default();
     // todo: get from config
     let notifiers = vec![
@@ -42,7 +45,7 @@ struct GroupTimerMeta {
 
 impl GroupTimerMeta {
     fn get_key(&self, ctx: &Context) -> Option<ValkeyString> {
-        GROUP_MANAGER.get_group_key(ctx, self.group_id)
+        with_group_manager(ctx, |manager| manager.get_group_key(ctx, self.group_id))
     }
 
     fn on_tick(&self, ctx: &Context) {
@@ -57,12 +60,12 @@ impl GroupTimerMeta {
 }
 
 #[derive(GetSize, Default, Clone)]
-struct GroupMeta {
-    hash: u64,
-    started: bool,
-    timer_id: RedisModuleTimerID,
-    name: String,
-    group_key: Box<[u8]>,
+pub struct GroupMeta {
+    pub hash: u64,
+    pub started: bool,
+    pub timer_id: RedisModuleTimerID,
+    pub name: String,
+    pub group_key: Box<[u8]>,
 }
 
 impl GroupMeta {
@@ -84,9 +87,24 @@ pub struct GroupManager {
     pub write_queue: Arc<WriteQueue>,
     pub querier_builder: Arc<AlertDatasource>,
     pub notifiers: Arc<Vec<AlertNotifier>>,
-    groups_by_id: HashMap<GroupId, GroupMeta>,
+    pub groups_by_id: HashMap<GroupId, GroupMeta>,
+    pub ids_by_key: HashMap<Box<[u8]>, GroupId>,
     is_stopped: AtomicBool,
     flush_timer_id: RedisModuleTimerID,
+}
+
+impl Clone for GroupManager {
+    fn clone(&self) -> Self {
+        GroupManager {
+            write_queue: Arc::clone(&self.write_queue),
+            querier_builder: Arc::clone(&self.querier_builder),
+            is_stopped: AtomicBool::new(false),
+            flush_timer_id: 0,
+            groups_by_id: self.groups_by_id.clone(),
+            notifiers: Arc::clone(&self.notifiers),
+            ids_by_key: Default::default(),
+        }
+    }
 }
 
 impl Drop for GroupManager {
@@ -109,6 +127,7 @@ impl GroupManager {
             flush_timer_id: 0,
             groups_by_id: Default::default(),
             notifiers: Arc::clone(&notifiers),
+            ids_by_key: Default::default(),
         }
     }
 
@@ -124,12 +143,15 @@ impl GroupManager {
         let groups = self.groups_by_id.pin();
         let hash = get_hash(group);
 
+        let _key = key.to_vec().into_boxed_slice();
         let mut group_meta = GroupMeta {
             hash,
             name: group.name.clone(),
-            group_key: key.to_vec().into_boxed_slice(),
+            group_key: _key.clone(),
             ..Default::default()
         };
+
+        self.ids_by_key.pin().insert(_key, group.id);
 
         let start_delay = get_start_delay(group, current_time_millis());
         if start_delay.is_zero() {
@@ -218,7 +240,7 @@ impl GroupManager {
         let _ = self.start_group(ctx, group_id, true); // error is logged already
     }
 
-    fn stop_group_timer(&self, ctx: &Context, group_id: GroupId) -> bool {
+    fn stop_group_timer(&self, _ctx: &Context, group_id: GroupId) -> bool {
         let groups = self.groups_by_id.pin();
         let v = groups.update(group_id, |meta| {
             stop_timer(meta.timer_id);
@@ -272,6 +294,18 @@ impl GroupManager {
         groups.remove(&group.id);
     }
 
+    // todo: this should only be called from server handler for deletion events
+    // todo: call on a background thread
+    pub fn delete_group_by_key(&self, ctx: &Context, key: &[u8]) {
+        let mut groups = self.groups_by_id.pin();
+        // slow
+        let found = groups.iter().find(|(_, meta)| meta.group_key.as_bytes() == key);
+        if let Some((group_id, _)) = found {
+            self.stop_group(ctx, *group_id);
+            groups.remove(group_id);
+        }
+    }
+    
     fn stop_flush_timer(&mut self) {
         stop_timer(self.flush_timer_id);
         self.flush_timer_id = 0;
@@ -454,5 +488,5 @@ struct GroupDelayedStart {
 }
 
 fn delayed_start_group_callback(ctx: &Context, msg: GroupDelayedStart) {
-    GROUP_MANAGER.on_delay_timer_tick(ctx, msg.group_id);
+    with_group_manager(ctx, |manager| manager.on_delay_timer_tick(ctx, msg.group_id))
 }

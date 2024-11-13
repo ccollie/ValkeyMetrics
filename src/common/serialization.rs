@@ -8,7 +8,7 @@ use valkey_module::{raw, RedisModuleIO, ValkeyError, ValkeyResult};
 const OPTIONAL_MARKER_PRESENT: u64 = 0xfe;
 const OPTIONAL_MARKER_ABSENT: u64 = 0xff;
 
-fn load_optional_marker(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<bool> {
+fn load_optional_marker(rdb: *mut RedisModuleIO) -> ValkeyResult<bool> {
     let marker = raw::load_unsigned(rdb)?;
     match marker {
         OPTIONAL_MARKER_PRESENT => Ok(true),
@@ -19,7 +19,7 @@ fn load_optional_marker(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<bool> {
     }
 }
 
-fn rdb_save_optional_marker(rdb: *mut raw::RedisModuleIO, is_some: bool) {
+fn rdb_save_optional_marker(rdb: *mut RedisModuleIO, is_some: bool) {
     if is_some {
         raw::save_unsigned(rdb, OPTIONAL_MARKER_PRESENT);
     } else {
@@ -29,7 +29,7 @@ fn rdb_save_optional_marker(rdb: *mut raw::RedisModuleIO, is_some: bool) {
 
 /// WARNING!: internal and *ONLY* for ints < 64bits! We used a signed integer with value.abs() if a value
 /// is present, and -1 otherwise
-fn save_optional_unsigned(rdb: *mut raw::RedisModuleIO, value: Option<u64>) {
+fn save_optional_unsigned(rdb: *mut RedisModuleIO, value: Option<u64>) {
     if let Some(value) = value {
         raw::save_signed(rdb, value as i64);
     } else {
@@ -37,12 +37,12 @@ fn save_optional_unsigned(rdb: *mut raw::RedisModuleIO, value: Option<u64>) {
     }
 }
 
-fn load_optional_unsigned(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<Option<u64>> {
+fn load_optional_unsigned(rdb: *mut RedisModuleIO) -> ValkeyResult<Option<u64>> {
     let value = raw::load_signed(rdb)?;
     Ok(if value == -1 {  None } else { Some(value as u64) })
 }
 
-pub fn rdb_save_duration(rdb: *mut raw::RedisModuleIO, duration: &Duration) {
+pub fn rdb_save_duration(rdb: *mut RedisModuleIO, duration: &Duration) {
     let millis = duration.as_millis() as i64;
     raw::save_signed(rdb, millis);
 }
@@ -114,18 +114,18 @@ pub(crate) fn rdb_load_u8(rdb: *mut RedisModuleIO) -> ValkeyResult<u8> {
 }
 
 #[inline]
-pub(crate) fn rdb_save_i32(rdb: *mut raw::RedisModuleIO, value: i32) {
+pub(crate) fn rdb_save_i32(rdb: *mut RedisModuleIO, value: i32) {
     raw::save_signed(rdb, value as i64)
 }
 
 #[inline]
-pub(crate) fn rdb_load_i32(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<i32> {
+pub(crate) fn rdb_load_i32(rdb: *mut RedisModuleIO) -> ValkeyResult<i32> {
     let value = raw::load_signed(rdb)?;
     // todo: validate that value is in range
     Ok(value as i32)
 }
 
-pub(crate) fn rdb_save_rounding(rdb: *mut raw::RedisModuleIO, rounding: &RoundingStrategy) {
+pub(crate) fn rdb_save_rounding(rdb: *mut RedisModuleIO, rounding: &RoundingStrategy) {
     match rounding {
         RoundingStrategy::SignificantDigits(sig_figs) => {
             rdb_save_u8(rdb, 1);
@@ -162,7 +162,7 @@ pub(crate) fn rdb_save_optional_rounding(rdb: *mut RedisModuleIO, rounding: &Opt
     }
 }
 
-pub(crate) fn rdb_load_optional_rounding(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<Option<RoundingStrategy>> {
+pub(crate) fn rdb_load_optional_rounding(rdb: *mut RedisModuleIO) -> ValkeyResult<Option<RoundingStrategy>> {
     if load_optional_marker(rdb)? {
         let rounding = rdb_load_rounding(rdb)?;
         Ok(Some(rounding))

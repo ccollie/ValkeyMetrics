@@ -1,6 +1,5 @@
 use crate::aggregators::{AggOp, Aggregator};
 use crate::common::types::{Sample, Timestamp};
-use crate::globals::with_timeseries_index;
 use crate::iterators::{MultiSeriesSampleIter, SampleIter};
 use crate::module::commands::range_arg_parse::parse_range_options;
 use crate::module::commands::range_utils::{aggregate_samples, get_series_labels, group_samples_internal};
@@ -10,6 +9,7 @@ use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::{SeriesSampleIterator, TimeSeries};
 use ahash::AHashMap;
 use valkey_module::{Context, NextArg, ValkeyResult, ValkeyString, ValkeyValue};
+use crate::series::index::with_timeseries_index;
 
 struct SeriesMeta<'a> {
     series: &'a TimeSeries,

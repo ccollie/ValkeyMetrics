@@ -10,23 +10,27 @@ use crate::alerts::rules::{
     RuleState,
     RuleStateEntry
 };
-use crate::alerts::AlertsError;
+use crate::alerts::{AlertsError, GroupManager, GroupManagerMap, GroupMeta, GROUP_MANAGERS};
 use crate::common::serialization::*;
 use std::collections::{HashMap, VecDeque};
 use std::ffi::c_int;
 use std::str::FromStr;
 use std::sync::atomic::AtomicI64;
+use std::sync::LazyLock;
 use valkey_module::{raw, RedisModuleIO, ValkeyError, ValkeyResult};
+use crate::server_events::is_async_loading_in_progress;
 
 const RULE_TYPE_ALERTING: u8 = 1;
 const RULE_TYPE_RECORDING: u8 = 2;
+
+pub(crate) static STAGING_GROUP_MANAGERS: LazyLock<GroupManagerMap> = LazyLock::new(GroupManagerMap::new);
 
 
 pub(crate) fn save_rule_state_entry(rdb: *mut RedisModuleIO, state_entry: &RuleStateEntry) {
     rdb_save_timestamp(rdb, state_entry.time);
     rdb_save_timestamp(rdb, state_entry.at);
     rdb_save_duration(rdb, &state_entry.duration);
-    // Note: if an error exists, we serialize it as a string, and on reading we instantate
+    // Note: if an error exists, we serialize it as a string, and on reading we instantiate
     // the Generic variant. IOW, this is not round-trip safe
     if let Some(error) = &state_entry.err {
         let err_msg = error.to_string();
@@ -349,7 +353,7 @@ pub(crate) fn save_group(rdb: *mut RedisModuleIO, group: &Group) {
     rdb_save_bool(rdb, group.disabled);
 }
 
-pub(crate) fn load_group(rdb: *mut RedisModuleIO, _encver: c_int) -> ValkeyResult<Group> {
+pub(crate) fn load_group(rdb: *mut RedisModuleIO, _enc_ver: c_int) -> ValkeyResult<Group> {
     let id = raw::load_unsigned(rdb)?;
     let name = rdb_load_string(rdb)?;
     
@@ -385,4 +389,97 @@ pub(crate) fn load_group(rdb: *mut RedisModuleIO, _encver: c_int) -> ValkeyResul
         metrics,
         disabled,
     })
+}
+
+fn save_group_meta(rdb: *mut RedisModuleIO, meta: &GroupMeta) {
+    raw::save_unsigned(rdb, meta.hash);
+    rdb_save_string(rdb, &meta.name);
+    rdb_save_bool(rdb, meta.started);
+    raw::save_slice(rdb, &meta.group_key);
+    // doesn't make sense to store the timer id
+    // raw::save_unsigned(rdb, meta.timer_id);
+}
+
+fn load_group_meta(rdb: *mut RedisModuleIO, _enc_ver: c_int) -> ValkeyResult<GroupMeta> {
+    let hash = raw::load_unsigned(rdb)?;
+    let name = rdb_load_string(rdb)?;
+    let started = rdb_load_bool(rdb)?;
+    let key_buf = raw::load_string_buffer(rdb)?;
+    let group_key = key_buf.as_ref().to_vec().into_boxed_slice();
+    
+    Ok(GroupMeta {
+        hash,
+        name,
+        started,
+        group_key,
+        ..Default::default()
+    })
+}
+
+fn save_group_manager(rdb: *mut RedisModuleIO, manager: &GroupManager) {
+    // write_queue, querier_builder and notifiers are globals. we ignore them
+    let groups = manager.groups_by_id.pin();
+    rdb_save_usize(rdb, groups.len());
+    for (id, group) in groups.iter() {
+        raw::save_unsigned(rdb, *id);
+        save_group_meta(rdb, group);
+    }
+}
+
+fn load_group_manager(rdb: *mut RedisModuleIO, _enc_ver: c_int) -> ValkeyResult<GroupManager> {
+    let groups_count = rdb_load_usize(rdb)?;
+    let mut manager = GroupManager::default();
+    let mut groups = papaya::HashMap::with_capacity(groups_count);
+    let map = groups.pin();
+    for _ in 0..groups_count {
+        let id = raw::load_unsigned(rdb)?;
+        let meta = load_group_meta(rdb, _enc_ver)?;
+        map.insert(id, meta);
+    }
+    manager.groups_by_id = groups;
+    Ok(manager)
+}
+
+pub fn rdb_save_group_managers(rdb: *mut RedisModuleIO) {
+    let managers = GROUP_MANAGERS.pin();
+    rdb_save_usize(rdb, managers.len());
+    for (db, manager) in managers.iter() {
+        raw::save_unsigned(rdb, *db as u64);
+        save_group_manager(rdb, manager);
+    }
+}
+
+pub fn rdb_load_group_managers(rdb: *mut RedisModuleIO, _enc_ver: c_int) -> ValkeyResult<()> {
+    let is_async = is_async_loading_in_progress();
+    let groups_count = rdb_load_usize(rdb)?;
+    let managers = if is_async {
+        STAGING_GROUP_MANAGERS.pin()
+    } else {
+        GROUP_MANAGERS.pin()
+    };
+    managers.clear();
+    
+    if groups_count == 0 {
+        return Ok(());
+    }
+    
+    for _ in 0..groups_count {
+        let id = raw::load_unsigned(rdb)? as u32;
+        let meta = load_group_manager(rdb, _enc_ver)?;
+        managers.insert(id, meta);
+    }
+    
+    Ok(())
+}
+
+pub fn rdb_on_async_load_completed() {
+    let mut staging = STAGING_GROUP_MANAGERS.pin();
+    let mut current_managers = GROUP_MANAGERS.pin();
+    // todo: it's much faster to do a swap, but LazyLock doesn't support it and using
+    // a Mutex would be a performance hit
+    staging.iter().collect_into(&mut current_managers);
+}
+
+pub fn rdb_on_async_load_aborted() {
+    STAGING_GROUP_MANAGERS.pin().clear();
 }

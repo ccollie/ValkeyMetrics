@@ -1,5 +1,4 @@
-use crate::globals::with_timeseries_index;
-use crate::series::index::{IndexInner, TimeSeriesIndex};
+use crate::series::index::{with_timeseries_index, IndexInner, TimeSeriesIndex};
 use crate::module::arg_parse::parse_integer_arg;
 use std::collections::HashMap;
 use std::sync::RwLockReadGuard;
@@ -43,7 +42,7 @@ pub fn stats(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
             (ValkeyValue::Array(vec![]), ValkeyValue::Array(vec![]), ValkeyValue::Array(vec![]), ValkeyValue::Array(vec![]))
         }
         // else if limit >= LIMIT_PARALLELISM_THRESHOLD && series_count >= LIMIT_PARALLELISM_THRESHOLD {
-        //     // rayon really needs an nary join!
+        //     // rayon really needs a nary join!
         //     let (series_count, label_value_counts) = rayon::join(
         //         || get_series_count_by_metric_name(&inner, limit),
         //         || get_label_value_count_by_label_name(&inner, limit));

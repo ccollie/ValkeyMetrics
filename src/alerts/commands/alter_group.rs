@@ -1,8 +1,10 @@
-use std::collections::HashMap;
 use crate::alerts::utils::with_group_mut;
+use crate::alerts::with_group_manager;
 use crate::error_consts;
+use crate::error_consts::EVAL_OFFSET_EXCEEDS_INTERVAL;
 use crate::module::arg_parse::*;
 use metricsql_parser::parser::is_valid_identifier;
+use std::collections::HashMap;
 use std::time::Duration;
 use valkey_module::{
     Context,
@@ -14,8 +16,6 @@ use valkey_module::{
     VALKEY_OK
 };
 use valkey_module_macros::command;
-use crate::alerts::group_manager::GROUP_MANAGER;
-use crate::error_consts::EVAL_OFFSET_EXCEEDS_INTERVAL;
 
 const INTERVAL: &str = "INTERVAL";
 const EVAL_OFFSET: &str = "EVAL_OFFSET";
@@ -211,7 +211,7 @@ pub(crate) fn update_group(ctx: &Context, key: &ValkeyString, options: AlterGrou
         }
         
         if changed {
-            GROUP_MANAGER.update_group(ctx, group, key);
+            with_group_manager(ctx, |manager| manager.update_group(ctx, group, key));
         }
         
         Ok(changed)

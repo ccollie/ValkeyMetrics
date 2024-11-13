@@ -1,5 +1,5 @@
+use crate::alerts::with_rule_groups;
 use crate::alerts::commands::api::group_to_api;
-use crate::alerts::group_manager::GROUP_MANAGER;
 use crate::alerts::rules::{RuleType, RulesFilter};
 use crate::error_consts;
 use crate::module::arg_parse::parse_label_list;
@@ -34,7 +34,7 @@ pub fn groups(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
     let mut groups: Vec<GroupState> = Vec::new();
     let name_filter = filter.group_names.as_slice();
-    GROUP_MANAGER.with_groups(ctx, name_filter, &mut groups, |state, group| {
+    with_rule_groups(ctx, name_filter, &mut groups, |state, group| {
         state.push(GroupState {
             name: group.name.clone(),
             id: group.id,
@@ -58,7 +58,7 @@ pub fn groups(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
 const CMD_ARG_GROUPNAME: &'static str = "RULE_GROUP";
 const CMD_ARG_RULENAME: &'static str = "RULE_NAME";
-const CMD_ARG_RULETYPE: &'static str = "RULE_TYPE";
+const CMD_ARG_RULE_TYPE: &'static str = "RULE_TYPE";
 const CMD_ARG_EXCLUDE_ALERTS: &'static str = "EXCLUDE_ALERTS";
 
 pub fn parse_alert_rules_filter(args: Vec<ValkeyString>) -> ValkeyResult<RulesFilter> {
@@ -67,7 +67,7 @@ pub fn parse_alert_rules_filter(args: Vec<ValkeyString>) -> ValkeyResult<RulesFi
         const TOKENS: [&str; 4] = [
             CMD_ARG_GROUPNAME,
             CMD_ARG_RULENAME,
-            CMD_ARG_RULETYPE,
+            CMD_ARG_RULE_TYPE,
             CMD_ARG_EXCLUDE_ALERTS,
         ];
         TOKENS.contains(&token)
@@ -84,7 +84,7 @@ pub fn parse_alert_rules_filter(args: Vec<ValkeyString>) -> ValkeyResult<RulesFi
             arg if arg.eq_ignore_ascii_case(CMD_ARG_RULENAME) => {
                 filter.rule_names = parse_label_list(&mut args, is_cmd_token)?;
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_RULETYPE) => {
+            arg if arg.eq_ignore_ascii_case(CMD_ARG_RULE_TYPE) => {
                 let rule_type = args.next_str()?;
                 match rule_type {
                     arg if arg.eq_ignore_ascii_case("alert") => filter.rule_type = Some(RuleType::Alerting),

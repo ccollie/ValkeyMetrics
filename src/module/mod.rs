@@ -1,8 +1,8 @@
-pub(crate) use data_type::*;
+pub(crate) use series_data_type::*;
 pub(crate) use utils::*;
 
 mod result;
 pub mod utils;
-mod data_type;
+mod series_data_type;
 pub mod arg_parse;
 pub(crate) mod commands;

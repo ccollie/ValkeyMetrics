@@ -1,7 +1,6 @@
 use crate::common::types::{Sample, Timestamp};
-use crate::globals::with_timeseries_index;
 use crate::module::VKM_SERIES_TYPE;
-use crate::series::index::TimeSeriesIndex;
+use crate::series::index::{with_timeseries_index, TimeSeriesIndex};
 use crate::series::time_series::TimeSeries;
 use async_trait::async_trait;
 use metricsql_runtime::prelude::{Deadline, MetricStorage, QueryResult, QueryResults, RuntimeResult, SearchQuery};

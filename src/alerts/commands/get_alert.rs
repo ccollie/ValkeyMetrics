@@ -1,8 +1,8 @@
 use crate::alerts::commands::api::new_alert_api;
-use crate::alerts::group_manager::GROUP_MANAGER;
 use crate::alerts::rules::MetricRule;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString};
 use valkey_module_macros::command;
+use crate::alerts::with_rule_group;
 
 /// VM.GET_ALERT groupId alertId
 #[command(
@@ -26,7 +26,7 @@ pub fn get_alert(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let group_id = args.next_u64()?;
     let alert_id = args.next_u64()?;
     
-    GROUP_MANAGER.with_group_by_id(ctx, group_id, |group| {
+    with_rule_group(ctx, group_id, |group| {
         for rule in group.rules.iter() {
             if let MetricRule::AlertingRule(alerting_rule) = rule {
                 if let Some(alert) = alerting_rule.alerts.get(&alert_id) {

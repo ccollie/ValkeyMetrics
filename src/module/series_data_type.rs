@@ -2,11 +2,12 @@ use valkey_module::RedisModuleTypeMethods;
 use valkey_module::REDISMODULE_AUX_BEFORE_RDB;
 use valkey_module::{native_types::ValkeyType, RedisModuleDefragCtx, RedisModuleString, ValkeyString};
 
-use crate::globals::with_timeseries_index;
 use crate::series::defrag_series;
 use crate::series::time_series::TimeSeries;
 use std::os::raw::{c_int, c_void};
 use valkey_module::raw;
+use crate::series::index::serialization::{ts_index_rdb_aux_load, ts_index_rdb_aux_save};
+use crate::series::index::with_timeseries_index;
 // see https://github.com/redis/redis/blob/unstable/tests/modules
 
 pub static VKM_SERIES_VERSION: i32 = 1;
@@ -21,8 +22,8 @@ pub static VKM_SERIES_TYPE: ValkeyType = ValkeyType::new(
         free: Some(free),
         mem_usage: Some(mem_usage),
         digest: None,
-        aux_load: None,
-        aux_save: None,
+        aux_load: Some(ts_index_rdb_aux_load),
+        aux_save: Some(ts_index_rdb_aux_save),
         aux_save_triggers: REDISMODULE_AUX_BEFORE_RDB as i32,
         free_effort: None,
         unlink: Some(unlink),

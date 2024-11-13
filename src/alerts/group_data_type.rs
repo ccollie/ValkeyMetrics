@@ -1,5 +1,6 @@
 use crate::alerts::rules::Group;
 use crate::alerts::serialization::{load_group, save_group};
+use crate::alerts::with_group_manager;
 use crate::common::current_time_millis;
 use std::ffi::c_int;
 use std::os::raw::c_void;
@@ -7,7 +8,6 @@ use std::ptr::null_mut;
 use std::sync::LazyLock;
 use valkey_module::native_types::ValkeyType;
 use valkey_module::{raw, Context, RedisModuleDefragCtx, RedisModuleString, ValkeyString};
-use crate::alerts::group_manager::GROUP_MANAGER;
 
 const VM_GROUP_VERSION: i32 = 0;
 
@@ -85,7 +85,7 @@ unsafe extern "C" fn copy(
 fn remove_group_from_manager(group: &Group) {
     let guard = valkey_module::MODULE_CONTEXT.lock();
     let ctx = Context { ctx: guard.ctx };
-    GROUP_MANAGER.delete_group(&ctx, group);
+    with_group_manager(&ctx, |manager| manager.delete_group(&ctx, group))
 }
 
 #[allow(unused)]

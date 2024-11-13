@@ -16,7 +16,7 @@ blart = "0.3"
 bitstream-io = "2.6"
 cfg-if = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-croaring = "2.1"
+croaring = { version = "2.1" , features = ["alloc"] }
 enquote = "1.1"
 get-size = { version = "^0.1", features = ["derive"] }
 gtmpl = "0.7.1"
