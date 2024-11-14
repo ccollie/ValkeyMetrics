@@ -1,6 +1,6 @@
 use crate::alerts::notifications::validate_templates;
 use crate::alerts::rules::{calc_rule_hash, validate_alert_expr, AlertingRule, MetricRule, RuleState};
-use crate::alerts::utils::with_group_mut;
+use crate::alerts::meta::with_group_mut;
 use crate::error_consts;
 use crate::module::arg_parse::{
     parse_duration,

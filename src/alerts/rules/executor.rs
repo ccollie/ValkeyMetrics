@@ -7,12 +7,13 @@ use crate::alerts::notifications::{AlertNotifier, Notifier};
 use crate::alerts::rules::group::labels_to_string;
 use crate::alerts::rules::{make_series_key, AlertingRule, Group, MetricRule, Rule, RuleType};
 use crate::alerts::types::RawTimeSeries;
-use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, WriteQueue};
+use crate::alerts::{AlertsError, AlertsResult};
 use crate::common::types::{Label, Sample, Timestamp};
 use crate::config::get_global_settings;
 use ahash::AHashMap;
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use valkey_module::ThreadSafeContext;
+use crate::alerts::datasource::{AlertDatasource, WriteQueue};
 
 pub type PreviouslySentSeries = HashMap<u64, AHashMap<String, Vec<Label>>>;
 

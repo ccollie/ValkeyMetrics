@@ -2,7 +2,7 @@ use crate::alerts::rules::config::RuleConfig;
 use crate::alerts::rules::rule::fmt_rule;
 use crate::alerts::rules::{make_series_key, Group, Rule, RuleState, RuleStateEntry, RuleType};
 use crate::alerts::types::RawTimeSeries;
-use crate::alerts::{AlertDatasource, AlertsError, AlertsResult};
+use crate::alerts::{AlertsError, AlertsResult};
 use crate::common::types::{Label, MetricName, Sample, Timestamp};
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+use crate::alerts::datasource::AlertDatasource;
 
 const ERR_DUPLICATE: &str =
     "result contains metrics with the same labelset after applying rules labels.";

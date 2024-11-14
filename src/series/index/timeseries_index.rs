@@ -367,12 +367,13 @@ impl TimeSeriesIndex {
         }
     }
 
-    pub fn rename_series(&self, ctx: &Context, new_key: &ValkeyString) -> bool {
+    pub fn rename_series(&self, ctx: &Context, old_key: &[u8], new_key: &[u8]) -> bool {
         let mut inner = self.inner.write().unwrap();
-        with_timeseries(ctx, new_key, | series | {
+        let old = ctx.create_string(old_key);
+        with_timeseries(ctx, &old, | series | {
             let id = series.id;
             // slow, but we don't expect this to be called often
-            let key = new_key.as_slice().to_vec().into_boxed_slice();
+            let key = new_key.to_vec().into_boxed_slice();
             inner.id_to_key.insert(id, key);
             Ok(ValkeyValue::from(0i64))
         }).is_ok()

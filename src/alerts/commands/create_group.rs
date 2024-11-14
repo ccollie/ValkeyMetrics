@@ -1,6 +1,6 @@
 use crate::alerts::group_data_type::VKM_RULE_GROUP;
 use crate::alerts::rules::{Group, GroupConfig};
-use crate::alerts::with_group_manager;
+use crate::alerts::meta::with_group_manager;
 use crate::error_consts;
 use crate::module::arg_parse::*;
 use metricsql_parser::parser::is_valid_identifier;

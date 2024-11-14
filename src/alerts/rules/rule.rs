@@ -1,7 +1,9 @@
+use crate::alerts::datasource::AlertDatasource;
 use crate::alerts::rules::{AlertingRule, RecordingRule};
 use crate::alerts::types::RawTimeSeries;
-use crate::alerts::{AlertDatasource, AlertsError, AlertsResult};
+use crate::alerts::{AlertsError, AlertsResult};
 use crate::common::types::Timestamp;
+use crate::config::GLOBAL_SETTINGS;
 use get_size::GetSize;
 use metricsql_common::hash::FastHasher;
 use serde::{Deserialize, Serialize};
@@ -11,7 +13,6 @@ use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::Duration;
-use crate::config::GLOBAL_SETTINGS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum RuleType {
@@ -28,7 +29,6 @@ impl RuleType {
     }
 }
 
-
 impl Display for RuleType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name())
@@ -41,44 +41,56 @@ impl FromStr for RuleType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             value if value.eq_ignore_ascii_case("recording_rule") => Ok(RuleType::Recording),
-            value if value.eq_ignore_ascii_case(RuleType::Recording.name()) => Ok(RuleType::Recording),
-            value if value.eq_ignore_ascii_case(RuleType::Alerting.name()) => Ok(RuleType::Alerting),
+            value if value.eq_ignore_ascii_case(RuleType::Recording.name()) => {
+                Ok(RuleType::Recording)
+            }
+            value if value.eq_ignore_ascii_case(RuleType::Alerting.name()) => {
+                Ok(RuleType::Alerting)
+            }
             _ => Err(format!("unknown rules type: {}", s)),
         }
     }
 }
-
 
 /// Rule represents alerting or recording rules that has unique id, can be executed
 /// and updated with other Rule.
 pub trait Rule: Debug + Any {
     /// id returns unique id that may be used for identifying this Rule among others.
     fn id(&self) -> u64;
-    
+
     fn name(&self) -> &str;
-    
+
     fn rule_type(&self) -> RuleType;
-    
+
     fn expr(&self) -> &str;
-    
+
     /// exec executes the rules with given context at the given timestamp and limit.
     /// returns an err if number of resulting time series exceeds the limit.
-    fn exec(&mut self, querier: &AlertDatasource, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>>;
+    fn exec(
+        &mut self,
+        querier: &AlertDatasource,
+        ts: Timestamp,
+        limit: usize,
+    ) -> AlertsResult<Vec<RawTimeSeries>>;
     /// exec_range executes the rules on the given time range.
-    fn exec_range(&mut self, querier: &AlertDatasource, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>>;
-    
+    fn exec_range(
+        &mut self,
+        querier: &AlertDatasource,
+        start: Timestamp,
+        end: Timestamp,
+    ) -> AlertsResult<Vec<RawTimeSeries>>;
+
     fn update_with(&mut self, other: &dyn Rule) -> AlertsResult<()>;
-    
+
     fn get_last_entry(&self) -> Option<&RuleStateEntry>;
-    
+
     fn get_rule_state_count(&self) -> usize;
     fn get_all_entries(&self) -> Vec<RuleStateEntry>;
-    
+
     fn as_any(&self) -> &dyn Any;
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[derive(GetSize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, GetSize)]
 pub struct RuleStateEntry {
     /// stores last moment of time rules.exec() was called
     pub time: Timestamp,
@@ -89,11 +101,11 @@ pub struct RuleStateEntry {
     /// stores last error that happened in exec func resets on every successful exec
     /// may be used as Health ruleState
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub err: Option<AlertsError>,    // todo: error type
+    pub err: Option<AlertsError>, // todo: error type
     /// stores the number of samples returned during the last evaluation
     pub samples: usize,
     /// stores the number of time series fetched during the last evaluation.
-    pub series_fetched: Option<usize>
+    pub series_fetched: Option<usize>,
 }
 
 #[derive(Default)]
@@ -101,11 +113,10 @@ pub struct RulesFilter {
     pub(crate) group_names: Vec<String>,
     pub(crate) rule_names: Vec<String>,
     pub(crate) rule_type: Option<RuleType>,
-    pub(crate) exclude_alerts: Option<bool>
+    pub(crate) exclude_alerts: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(GetSize)]
+#[derive(Debug, Clone, Serialize, Deserialize, GetSize)]
 pub enum MetricRule {
     AlertingRule(AlertingRule), // possibly box this to conserve space
     RecordingRule(RecordingRule),
@@ -131,7 +142,7 @@ impl Rule for MetricRule {
             MetricRule::RecordingRule(rule) => rule.name(),
         }
     }
-    
+
     fn rule_type(&self) -> RuleType {
         match self {
             MetricRule::AlertingRule(rule) => rule.rule_type(),
@@ -146,14 +157,24 @@ impl Rule for MetricRule {
         }
     }
 
-    fn exec(&mut self, querier: &AlertDatasource, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec(
+        &mut self,
+        querier: &AlertDatasource,
+        ts: Timestamp,
+        limit: usize,
+    ) -> AlertsResult<Vec<RawTimeSeries>> {
         match self {
             MetricRule::AlertingRule(rule) => rule.exec(querier, ts, limit),
             MetricRule::RecordingRule(rule) => rule.exec(querier, ts, limit),
         }
     }
 
-    fn exec_range(&mut self, querier: &AlertDatasource, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec_range(
+        &mut self,
+        querier: &AlertDatasource,
+        start: Timestamp,
+        end: Timestamp,
+    ) -> AlertsResult<Vec<RawTimeSeries>> {
         match self {
             MetricRule::AlertingRule(rule) => rule.exec_range(querier, start, end),
             MetricRule::RecordingRule(rule) => rule.exec_range(querier, start, end),
@@ -203,20 +224,26 @@ impl Display for MetricRule {
 pub(super) fn fmt_rule(rule: &dyn Rule, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     let rule_type = rule.rule_type().name();
 
-    write!(f, "{} rule {}; expr: {}", rule_type, rule.name(), rule.expr())?;
+    write!(
+        f,
+        "{} rule {}; expr: {}",
+        rule_type,
+        rule.name(),
+        rule.expr()
+    )?;
     let labels = match rule.rule_type() {
         RuleType::Alerting => {
             let alert_rule = rule.as_any().downcast_ref::<AlertingRule>().unwrap();
             &alert_rule.labels
-        },
+        }
         RuleType::Recording => {
             let recording_rule = rule.as_any().downcast_ref::<RecordingRule>().unwrap();
             &recording_rule.labels
-        },
+        }
     };
     let mut keys = labels.keys().collect::<Vec<_>>();
     keys.sort();
-    
+
     if !keys.is_empty() {
         write!(f, "; labels:")?;
     }
@@ -233,8 +260,7 @@ pub(super) fn fmt_rule(rule: &dyn Rule, f: &mut std::fmt::Formatter<'_>) -> std:
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[derive(GetSize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, GetSize)]
 pub struct RuleState(pub VecDeque<RuleStateEntry>);
 
 impl Default for RuleState {
@@ -251,13 +277,13 @@ impl RuleState {
     }
 
     pub fn push(&mut self, entry: RuleStateEntry) {
-        // drop oldest entry if capacity is reached
+        // drop the oldest entry if capacity is reached
         if self.0.len() == self.0.capacity() {
             self.0.pop_front();
         }
         self.0.push_back(entry);
     }
-    
+
     pub fn get_last(&self) -> Option<&RuleStateEntry> {
         self.0.iter().last()
     }
@@ -265,7 +291,7 @@ impl RuleState {
     pub fn len(&self) -> usize {
         self.0.len()
     }
-    
+
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -297,7 +323,7 @@ pub fn calc_rule_hash(rule: &dyn Rule) -> AlertsResult<u64> {
     let mut h = FastHasher::default();
 
     fn hash_labels(h: &mut FastHasher, labels: &HashMap<String, String>) -> Result<(), String> {
-        if!labels.is_empty() {
+        if !labels.is_empty() {
             let mut keys: Vec<_> = labels.keys().collect();
             keys.sort();
             h.write("labels".as_bytes());
@@ -320,12 +346,13 @@ pub fn calc_rule_hash(rule: &dyn Rule) -> AlertsResult<u64> {
         RuleType::Alerting => {
             let rule = &rule.as_any().downcast_ref::<AlertingRule>().unwrap();
             hash_labels(&mut h, &rule.labels)
-        },
+        }
         RuleType::Recording => {
             let rule = &rule.as_any().downcast_ref::<RecordingRule>().unwrap();
             hash_labels(&mut h, &rule.labels)
-        },
-    }.map_err(|_| AlertsError::Generic("ERR hashing rule".to_string()))?;
+        }
+    }
+    .map_err(|_| AlertsError::Generic("ERR hashing rule".to_string()))?;
 
     Ok(h.finish())
 }

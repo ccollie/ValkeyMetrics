@@ -2,7 +2,7 @@ use crate::alerts::commands::api::new_alert_api;
 use crate::alerts::rules::MetricRule;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString};
 use valkey_module_macros::command;
-use crate::alerts::with_rule_group;
+use crate::alerts::meta::with_rule_group;
 
 /// VM.GET_ALERT groupId alertId
 #[command(

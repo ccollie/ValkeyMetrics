@@ -13,7 +13,7 @@
 
 use super::models::{instant_result_to_value, DateTimeModel, DurationModel, Metric};
 use super::utils::*;
-use crate::alerts::{AlertDatasource, AlertsError, AlertsResult};
+use crate::alerts::datasource::{AlertDatasource};
 use crate::common::types::Timestamp;
 use crate::common::METRIC_NAME_LABEL;
 use chrono::DateTime;
@@ -28,6 +28,7 @@ use std::sync::{OnceLock, RwLock};
 use std::time::Duration;
 use titlecase::titlecase;
 use url::Url;
+use crate::alerts::{AlertsError, AlertsResult};
 use crate::query::{Querier};
 
 pub type FuncMap = HashMap<String, Func>;

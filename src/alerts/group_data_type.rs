@@ -1,15 +1,21 @@
 use crate::alerts::rules::Group;
-use crate::alerts::serialization::{load_group, save_group};
-use crate::alerts::with_group_manager;
+use crate::alerts::serialization::{load_group, rdb_load_group_metadata, rdb_save_group_metadata, save_group};
+use crate::alerts::meta::with_group_manager;
 use crate::common::current_time_millis;
 use std::ffi::c_int;
 use std::os::raw::c_void;
 use std::ptr::null_mut;
-use std::sync::LazyLock;
 use valkey_module::native_types::ValkeyType;
-use valkey_module::{raw, Context, RedisModuleDefragCtx, RedisModuleString, ValkeyString};
+use valkey_module::{
+    raw,
+    Context,
+    RedisModuleDefragCtx,
+    RedisModuleString,
+    ValkeyString,
+    REDISMODULE_AUX_AFTER_RDB
+};
 
-const VM_GROUP_VERSION: i32 = 0;
+const VM_GROUP_VERSION: i32 = 1;
 
 pub static VKM_RULE_GROUP: ValkeyType = ValkeyType::new(
     "vmalrtgrp",
@@ -26,10 +32,10 @@ pub static VKM_RULE_GROUP: ValkeyType = ValkeyType::new(
         digest: None,
 
         // Aux data
-        aux_load: None,
-        aux_save: None,
+        aux_load: Some(rdb_load_group_metadata),
+        aux_save: Some(rdb_save_group_metadata),
         aux_save2: None,
-        aux_save_triggers: 0,
+        aux_save_triggers: REDISMODULE_AUX_AFTER_RDB as i32,
 
         free_effort: None,
         unlink: Some(unlink),
@@ -42,11 +48,6 @@ pub static VKM_RULE_GROUP: ValkeyType = ValkeyType::new(
         unlink2: None,
     },
 );
-
-/// Stores all group keys during initialization. We need these keys for later use in the group
-/// manager and dispatcher.
-pub static GROUP_KEYS: LazyLock<Vec<Box<[u8]>>> = LazyLock::new(Vec::new);
-
 
 /// # Safety
 pub unsafe extern "C" fn group_rdb_save(rdb: *mut raw::RedisModuleIO, value: *mut c_void) {
@@ -112,7 +113,7 @@ unsafe extern "C" fn defrag(
     _ctx: *mut RedisModuleDefragCtx,
     _key: *mut RedisModuleString,
     value: *mut *mut c_void,
-) -> std::os::raw::c_int {
+) -> c_int {
     let group = &mut *(value as *mut Group);
     let now = current_time_millis();
     

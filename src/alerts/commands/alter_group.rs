@@ -1,5 +1,4 @@
-use crate::alerts::utils::with_group_mut;
-use crate::alerts::with_group_manager;
+use crate::alerts::meta::{with_group_mut, with_group_manager};
 use crate::error_consts;
 use crate::error_consts::EVAL_OFFSET_EXCEEDS_INTERVAL;
 use crate::module::arg_parse::*;

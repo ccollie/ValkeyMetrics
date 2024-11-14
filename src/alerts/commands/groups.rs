@@ -1,4 +1,4 @@
-use crate::alerts::with_rule_groups;
+use crate::alerts::meta::with_rule_groups;
 use crate::alerts::commands::api::group_to_api;
 use crate::alerts::rules::{RuleType, RulesFilter};
 use crate::error_consts;

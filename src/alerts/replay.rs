@@ -1,11 +1,12 @@
 use crate::alerts::rules::{Group, Rule};
 use crate::alerts::types::RawTimeSeries;
-use crate::alerts::{AlertDatasource, AlertsError, AlertsResult, WriteQueue};
+use crate::alerts::{AlertsError, AlertsResult};
 use metricsql_common::humanize::humanize_duration;
 use metricsql_runtime::types::{Timestamp, TimestampTrait};
 use std::thread;
 use std::time::Duration;
 use valkey_module::Context as ValkeyContext;
+use crate::alerts::datasource::{AlertDatasource, WriteQueue};
 
 #[derive(Debug, Clone)]
 pub struct ReplayOptions {

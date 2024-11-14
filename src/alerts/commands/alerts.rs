@@ -1,4 +1,4 @@
-use crate::alerts::with_rule_groups;
+use crate::alerts::meta::with_rule_groups;
 use crate::alerts::commands::api::{group_to_api, rule_to_api_alerts};
 use crate::alerts::rules::MetricRule;
 use std::collections::HashMap;

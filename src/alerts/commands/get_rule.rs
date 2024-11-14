@@ -1,4 +1,4 @@
-use crate::alerts::with_rule_group;
+use crate::alerts::meta::with_rule_group;
 use crate::alerts::commands::rule_to_api;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString};
 use valkey_module_macros::command;

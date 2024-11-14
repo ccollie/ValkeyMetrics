@@ -1,34 +1,94 @@
+use crate::alerts::{
+    VKM_RULE_GROUP
+};
+use crate::alerts::meta::{
+    clear_all_group_managers,
+    clear_group_manager,
+    swap_group_manager_dbs,
+    with_group_manager,
+};
+use crate::alerts::rules::Group;
+use crate::module::with_timeseries;
+use crate::alerts::serialization::alerts_on_async_load_done;
+use crate::series::index::serialization::series_on_async_load_done;
+use crate::series::index::*;
+use std::os::raw::c_void;
 use std::sync::atomic::AtomicBool;
-use valkey_module::{logging, raw, Context, ValkeyError, ValkeyResult, ValkeyString};
-use crate::alerts::{clear_all_group_managers, clear_group_manager, swap_group_manager_dbs, with_group_manager};
-use crate::series::index::{clear_all_timeseries_index, clear_timeseries_index, swap_timeseries_index_dbs, with_timeseries_index};
+use valkey_module::{logging, raw, Context, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString};
 
+static mut RENAME_FROM_KEY : Option<Vec<u8>> = None;
 static ASYNC_LOADING_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
-static ASYNC_LOADING_ABORTED: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn is_async_loading_in_progress() -> bool {
     ASYNC_LOADING_IN_PROGRESS.load(std::sync::atomic::Ordering::Relaxed)
 }
-pub(crate) fn is_async_loading_aborted() {
-    ASYNC_LOADING_ABORTED.load(std::sync::atomic::Ordering::Relaxed);
+
+fn handle_key_restore(ctx: &Context, key: &[u8]) {
+    let _key: ValkeyString = ctx.create_string(key);
+    let is_ts = with_timeseries(ctx, &_key, |series| {
+        with_timeseries_index(ctx, |index| {
+            index.reindex_timeseries(series, key);
+            Ok(true)
+        })
+    }).is_ok();
+    if !is_ts {
+        let db_key = ctx.open_key(&_key);
+        match db_key.get_value::<Group>(&VKM_RULE_GROUP) {
+            Ok(Some(group)) => {
+                let _ = with_group_manager(ctx, |manager| {
+                    manager.add_group(ctx, group, &_key)
+                });
+            }
+            _ => {}
+        }
+    }
+}
+
+fn handle_key_rename(ctx: &Context, old_key: &[u8], new_key: &[u8]) {
+    let is_ts = with_timeseries_index(ctx, |index| {
+        index.rename_series(ctx, old_key, new_key)
+    });
+    if !is_ts {
+        with_group_manager(ctx, |manager| {
+            manager.rename_group(old_key, new_key)
+        });
+    }
 }
 
 fn remove_key_from_index(ctx: &Context, key: &[u8]) {
-    let key: ValkeyString = ctx.create_string(key);
-    // todo: rewrite this to account for groups
     let is_ts = with_timeseries_index(ctx, |ts_index| {
+        let key: ValkeyString = ctx.create_string(key);
         ts_index.remove_series_by_key(ctx, &key)
     });
     if !is_ts {
         // see if it's a group
         with_group_manager(ctx, |manager| {
-            manager.remove_group_by_key(ctx, &key)
+            manager.delete_group_by_key(ctx, &key)
         });
-        with_timeseries_index(ctx, |ts_index| {
-            let key: ValkeyString = ctx.create_string(key);
-            ts_index.remove_group_by_key(ctx, &key)
-        });
+    }
+}
 
+pub(crate) fn generic_key_event_handler(ctx: &Context, _event_type: NotifyEvent, event: &str, key: &[u8]) {
+    // todo: AddPostNotificationJob(ctx, event, key);
+    match event {
+        "del" | "set" | "expired" | "evict" | "evicted" | "expire" | "trimmed" => {
+            remove_key_from_index(ctx, key);
+        }
+        // SAFETY: This is safe because the key is only used in the closure and this function 
+        // is not called concurrently
+        "rename_from" => unsafe {
+            RENAME_FROM_KEY.replace(key.to_vec());
+        }
+        "rename_to" => unsafe {
+            if let Some(old_key) = &RENAME_FROM_KEY {
+                handle_key_rename(ctx, old_key, key);
+            }
+            RENAME_FROM_KEY = None;
+        }
+        "restore" => {
+            handle_key_restore(ctx, key);
+        }
+        _ => {}
     }
 }
 
@@ -36,7 +96,7 @@ unsafe extern "C" fn on_flush_event(
     ctx: *mut raw::RedisModuleCtx,
     _eid: raw::RedisModuleEvent,
     sub_event: u64,
-    data: *mut std::os::raw::c_void
+    data: *mut c_void
 ) {
     if sub_event == raw::REDISMODULE_SUBEVENT_FLUSHDB_END {
         let ctx = Context::new(ctx);
@@ -58,7 +118,7 @@ unsafe extern "C" fn on_swap_db_event(
     ctx: *mut raw::RedisModuleCtx,
     eid: raw::RedisModuleEvent,
     _sub_event: u64,
-    data: *mut ::std::os::raw::c_void) {
+    data: *mut c_void) {
     if eid.id == raw::REDISMODULE_EVENT_SWAPDB {
         let ei: &raw::RedisModuleSwapDbInfo =
             unsafe { &*(data as *mut raw::RedisModuleSwapDbInfo) };
@@ -69,30 +129,33 @@ unsafe extern "C" fn on_swap_db_event(
         let to_db = ei.dbnum_second;
 
         swap_timeseries_index_dbs(&ctx, from_db, to_db);
-        swap_group_manager_dbs(&ctx, from_db, to_db);
+        swap_group_manager_dbs(from_db, to_db);
     }
+}
+
+fn on_async_load_done(completed: bool) {
+    ASYNC_LOADING_IN_PROGRESS.store(false, std::sync::atomic::Ordering::Relaxed);
+    alerts_on_async_load_done(completed);
+    series_on_async_load_done(completed);
 }
 
 unsafe extern "C" fn on_async_load_event(
     _ctx: *mut raw::RedisModuleCtx,
     _eid: raw::RedisModuleEvent,
     sub_event: u64,
-    _data: *mut std::os::raw::c_void) {
+    _data: *mut c_void) {
     match sub_event {
         raw::REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_STARTED => {
             logging::log_notice("Async RDB loading started");
-            ASYNC_LOADING_ABORTED.store(false, std::sync::atomic::Ordering::Relaxed);
             ASYNC_LOADING_IN_PROGRESS.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         raw::REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_ABORTED => {
-            logging::log_notice("Async AOF loading started");
-            ASYNC_LOADING_ABORTED.store(true, std::sync::atomic::Ordering::Relaxed);
-            ASYNC_LOADING_IN_PROGRESS.store(false, std::sync::atomic::Ordering::Relaxed);
+            logging::log_notice("Async AOF loading aborted");
+            on_async_load_done(false);
         }
         raw::REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_COMPLETED => {
             logging::log_notice("Async loading completed");
-            ASYNC_LOADING_ABORTED.store(false, std::sync::atomic::Ordering::Relaxed);
-            ASYNC_LOADING_IN_PROGRESS.store(false, std::sync::atomic::Ordering::Relaxed);
+            on_async_load_done(true);
         }
         _ => {
             logging::log_warning("Unknown async loading sub-event");

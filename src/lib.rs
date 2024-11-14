@@ -1,24 +1,17 @@
-#![feature(iter_collect_into)]
 extern crate async_trait;
 extern crate cfg_if;
 extern crate core;
 extern crate croaring;
 extern crate get_size;
 extern crate joinkit;
+extern crate lazy_static;
 extern crate phf;
 extern crate smallvec;
 extern crate topologic;
 extern crate valkey_module_macros;
 
-use valkey_module::{
-    raw,
-    valkey_module,
-    Context as ValkeyContext,
-    Context,
-    NotifyEvent,
-    Status,
-    ValkeyString
-};
+use valkey_module::{logging, valkey_module, Context, Status, ValkeyString};
+
 use valkey_module_macros::config_changed_event_handler;
 mod aggregators;
 mod common;
@@ -38,17 +31,23 @@ mod server_events;
 
 use crate::alerts::VKM_RULE_GROUP;
 use crate::common::async_runtime::init_runtime;
-use crate::series::index::with_timeseries_index;
-use crate::series::time_series::TimeSeries;
+use crate::server_events::{generic_key_event_handler, register_server_events};
 use module::*;
 
 pub const VKMETRICS_VERSION: i32 = 1;
 pub const MODULE_NAME: &str = "VKMetrics";
 pub const MODULE_TYPE: &str = "vkmetrics";
 
-fn initialize(_ctx: &Context, _args: &[ValkeyString]) -> Status {
+fn initialize(ctx: &Context, _args: &[ValkeyString]) -> Status {
     init_runtime();
-    Status::Ok
+    match register_server_events(ctx) {
+        Ok(_) => Status::Ok,
+        Err(e) => {
+            let msg = format!("Failed to register server events: {}", e);
+            logging::log_warning(msg);
+            Status::Err
+        }
+    }
 }
 
 fn deinitialize(_ctx: &Context) -> Status {
@@ -56,50 +55,8 @@ fn deinitialize(_ctx: &Context) -> Status {
 }
 
 #[config_changed_event_handler]
-fn config_changed_event_handler(ctx: &ValkeyContext, _changed_configs: &[&str]) {
+fn config_changed_event_handler(ctx: &Context, _changed_configs: &[&str]) {
     ctx.log_notice("config changed")
-}
-
-fn remove_key_from_index(ctx: &ValkeyContext, key: &[u8]) {
-    // todo: rewrite this to account for groups
-    with_timeseries_index(ctx, |ts_index| {
-        let key: ValkeyString = ctx.create_string(key);
-        ts_index.remove_series_by_key(ctx, &key);
-    });
-}
-
-fn index_timeseries_by_key(ctx: &ValkeyContext, key: &[u8]) {
-    // todo: rewrite this to account for groups
-    with_timeseries_index(ctx, |ts_index| {
-        let _key: ValkeyString = ctx.create_string(key);
-        let redis_key = ctx.open_key_writable(&_key);
-        let series = redis_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE);
-        if let Ok(Some(series)) = series {
-            if ts_index.is_series_indexed(series.id) {
-                // todo: log warning
-                ts_index.remove_series_by_key(ctx, &_key);
-                return;
-            }
-            if let Err(e) = ts_index.index_time_series(series, key) {
-                ctx.log_debug(e.to_string().as_str());
-            }
-        }
-    });
-}
-
-fn on_event(ctx: &ValkeyContext, _event_type: NotifyEvent, event: &str, key: &[u8]) {
-    // todo: AddPostNotificationJob(ctx, event, key);
-    match event {
-        "del" | "set" | "expired" | "evict" | "evicted" | "expire" | "trimmed" => {
-            remove_key_from_index(ctx, key);
-        }
-        "rename_from" => {
-            // RenameSeriesFrom(ctx, key);
-        }
-        _ => {
-            // ctx.log_warning(&format!("Unknown event: {}", event));
-        }
-    }
 }
 
 #[cfg(not(test))]
@@ -151,6 +108,6 @@ valkey_module! {
         ["VM.RESET-ROLLUP-CACHE", commands::reset_rollup_cache, "write deny-oom", 0, 0, 0],
     ],
      event_handlers: [
-        [@SET @STRING @GENERIC @EVICTED @EXPIRED @TRIMMED: on_event]
+        [@SET @STRING @GENERIC @EVICTED @EXPIRED @TRIMMED: generic_key_event_handler]
     ],
 }

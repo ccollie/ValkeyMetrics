@@ -1,29 +1,30 @@
-use std::any::Any;
-use crate::common::{current_time_millis, METRIC_NAME_LABEL};
-use crate::alerts::{AlertDatasource, AlertsError, AlertsResult};
+use crate::alerts::constants::*;
+use crate::alerts::datasource::AlertDatasource;
+use crate::alerts::notifications::{exec_template, Alert, AlertState, AlertTplData};
+use crate::alerts::rules::rule::fmt_rule;
+use crate::alerts::rules::{Group, Rule, RuleConfig, RuleState, RuleStateEntry, RuleType};
+use crate::alerts::templates::TemplateQueryContext;
+use crate::alerts::types::{hashmap_to_labels, RawTimeSeries};
+use crate::alerts::{AlertsError, AlertsResult};
 use crate::common::types::{Label, MetricName, Sample, Timestamp, TimestampTrait};
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::fmt::Display;
-use std::hash::{Hash, Hasher};
-use std::ops::{Sub};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration};
-use ahash::{AHasher};
+use crate::common::{current_time_millis, METRIC_NAME_LABEL};
+use crate::query::Querier;
+use ahash::AHasher;
 use enquote::enquote;
 use get_size::GetSize;
 use metricsql_common::hash::FastHasher;
 use metricsql_common::prelude::humanize_duration;
 use metricsql_parser::ast::Expr;
+use serde::{Deserialize, Serialize};
+use std::any::Any;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
+use std::hash::{Hash, Hasher};
+use std::ops::Sub;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 use tracing::debug;
 use valkey_module::{Context, ValkeyError, ValkeyResult};
-use crate::alerts::constants::*;
-use crate::alerts::notifications::{exec_template, Alert, AlertState, AlertTplData};
-use crate::alerts::rules::{Group, Rule, RuleConfig, RuleState, RuleStateEntry, RuleType};
-use crate::alerts::rules::rule::fmt_rule;
-use crate::alerts::templates::{TemplateQueryContext};
-use crate::alerts::types::{hashmap_to_labels, RawTimeSeries};
-use crate::query::Querier;
 // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmalert/alerting.go#L612
 
 /// the duration for which a resolved alert instance is kept in memory state and consequently
@@ -33,8 +34,7 @@ const RESOLVED_RETENTION: Duration = Duration::from_micros(15 * 60 * 1000);
 // todo: move to global config
 const DISABLE_ALERT_GROUP_LABEL: bool = false;
 
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[derive(GetSize)]
+#[derive(Debug, Default, Serialize, Deserialize, GetSize)]
 pub struct AlertingRuleMetrics {
     pub(crate) errors: AtomicU64,
     pub(crate) pending: AtomicU64,
@@ -62,13 +62,13 @@ impl PartialEq for AlertingRuleMetrics {
             && self.pending.load(Ordering::Relaxed) == other.pending.load(Ordering::Relaxed)
             && self.active.load(Ordering::Relaxed) == other.active.load(Ordering::Relaxed)
             && self.samples.load(Ordering::Relaxed) == other.samples.load(Ordering::Relaxed)
-            && self.series_fetched.load(Ordering::Relaxed) == other.series_fetched.load(Ordering::Relaxed)
+            && self.series_fetched.load(Ordering::Relaxed)
+                == other.series_fetched.load(Ordering::Relaxed)
     }
 }
 
 /// `AlertingRule` is basic alert entity
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[derive(GetSize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, GetSize)]
 pub struct AlertingRule {
     pub rule_id: u64,
     pub name: String,
@@ -79,7 +79,7 @@ pub struct AlertingRule {
     pub keep_firing_for: Duration,
     pub labels: HashMap<String, String>,
     pub annotations: HashMap<String, String>,
-    pub group_id: u64, // I don't think this needs to be stored
+    pub group_id: u64,      // I don't think this needs to be stored
     pub group_name: String, // neither this
     pub eval_interval: Duration,
     pub debug: bool,
@@ -165,7 +165,8 @@ impl AlertingRule {
 
             ctx.log_debug("restoring alert state via query {expr}");
 
-            let mut res = querier.query(&expr, ts)
+            let mut res = querier
+                .query(&expr, ts)
                 .map_err(|e| AlertsError::QueryExecutionError(format!("{}: {:?}", expr, e)))?;
 
             if res.is_empty() {
@@ -199,14 +200,20 @@ impl AlertingRule {
         Ok(())
     }
 
-    fn to_labels(&self, metric: &MetricName, value: f64, ctx: TemplateQueryContext) -> AlertsResult<LabelSet> {
+    fn to_labels(
+        &self,
+        metric: &MetricName,
+        value: f64,
+        ctx: TemplateQueryContext,
+    ) -> AlertsResult<LabelSet> {
         let mut ls = LabelSet {
             origin: Default::default(),
             processed: Default::default(),
         };
 
         if !metric.measurement.is_empty() {
-            ls.origin.insert(METRIC_NAME_LABEL.to_string(), metric.measurement.clone());
+            ls.origin
+                .insert(METRIC_NAME_LABEL.to_string(), metric.measurement.clone());
         }
 
         for Label { name, value } in metric.labels.iter() {
@@ -298,7 +305,8 @@ impl AlertingRule {
         resend_delay: Duration,
         f: F,
     ) -> AlertsResult<()>
-    where F: Fn(Vec<&Alert>) -> AlertsResult<()>
+    where
+        F: Fn(Vec<&Alert>) -> AlertsResult<()>,
     {
         let delay = resend_delay.as_millis() as i64;
 
@@ -310,28 +318,30 @@ impl AlertingRule {
             if !alert.needs_sending(ts, delay) {
                 continue;
             }
-            
+
             alert.end = if alert.state == AlertState::Inactive {
                 alert.resolved_at
             } else {
-                ts.saturating_add(resolve_duration) 
+                ts.saturating_add(resolve_duration)
             };
-            
+
             alert.last_sent = ts;
             ids.push(alert.id);
         }
 
-        let to_send = ids.iter().filter_map(|id| self.alerts.get(id)).collect::<Vec<_>>();
+        let to_send = ids
+            .iter()
+            .filter_map(|id| self.alerts.get(id))
+            .collect::<Vec<_>>();
         f(to_send)
     }
-
 
     fn new_alert(
         &mut self,
         start: Timestamp,
         value: f64,
         labels: HashMap<String, String>,
-        annotations: HashMap<String, String>
+        annotations: HashMap<String, String>,
     ) -> Alert {
         Alert {
             group_id: self.group_id,
@@ -354,31 +364,33 @@ impl AlertingRule {
             .filter(|(_, alert)| alert.state == state)
             .count()
     }
-    
+
     pub fn count_active_alerts(&self) -> usize {
         self.count_alerts_in_state(AlertState::Firing)
     }
-    
+
     pub fn count_pending_alerts(&self) -> usize {
         self.count_alerts_in_state(AlertState::Pending)
     }
 
     pub fn samples(&self) -> usize {
         if let Some(last) = self.state.iter().last() {
-            return last.samples
+            return last.samples;
         }
         0
     }
 
     pub fn series_fetched(&self) -> usize {
         if let Some(last) = self.state.iter().last() {
-            return last.series_fetched.unwrap_or(0)
+            return last.series_fetched.unwrap_or(0);
         }
         0usize
     }
 
     pub fn remove_inactive_alerts(&mut self, ts: Timestamp) -> usize {
-        let to_delete: Vec<u64> = self.alerts.iter()
+        let to_delete: Vec<u64> = self
+            .alerts
+            .iter()
             .filter_map(|(h, alert)| {
                 if alert.state == AlertState::Inactive
                     && ts.sub(alert.resolved_at) > RESOLVED_RETENTION.as_millis() as i64
@@ -404,21 +416,30 @@ impl AlertingRule {
         if !self.debug {
             return;
         }
-        let mut prefix = format!("DEBUG rules {}:{} ({}) at {}: ",
-                                 self.group_name, self.name, self.rule_id, at.to_rfc3339());
+        let mut prefix = format!(
+            "DEBUG rules {}:{} ({}) at {}: ",
+            self.group_name,
+            self.name,
+            self.rule_id,
+            at.to_rfc3339()
+        );
 
         if let Some(alert) = alert {
             let mut label_keys = self.labels.keys().collect::<Vec<_>>();
             label_keys.sort();
 
-            let labels = label_keys.iter().map(|x| {
-                let label_value = if let Some(value) = alert.labels.get(*x) {
-                    value.as_str()
-                } else {
-                    ""
-                };
-                format!("{}={}",x, enquote('"', label_value))
-            }).collect::<Vec<_>>().join(",");
+            let labels = label_keys
+                .iter()
+                .map(|x| {
+                    let label_value = if let Some(value) = alert.labels.get(*x) {
+                        value.as_str()
+                    } else {
+                        ""
+                    };
+                    format!("{}={}", x, enquote('"', label_value))
+                })
+                .collect::<Vec<_>>()
+                .join(",");
 
             let alert_msg = format!("alert {} {} ", alert.id, labels);
             prefix.push_str(&alert_msg);
@@ -437,14 +458,20 @@ fn alert_to_time_series(alert: &Alert, timestamp: Timestamp) -> RawTimeSeries {
         name: ALERT_STATE_LABEL.to_string(),
         value: alert.state.to_string(),
     });
-    labels.push(Label { name: METRIC_NAME_LABEL.to_string(), value: ALERT_METRIC_NAME.to_string() } );
+    labels.push(Label {
+        name: METRIC_NAME_LABEL.to_string(),
+        value: ALERT_METRIC_NAME.to_string(),
+    });
     labels.sort();
 
     let key = make_series_key(&labels);
     RawTimeSeries {
         key,
-        samples: vec![Sample { timestamp, value: 1.0 }],
-        labels
+        samples: vec![Sample {
+            timestamp,
+            value: 1.0,
+        }],
+        labels,
     }
 }
 
@@ -484,7 +511,12 @@ impl Rule for AlertingRule {
         &self.expr
     }
 
-    fn exec(&mut self, querier: &AlertDatasource, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec(
+        &mut self,
+        querier: &AlertDatasource,
+        ts: Timestamp,
+        limit: usize,
+    ) -> AlertsResult<Vec<RawTimeSeries>> {
         let start = current_time_millis();
 
         let mut cur_state = RuleStateEntry {
@@ -512,8 +544,11 @@ impl Rule for AlertingRule {
         cur_state.duration = Duration::from_millis((end - start) as u64);
 
         if self.debug {
-            let msg = format!("query returned {} samples (elapsed: {})", cur_state.samples,
-                              humanize_duration(&cur_state.duration));
+            let msg = format!(
+                "query returned {} samples (elapsed: {})",
+                cur_state.samples,
+                humanize_duration(&cur_state.duration)
+            );
 
             self.log_debug(ts, None, &msg)
         }
@@ -549,11 +584,14 @@ impl Rule for AlertingRule {
 
         // HACK. Avoid borrow checker error in log_debug
         let mut alerts = std::mem::take(&mut self.alerts);
-        
+
         // update list of active alerts
         let mut updated = HashSet::new();
-        for ((m, labels), annotations) in res.into_iter().zip(expanded_labels.into_iter()).zip(expanded_annotations.into_iter()) {
-
+        for ((m, labels), annotations) in res
+            .into_iter()
+            .zip(expanded_labels.into_iter())
+            .zip(expanded_annotations.into_iter())
+        {
             let h = hash_map(&labels.processed);
             let value = m.sample.value;
             updated.insert(h);
@@ -587,14 +625,18 @@ impl Rule for AlertingRule {
 
         let mut to_delete = Vec::new();
         let keep_firing_for = self.keep_firing_for.as_millis() as i64;
-        
+
         for (h, alert) in alerts.iter_mut() {
             // if alert wasn't updated in this iteration it means it is resolved already
             if !updated.contains(h) {
                 if alert.state == AlertState::Pending {
                     // alert was in Pending state - it is not active anymore
                     to_delete.push(h);
-                    self.log_debug(ts, Some(alert), "PENDING => DELETED: is absent in current evaluation round");
+                    self.log_debug(
+                        ts,
+                        Some(alert),
+                        "PENDING => DELETED: is absent in current evaluation round",
+                    );
                     continue;
                 }
                 // check if alert should keep Firing if rules has `keep_firing_for` field
@@ -607,24 +649,35 @@ impl Rule for AlertingRule {
                     if ts.sub(alert.keep_firing_since) > keep_firing_for {
                         alert.state = AlertState::Inactive;
                         alert.resolved_at = ts;
-                        self.log_debug(ts, Some(alert), "FIRING => INACTIVE: is absent in current evaluation round");
+                        self.log_debug(
+                            ts,
+                            Some(alert),
+                            "FIRING => INACTIVE: is absent in current evaluation round",
+                        );
                         continue;
                     }
                     if self.debug {
-                        let msg = format!("KEEP_FIRING: will keep firing for {}s since {}",
-                                          self.keep_firing_for.as_secs(), alert.keep_firing_since);
+                        let msg = format!(
+                            "KEEP_FIRING: will keep firing for {}s since {}",
+                            self.keep_firing_for.as_secs(),
+                            alert.keep_firing_since
+                        );
                         self.log_debug(ts, Some(alert), &msg);
                     }
                 }
             }
-            
+
             num_active_pending += 1;
             if alert.state == AlertState::Pending && ts.sub(alert.active_at) >= for_duration {
                 alert.state = AlertState::Firing;
                 alert.start = ts;
                 // alertsFired.Inc()
                 if self.debug {
-                    let msg = format!("PENDING => FIRING: {}ms since becoming active at {}", ts.sub(alert.active_at), alert.active_at);
+                    let msg = format!(
+                        "PENDING => FIRING: {}ms since becoming active at {}",
+                        ts.sub(alert.active_at),
+                        alert.active_at
+                    );
                     self.log_debug(ts, Some(alert), &msg);
                 }
             }
@@ -649,12 +702,19 @@ impl Rule for AlertingRule {
     /// It doesn't update internal states of the Rule and is meant to be used just to get time series
     /// for back-filling.
     /// It returns `ALERT` and `ALERT_FOR_STATE` time series as a result.
-    fn exec_range(&mut self, querier: &AlertDatasource, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec_range(
+        &mut self,
+        querier: &AlertDatasource,
+        start: Timestamp,
+        end: Timestamp,
+    ) -> AlertsResult<Vec<RawTimeSeries>> {
         let res = querier.query_range(&self.expr, start, end)?;
         let mut result = Vec::new();
         let mut hold_alert_state = HashMap::new();
 
-        let query_ctx = TemplateQueryContext::Error("`query` template function isn't supported in replay mode".to_string());
+        let query_ctx = TemplateQueryContext::Error(
+            "`query` template function isn't supported in replay mode".to_string(),
+        );
 
         let eval_interval = self.eval_interval.as_millis() as i64;
         let for_duration = self.r#for.as_millis() as i64;
@@ -663,7 +723,8 @@ impl Rule for AlertingRule {
         for series in res.data {
             let value = series.samples[0].value;
 
-            let (ls, annotations) = self.expand_templates(&series.metric, ts, value, query_ctx.clone())
+            let (ls, annotations) = self
+                .expand_templates(&series.metric, ts, value, query_ctx.clone())
                 .map_err(|_| {
                     let arg = format!("{}", &series);
                     AlertsError::FailedToExpandLabels(arg)
@@ -672,7 +733,7 @@ impl Rule for AlertingRule {
             let alert_id = hash_map(&ls.processed);
             let mut alert = self.new_alert(ts, value, ls.processed, annotations);
 
-            let mut prev_t : Timestamp = current_time_millis();
+            let mut prev_t: Timestamp = current_time_millis();
             for sample in series.samples.iter() {
                 let at = sample.timestamp;
                 if at == start {
@@ -686,10 +747,13 @@ impl Rule for AlertingRule {
                     alert.state = AlertState::Pending;
                     alert.active_at = at;
                     // re-template the annotations as active timestamp is changed
-                    let (_ls, annotations) = self.expand_templates(&series.metric, at, sample.value, query_ctx.clone())?;
+                    let (_ls, annotations) =
+                        self.expand_templates(&series.metric, at, sample.value, query_ctx.clone())?;
                     alert.annotations = annotations;
                     alert.start = 0;
-                } else if at.sub(alert.active_at) >= for_duration && alert.state != AlertState::Firing {
+                } else if at.sub(alert.active_at) >= for_duration
+                    && alert.state != AlertState::Firing
+                {
                     alert.state = AlertState::Firing;
                     alert.start = at;
                 }
@@ -716,12 +780,15 @@ impl Rule for AlertingRule {
     /// it should be updated in next 2 Execs
     fn update_with(&mut self, other: &dyn Rule) -> AlertsResult<()> {
         if self.rule_type() != other.rule_type() {
-            let msg = format!("BUG: attempt to update alerting rules with wrong type {}", other.rule_type());
+            let msg = format!(
+                "BUG: attempt to update alerting rules with wrong type {}",
+                other.rule_type()
+            );
             return Err(AlertsError::Generic(msg)); // todo: better error
         }
 
         let rule = other.as_any().downcast_ref::<AlertingRule>().unwrap();
-        
+
         self.expr.clone_from(&rule.expr);
         self.r#for = rule.r#for;
         self.keep_firing_for = rule.keep_firing_for;
@@ -730,7 +797,7 @@ impl Rule for AlertingRule {
         self.eval_interval = rule.eval_interval;
         self.debug = rule.debug;
         self.state = rule.state.clone();
-        
+
         Ok(())
     }
 
@@ -754,13 +821,14 @@ impl Rule for AlertingRule {
 fn hash_map(labels: &HashMap<String, String>) -> u64 {
     let mut hasher = AHasher::default();
 
-    let mut labels = labels.iter()
+    let mut labels = labels
+        .iter()
         // drop __name__ to be consistent with Prometheus alerting
         .filter(|(k, _v)| *k != METRIC_NAME_LABEL)
         .collect::<Vec<_>>();
     labels.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
 
-    for (label, value) in labels.iter(){
+    for (label, value) in labels.iter() {
         hasher.write(label.as_bytes());
         hasher.write_u8(0xff);
         hasher.write(value.as_bytes());
@@ -772,9 +840,9 @@ fn hash_map(labels: &HashMap<String, String>) -> u64 {
 pub(crate) fn make_series_key(labels: &[Label]) -> String {
     let mut hasher = FastHasher::default();
     let mut measurement: String = "".to_string();
-    for Label { name, value} in labels {
+    for Label { name, value } in labels {
         if name == METRIC_NAME_LABEL {
-            measurement .push('{');
+            measurement.push('{');
             measurement.push_str(value);
             measurement.push_str("}:");
             value.hash(&mut hasher);
@@ -791,7 +859,7 @@ pub(crate) fn make_series_key(labels: &[Label]) -> String {
 pub(crate) fn validate_alert_expr(expr: &str) -> ValkeyResult<()> {
     let expr = expr.trim();
     if expr.is_empty() {
-        return Err(ValkeyError::Str("ERR missing expression"))
+        return Err(ValkeyError::Str("ERR missing expression"));
     }
     match metricsql_parser::parser::parse(expr) {
         Ok(expr) => {
@@ -802,7 +870,10 @@ pub(crate) fn validate_alert_expr(expr: &str) -> ValkeyResult<()> {
                 }
             }
             Ok(())
-        },
-        Err(err) => Err(ValkeyError::String(format!("ERR invalid expression: {:?}", err)))
+        }
+        Err(err) => Err(ValkeyError::String(format!(
+            "ERR invalid expression: {:?}",
+            err
+        ))),
     }
 }

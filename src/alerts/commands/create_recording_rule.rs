@@ -1,5 +1,5 @@
 use crate::alerts::rules::{calc_rule_hash, MetricRule, RecordingRule, RuleState};
-use crate::alerts::utils::with_group_mut;
+use crate::alerts::meta::with_group_mut;
 use crate::module::arg_parse::{
     parse_key_value_pairs,
     parse_promql_vector_expr,

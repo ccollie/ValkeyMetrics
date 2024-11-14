@@ -31,7 +31,7 @@ pub(crate) fn invalid_series_key_error<K: Display>(key: &K) -> ValkeyError {
     ValkeyError::String(format!("VM: the key \"{}\" does not exist or is not a timeseries key", key))
 }
 
-pub(crate) fn with_timeseries(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&TimeSeries) -> ValkeyResult) -> ValkeyResult {
+pub(crate) fn with_timeseries<R>(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&TimeSeries) -> ValkeyResult<R>) -> ValkeyResult<R> {
     let redis_key = ctx.open_key(key);
     if let Some(series) = redis_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE)? {
         f(series)

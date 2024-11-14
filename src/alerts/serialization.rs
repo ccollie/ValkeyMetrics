@@ -10,20 +10,21 @@ use crate::alerts::rules::{
     RuleState,
     RuleStateEntry
 };
-use crate::alerts::{AlertsError, GroupManager, GroupManagerMap, GroupMeta, GROUP_MANAGERS};
+use crate::alerts::{AlertsError, GroupManager, GroupMeta, GROUP_MANAGERS};
 use crate::common::serialization::*;
+use crate::server_events::is_async_loading_in_progress;
 use std::collections::{HashMap, VecDeque};
 use std::ffi::c_int;
 use std::str::FromStr;
 use std::sync::atomic::AtomicI64;
-use std::sync::LazyLock;
-use valkey_module::{raw, RedisModuleIO, ValkeyError, ValkeyResult};
-use crate::server_events::is_async_loading_in_progress;
+use std::sync::{LazyLock, Mutex};
+use valkey_module::{logging, raw, RedisModuleIO, ValkeyError, ValkeyResult};
 
 const RULE_TYPE_ALERTING: u8 = 1;
 const RULE_TYPE_RECORDING: u8 = 2;
 
-pub(crate) static STAGING_GROUP_MANAGERS: LazyLock<GroupManagerMap> = LazyLock::new(GroupManagerMap::new);
+static STAGING_GROUP_MANAGERS: LazyLock<Mutex<HashMap<u32, GroupManager>>> = 
+    LazyLock::new(|| Mutex::new(HashMap::with_capacity(16)));
 
 
 pub(crate) fn save_rule_state_entry(rdb: *mut RedisModuleIO, state_entry: &RuleStateEntry) {
@@ -429,18 +430,20 @@ fn save_group_manager(rdb: *mut RedisModuleIO, manager: &GroupManager) {
 fn load_group_manager(rdb: *mut RedisModuleIO, _enc_ver: c_int) -> ValkeyResult<GroupManager> {
     let groups_count = rdb_load_usize(rdb)?;
     let mut manager = GroupManager::default();
-    let mut groups = papaya::HashMap::with_capacity(groups_count);
-    let map = groups.pin();
-    for _ in 0..groups_count {
-        let id = raw::load_unsigned(rdb)?;
-        let meta = load_group_meta(rdb, _enc_ver)?;
-        map.insert(id, meta);
+    let groups = papaya::HashMap::with_capacity(groups_count);
+    {
+        let map = groups.pin();
+        for _ in 0..groups_count {
+            let id = raw::load_unsigned(rdb)?;
+            let meta = load_group_meta(rdb, _enc_ver)?;
+            map.insert(id, meta);
+        }   
     }
     manager.groups_by_id = groups;
     Ok(manager)
 }
 
-pub fn rdb_save_group_managers(rdb: *mut RedisModuleIO) {
+fn save_group_managers(rdb: *mut RedisModuleIO, _when: c_int) {
     let managers = GROUP_MANAGERS.pin();
     rdb_save_usize(rdb, managers.len());
     for (db, manager) in managers.iter() {
@@ -449,37 +452,59 @@ pub fn rdb_save_group_managers(rdb: *mut RedisModuleIO) {
     }
 }
 
-pub fn rdb_load_group_managers(rdb: *mut RedisModuleIO, _enc_ver: c_int) -> ValkeyResult<()> {
-    let is_async = is_async_loading_in_progress();
+fn load_group_managers(rdb: *mut RedisModuleIO, _enc_ver: c_int, _when: c_int) -> ValkeyResult<()> {
     let groups_count = rdb_load_usize(rdb)?;
-    let managers = if is_async {
-        STAGING_GROUP_MANAGERS.pin()
-    } else {
-        GROUP_MANAGERS.pin()
-    };
+    let managers = GROUP_MANAGERS.pin();
     managers.clear();
-    
+
     if groups_count == 0 {
         return Ok(());
     }
     
-    for _ in 0..groups_count {
-        let id = raw::load_unsigned(rdb)? as u32;
-        let meta = load_group_manager(rdb, _enc_ver)?;
-        managers.insert(id, meta);
+    if is_async_loading_in_progress() {
+        let mut staged = std::mem::take(
+            &mut *STAGING_GROUP_MANAGERS.lock()?
+        );
+
+        for _ in 0..groups_count {
+            let id = raw::load_unsigned(rdb)? as u32;
+            let meta = load_group_manager(rdb, _enc_ver)?;
+            staged.insert(id, meta);
+        }
+
+    } else {
+        for _ in 0..groups_count {
+            let id = raw::load_unsigned(rdb)? as u32;
+            let meta = load_group_manager(rdb, _enc_ver)?;
+            managers.insert(id, meta);
+        }
     }
-    
+
     Ok(())
 }
 
-pub fn rdb_on_async_load_completed() {
-    let mut staging = STAGING_GROUP_MANAGERS.pin();
-    let mut current_managers = GROUP_MANAGERS.pin();
-    // todo: it's much faster to do a swap, but LazyLock doesn't support it and using
-    // a Mutex would be a performance hit
-    staging.iter().collect_into(&mut current_managers);
+pub extern "C" fn rdb_save_group_metadata(rdb: *mut RedisModuleIO, when: c_int) {
+    save_group_managers(rdb, when);
 }
 
-pub fn rdb_on_async_load_aborted() {
-    STAGING_GROUP_MANAGERS.pin().clear();
+pub extern "C" fn rdb_load_group_metadata(rdb: *mut RedisModuleIO, enc_ver: c_int, when: c_int) -> c_int {
+    logging::log_notice("Loading alert group AUX fields during RDB load.");
+    if let Err(e) = load_group_managers(rdb, enc_ver, when) {
+        logging::log_warning(format!("Error loading AUX fields: {}", e));
+        return raw::Status::Err as i32
+    }
+    raw::Status::Ok as i32
+}
+
+pub fn alerts_on_async_load_done(completed: bool) {
+    let staged = std::mem::take(&mut *STAGING_GROUP_MANAGERS.lock().unwrap());
+    if completed {
+        let current_managers = GROUP_MANAGERS.pin();
+        current_managers.clear();
+        // todo: it's much faster to do a swap, but LazyLock doesn't support it and using
+        // a Mutex would be a performance hit
+        for (k, manager) in staged.into_iter() {
+            current_managers.insert(k, manager);
+        }
+    }
 }

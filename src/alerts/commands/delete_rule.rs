@@ -1,7 +1,7 @@
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
 use valkey_module_macros::command;
 use crate::alerts::rules::{Group, MetricRule};
-use crate::alerts::utils::with_group_mut;
+use crate::alerts::meta::with_group_mut;
 
 /// VM.DELETE-RULE groupKey ruleId
 #[command(
