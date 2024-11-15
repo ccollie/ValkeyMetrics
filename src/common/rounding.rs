@@ -44,15 +44,14 @@ pub fn round_to_decimal_digits(f: f64, digits: i32) -> f64 {
 
 /// Rounds a floating-point value to a specified number of significant figures.
 ///
-/// # Parameters
+/// ## Parameters
 ///
 /// - `value`: The floating-point value to be rounded.
 /// - `digits`: The number of significant figures to round to. If `digits` is 0 or greater than or equal to 18, the function returns the original `value` unchanged.
 ///
-/// # Returns
+/// ## Returns
 ///
 /// The rounded floating-point value with the specified number of significant figures.
-
 pub fn round_to_sig_figs(value: f64, digits: i32) -> f64 {
     // https://stackoverflow.com/questions/65719216/why-does-rust-only-use-16-significant-digits-for-f64-equality-checks
     if digits == 0 || digits >= 16 {

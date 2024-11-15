@@ -71,8 +71,6 @@ pub fn rdb_load_duration(rdb: *mut RedisModuleIO) -> ValkeyResult<Duration> {
     Ok(Duration::from_millis(millis))
 }
 
-
-
 #[inline]
 pub(crate) fn rdb_save_usize(rdb: *mut RedisModuleIO, value: usize) {
     raw::save_unsigned(rdb, value as u64)
@@ -101,7 +99,6 @@ pub(crate) fn rdb_load_timestamp(rdb: *mut RedisModuleIO) -> ValkeyResult<Timest
     let value = raw::load_signed(rdb)?;
     Ok(value as Timestamp)
 }
-
 
 pub(crate) fn rdb_save_u8(rdb: *mut RedisModuleIO, value: u8) {
     raw::save_unsigned(rdb, value as u64)

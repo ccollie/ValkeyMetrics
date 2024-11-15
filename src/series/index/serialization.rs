@@ -13,7 +13,7 @@ use std::os::raw::c_int;
 use std::sync::{LazyLock, Mutex};
 use valkey_module::{logging, raw, ValkeyError, ValkeyResult};
 
-pub(super) static STAGED_TIMESERIES_INDEX: LazyLock<Mutex<std::collections::HashMap<u32, TimeSeriesIndex>>> 
+pub(super) static STAGED_TIMESERIES_INDEX: LazyLock<Mutex<std::collections::HashMap<i32, TimeSeriesIndex>>> 
     = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 
@@ -123,7 +123,7 @@ fn aux_load(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<()> {
         let mut staged = STAGED_TIMESERIES_INDEX.lock()
             .map_err(|_| ValkeyError::Str("Error loading AUX fields"))?;
         for _ in 0..len {
-            let ts_id = raw::load_unsigned(rdb)? as u32;
+            let ts_id = raw::load_signed(rdb)? as i32;
             let index = deserialize_timeseries_index(rdb)?;
             staged.insert(ts_id, index);
         }
@@ -131,7 +131,7 @@ fn aux_load(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<()> {
         let map = TIMESERIES_INDEX.pin();
 
         for _ in 0..len {
-            let ts_id = raw::load_unsigned(rdb)? as u32;
+            let ts_id = raw::load_signed(rdb)? as i32;
             let index = deserialize_timeseries_index(rdb)?;
             map.insert(ts_id, index);
         }    

@@ -1,8 +1,7 @@
-use crate::alerts::datasource::{AlertDatasource, WriteQueue};
-use crate::alerts::notifications::AlertNotifier;
-use crate::alerts::rules::{should_skip_rand_sleep_on_group_start, Executor, Group};
+use crate::alerts::datasource::AlertDatasource;
 use crate::alerts::meta::{with_group, with_group_manager, with_group_mut};
-use crate::alerts::{VKM_RULE_GROUP};
+use crate::alerts::rules::{should_skip_rand_sleep_on_group_start, Executor, Group};
+use crate::alerts::VKM_RULE_GROUP;
 use crate::common::current_time_millis;
 use crate::common::types::{Timestamp, TimestampTrait};
 use crate::config::GLOBAL_SETTINGS;
@@ -15,14 +14,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use valkey_module::{
-    Context, RedisModuleTimerID, ThreadSafeContext, ValkeyError, ValkeyResult, ValkeyString,
+    Context, RedisModuleTimerID, ThreadSafeContext,
+    ValkeyError, ValkeyResult, ValkeyString,
 };
 use xxhash_rust::xxh3::Xxh3;
 
 pub type GroupId = u64;
 
 // map a db to its group manager
-pub type GroupManagerMap = HashMap<u32, GroupManager>;
+pub type GroupManagerMap = HashMap<i32, GroupManager>;
 
 
 #[derive(Clone)]
@@ -72,24 +72,18 @@ impl GroupMeta {
 
 #[derive(Default)]
 pub struct GroupManager {
-    pub write_queue: Arc<WriteQueue>,
     pub querier_builder: Arc<AlertDatasource>,
-    pub notifiers: Arc<Vec<AlertNotifier>>,
     pub groups_by_id: HashMap<GroupId, GroupMeta>,
     pub ids_by_key: HashMap<Box<[u8]>, GroupId>,
     is_stopped: AtomicBool,
-    flush_timer_id: RedisModuleTimerID,
 }
 
 impl Clone for GroupManager {
     fn clone(&self) -> Self {
         GroupManager {
-            write_queue: Arc::clone(&self.write_queue),
             querier_builder: Arc::clone(&self.querier_builder),
             is_stopped: AtomicBool::new(false),
-            flush_timer_id: 0,
             groups_by_id: self.groups_by_id.clone(),
-            notifiers: Arc::clone(&self.notifiers),
             ids_by_key: Default::default(),
         }
     }
@@ -103,28 +97,13 @@ impl Drop for GroupManager {
 }
 
 impl GroupManager {
-    pub fn new(
-        write_queue: Arc<WriteQueue>,
-        querier_builder: Arc<AlertDatasource>,
-        notifiers: Arc<Vec<AlertNotifier>>,
-    ) -> Self {
+    pub fn new(querier_builder: Arc<AlertDatasource>) -> Self {
         Self {
-            write_queue: Arc::clone(&write_queue),
             querier_builder: Arc::clone(&querier_builder),
             is_stopped: Default::default(),
-            flush_timer_id: 0,
             groups_by_id: Default::default(),
-            notifiers: Arc::clone(&notifiers),
             ids_by_key: Default::default(),
         }
-    }
-
-    fn init_write_queue(&mut self, ctx: &Context) {
-        self.flush_timer_id = ctx.create_timer(
-            self.write_queue.flush_interval,
-            flush_callback,
-            self.write_queue.clone(),
-        );
     }
 
     pub fn add_group(&self, ctx: &Context, group: &Group, key: &ValkeyString) -> ValkeyResult<()> {
@@ -317,11 +296,6 @@ impl GroupManager {
             .is_some()
     }
 
-    fn stop_flush_timer(&mut self) {
-        stop_timer(self.flush_timer_id);
-        self.flush_timer_id = 0;
-    }
-
     pub fn stop(&mut self, ctx: &Context) {
         let groups = self.groups_by_id.pin();
         for group_id in groups.keys() {
@@ -331,13 +305,11 @@ impl GroupManager {
         drop(groups);
 
         self.is_stopped.store(true, Ordering::SeqCst);
-        self.write_queue.flush();
-        self.stop_flush_timer();
     }
 
     fn create_executor(&self, group: &Group) -> Executor {
         let querier = self.create_querier(group);
-        Executor::new(self.write_queue.clone(), querier, self.notifiers.clone())
+        Executor::new(querier)
     }
 
     fn create_querier(&self, group: &Group) -> AlertDatasource {
@@ -441,14 +413,6 @@ pub(super) fn get_hash(group: &Group) -> u64 {
         hasher.write(v.as_bytes());
     }
     hasher.digest()
-}
-
-fn flush_callback(ctx: &Context, write_queue: Arc<WriteQueue>) {
-    let queue_len = write_queue.len();
-    ctx.log_debug(format!("[flush callback]: flushing write queue: {queue_len} series").as_str());
-    if queue_len > 0 {
-        write_queue.flush();
-    }
 }
 
 pub(super) fn get_start_delay(group: &Group, eval_ts: Timestamp) -> Duration {

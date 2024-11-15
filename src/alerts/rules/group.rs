@@ -1,35 +1,34 @@
-use std::collections::{HashMap};
+use crate::alerts::notifications::Alert;
+use crate::alerts::rules::executor::Executor;
+use crate::alerts::rules::{AlertingRule, GroupConfig, MetricRule, RecordingRule, Rule, RuleType};
+use crate::alerts::{AlertsError, AlertsResult};
+use crate::common::types::{Label, Timestamp, TimestampTrait};
+use crate::common::{current_time_millis, METRIC_NAME_LABEL};
+use crate::config::get_global_settings;
+use crate::query::{QuerierBuilder, QuerierParams};
+use enquote::enquote;
+use get_size::GetSize;
+use metricsql_parser::ast::{Expr, MetricExpr};
+use metricsql_parser::parser::parse as parse_expr;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::default::Default;
 use std::hash::Hasher;
 use std::ops::Add;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::Duration;
 use std::vec;
-use enquote::enquote;
-use get_size::GetSize;
-use metricsql_parser::ast::{Expr, MetricExpr};
-use metricsql_parser::parser::parse as parse_expr;
-use crate::common::types::{Label, Timestamp, TimestampTrait};
-use serde::{Deserialize, Serialize};
 use topologic::AcyclicDependencyGraph;
 use tracing::info;
 use valkey_module::{Context, DetachedContextGuard};
 use xxhash_rust::xxh3::Xxh3;
-use crate::alerts::{AlertsError, AlertsResult};
-use crate::alerts::notifications::Alert;
-use crate::alerts::rules::{AlertingRule, GroupConfig, MetricRule, RecordingRule, Rule, RuleType};
-use crate::alerts::rules::executor::Executor;
-use crate::common::{current_time_millis, METRIC_NAME_LABEL};
-use crate::config::get_global_settings;
-use crate::query::{QuerierBuilder, QuerierParams};
 
 // `DependencyMap` describes the dependency associations between rules in a group whereby one rules uses the
 // output metric produced by another rules in its expression (i.e. as its "input"). Basically an adjacency list
 pub type DependencyMap = Vec<Vec<usize>>;
 
 /// Group is an entity for grouping rules
-#[derive(Debug, Default)]
-#[derive(GetSize)]
+#[derive(Debug, Default, GetSize)]
 pub struct Group {
     pub id: u64,
     pub name: String,
@@ -100,10 +99,9 @@ impl Clone for Group {
             disabled: self.disabled,
         }
     }
-} 
+}
 
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[derive(GetSize)]
+#[derive(Debug, Default, Serialize, Deserialize, GetSize)]
 pub struct GroupMetrics {
     pub iteration_total: AtomicU64,
     pub iteration_duration: AtomicU64,
@@ -128,7 +126,7 @@ impl Group {
         group.eval_alignment = Some(true);
         group
     }
-    
+
     pub fn from_config(cfg: GroupConfig, default_interval: Duration, labels: Vec<Label>) -> Group {
         let labels_empty = cfg.labels.is_empty();
         let mut g = Group {
@@ -209,7 +207,13 @@ impl Group {
     }
 
     /// restores alerts state for group rules
-    pub fn restore(&mut self, ctx: &Context, qb: impl QuerierBuilder, ts: Timestamp, look_back: Duration) -> AlertsResult<()> {
+    pub fn restore(
+        &mut self,
+        ctx: &Context,
+        qb: impl QuerierBuilder,
+        ts: Timestamp,
+        look_back: Duration,
+    ) -> AlertsResult<()> {
         for ar in self.rules.iter_mut() {
             if let MetricRule::AlertingRule(alerting_rule) = ar {
                 if alerting_rule.r#for.is_zero() {
@@ -222,8 +226,11 @@ impl Group {
                     debug: alerting_rule.debug,
                 });
 
-                alerting_rule.restore(ctx, &querier, ts, look_back)
-                    .map_err(|e| AlertsError::RuleRestoreError(format!("{}: {:?}", alerting_rule.expr, e)))?;
+                alerting_rule
+                    .restore(ctx, &querier, ts, look_back)
+                    .map_err(|e| {
+                        AlertsError::RuleRestoreError(format!("{}: {:?}", alerting_rule.expr, e))
+                    })?;
             }
         }
         Ok(())
@@ -234,19 +241,19 @@ impl Group {
     /// Not thread-safe.
     pub fn update_with(&mut self, new_group: &Group) -> AlertsResult<()> {
         let mut rules_registry = HashMap::new();
-        
+
         for rule in new_group.rules.iter() {
             rules_registry.insert(rule.id(), rule);
         }
-        
+
         let mut to_delete = vec![];
-        
+
         for (i, or) in self.rules.iter_mut().enumerate() {
             let id = or.id();
             if let Some(rule) = rules_registry.get(&id) {
                 or.update_with(*rule)?;
             } else {
-                to_delete.push(i);   
+                to_delete.push(i);
             }
         }
 
@@ -255,7 +262,7 @@ impl Group {
             self.rules.remove(*ofs);
         }
         to_delete.clear();
-        
+
         for rule in rules_registry.values() {
             let rule = (*rule).clone();
             self.rules.push(rule);
@@ -264,7 +271,8 @@ impl Group {
         // note that self.interval is not updated here so the value can be compared later in
         // group.start function
         self.params.clone_from(&new_group.params);
-        self.notifier_headers.clone_from(&new_group.notifier_headers);
+        self.notifier_headers
+            .clone_from(&new_group.notifier_headers);
         self.labels.clone_from(&new_group.labels);
         self.limit = new_group.limit;
         self.update_dependencies();
@@ -282,7 +290,7 @@ impl Group {
 
     pub fn add_rule(&mut self, rule: MetricRule) -> AlertsResult<()> {
         if rule.id() == 0 {
-          // todo: error
+            // todo: error
         }
         if self.get_rule_by_id(rule.id()).is_some() {
             let as_string = rule.to_string();
@@ -308,15 +316,14 @@ impl Group {
         }
         None
     }
-    
+
     pub fn contains_rule_by_id(&self, id: u64) -> bool {
         self.get_rule_by_id(id).is_some()
     }
 
-
     pub fn remove_rule_by_id(&mut self, id: u64) -> bool {
         let len = self.rules.len();
-        self.rules.retain(|x| x.id()!= id);
+        self.rules.retain(|x| x.id() != id);
         let changed = len != self.rules.len();
         if changed {
             self.update_dependencies();
@@ -350,12 +357,10 @@ impl Group {
         // collect rules which haven't added any dependencies to the graph.
         let mut no_dependents: Vec<usize> = Vec::with_capacity(self.rules.len());
         let graph: AcyclicDependencyGraph<usize> = AcyclicDependencyGraph::new();
-        
-        
+
         let mut is_indeterminate = false;
 
         for (i, rule) in self.rules.iter().enumerate() {
-
             if let Some(vector_selector) = inspect_query(rule) {
                 if vector_selector.name.is_none() && !vector_selector.matchers.is_empty() {
                     // indeterminate
@@ -383,8 +388,8 @@ impl Group {
         if is_indeterminate {
             return None;
         }
-        
-        for i in 0 .. self.rules.len() {
+
+        for i in 0..self.rules.len() {
             // Get the set of nodes that a given node depends on.
             let dependencies = graph.get_forward_dependencies(&i);
             if dependencies.is_empty() {
@@ -411,76 +416,64 @@ impl Group {
     fn update_dependencies(&mut self) {
         self.dependencies = self.build_dependencies();
     }
-    
+
     pub fn get_last_evaluation(&self) -> Timestamp {
         self.last_evaluation.load(Ordering::Relaxed)
     }
-    
+
     pub fn set_last_evaluation(&self, ts: Timestamp) {
         self.last_evaluation.store(ts, Ordering::Relaxed);
     }
-    
-    pub(crate) fn eval(&mut self, e: &Executor, ts: Timestamp) {
-        self.metrics.iteration_total.fetch_add(1, Ordering::Relaxed);
 
-        let start = current_time_millis();
+pub(crate) fn eval(&mut self, e: &Executor, ts: Timestamp) {
+    self.metrics.iteration_total.fetch_add(1, Ordering::Relaxed);
+    let start = current_time_millis();
 
-        if self.is_empty() {
-            self.set_last_evaluation(start);
-            return;
-        }
-
-        let resolve_duration = self.resolve_duration();
-        let ts = self.adjust_req_timestamp(ts);
-
-        fn log_error(ctx: &DetachedContextGuard, name: &str, err: &AlertsError) {
-            let msg = format!("group {}: failed to execute rules {}", name, err); 
-            ctx.log_warning(&msg)
-        }
-        
-        if let Err(res) = e.exec_rules(self, ts, resolve_duration, self.limit) {
-            let ctx_guard = valkey_module::MODULE_CONTEXT.lock();
-            match res {
-                AlertsError::GroupExecutionError(errs) => {
-                    for err in errs.iter() {
-                        log_error(&ctx_guard, &self.name, err);
-                    }
-                }
-                _=> {
-                    log_error(&ctx_guard, &self.name, &res);
-                }
-            }
-        }
-        
+    if self.is_empty() {
         self.set_last_evaluation(start);
+        return;
     }
 
+    let resolve_duration = self.resolve_duration();
+    let ts = self.adjust_req_timestamp(ts);
 
-    pub(crate) fn on_tick(&mut self, e: &Executor, eval_ts: Timestamp) {
-        self.metrics.iteration_interval.fetch_add(1, Ordering::Relaxed);
-        let current = current_time_millis();
+    if let Err(res) = e.exec(self, ts, resolve_duration, self.limit) {
+        let ctx_guard = valkey_module::MODULE_CONTEXT.lock();
+        let log_error = |err: &AlertsError| {
+            ctx_guard.log_warning(&format!("group {}: failed to execute rules {}", self.name, err))
+        };
+
+        match res {
+            AlertsError::GroupExecutionError(errs) => errs.iter().for_each(log_error),
+            _ => log_error(&res),
+        }
+    }
+
+    self.set_last_evaluation(start);
+}
+
+    pub(super) fn on_tick(&mut self, e: &Executor, eval_ts: Timestamp) {
+        self.metrics
+            .iteration_interval
+            .fetch_add(1, Ordering::Relaxed);
+        
         let elapsed = eval_ts - self.get_last_evaluation();
         let interval_millis = self.interval.as_millis() as i64;
-        let mut missed = elapsed / (interval_millis - 1) as u64 as i64;
-        if missed < 0 {
-            // missed can become < 0 due to irregular delays during evaluation
-            // which can result in time.since(eval_ts) < g.interval
-            missed = 0;
-        }
+        let missed = (elapsed / interval_millis.max(1) as u64 as i64).max(0);
+
         if missed > 0 {
-            self.metrics.iteration_missed.fetch_add(missed as u64, Ordering::Relaxed);
+            self.metrics
+                .iteration_missed
+                .fetch_add(missed as u64, Ordering::Relaxed);
         }
-        let eval_ts = current.add((missed + 1) * interval_millis);
-        self.eval(e, eval_ts)
+
+        let eval_ts = eval_ts.add((missed + 1) * interval_millis);
+        self.eval(e, eval_ts);
     }
 
     pub(super) fn on_update(&mut self, ng: &Group, e: &mut Executor) -> AlertsResult<()> {
-        self.update_with(ng).map_err(|_| {
-            AlertsError::Generic(format!("group {}: failed to update", self.name))
-        })?;
-
-        // ensure that staleness is tracked for existing rules only
-        e.purge_stale_series(&self.rules);
+        self.update_with(ng)
+            .map_err(|_| AlertsError::Generic(format!("group {}: failed to update", self.name)))?;
 
         let mut headers = HashMap::new();
         for (key, value) in self.notifier_headers.iter() {
@@ -496,13 +489,14 @@ impl Group {
         get_resolve_duration(
             self.interval,
             &settings.resend_delay,
-            &settings.max_resolve_duration)
+            &settings.max_resolve_duration,
+        )
     }
 
     pub(crate) fn adjust_req_timestamp(&self, timestamp: Timestamp) -> Timestamp {
         if !self.eval_offset.is_zero() {
             let offset = self.eval_offset.as_millis() as i64; // todo: make sure it doesn't overflow
-            // calculate the min timestamp on the evaluationInterval
+                                                              // calculate the min timestamp on the evaluationInterval
             let interval_start = timestamp.truncate(self.interval);
             let ts = interval_start + offset;
             if timestamp < ts {
@@ -512,20 +506,20 @@ impl Group {
                 // was evaluated at 11:20. Then the timestamp should be adjusted
                 // to 10:30, to the previous evaluationInterval.
                 let interval = self.interval.as_millis().max(i64::MAX as u128) as i64;
-                return ts.saturating_sub(interval)
+                return ts.saturating_sub(interval);
             }
             // eval_offset shouldn't interfere with eval_alignment, so we return it immediately
-            return ts
+            return ts;
         }
         if self.eval_alignment.unwrap_or(true) {
             // align query time with interval to get similar result with grafana when plotting time series.
             // see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5049
             // and https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1232
-            return timestamp.truncate(self.interval)
+            return timestamp.truncate(self.interval);
         }
         timestamp
     }
-    
+
     pub fn remove_inactive_alerts(&mut self, ts: Timestamp) -> usize {
         let mut count = 0;
         for rule in self.rules.iter_mut() {
@@ -539,29 +533,32 @@ impl Group {
 
 fn inspect_query(rule: &impl Rule) -> Option<MetricExpr> {
     match parse_expr(rule.expr()) {
-        Ok(expr) => {
-            match expr {
-                Expr::MetricExpression(me) => Some(me),
-                _ => None,
-            }
+        Ok(expr) => match expr {
+            Expr::MetricExpression(me) => Some(me),
+            _ => None,
         },
         Err(_) => None, // Handle parsing errors here
     }
 }
 
-
 fn new_group_metrics(_g: &Group) -> GroupMetrics {
     GroupMetrics::default()
 }
 
-fn merge_hashes(group_name: &str, rule_name: &str, dest: &mut HashMap<String, String>, set2: &HashMap<String, String>) {
+fn merge_hashes(
+    group_name: &str,
+    rule_name: &str,
+    dest: &mut HashMap<String, String>,
+    set2: &HashMap<String, String>,
+) {
     for (k, v) in set2.iter() {
         use std::collections::hash_map::Entry;
         match dest.entry(k.clone()) {
             Entry::Occupied(mut entry) => {
-                info!("hash {k} for rules {}.{} overwritten with external hash {k}={v}",
-                      group_name,
-                      rule_name);
+                info!(
+                    "hash {k} for rules {}.{} overwritten with external hash {k}={v}",
+                    group_name, rule_name
+                );
                 entry.get_mut().clone_from(v);
             }
             Entry::Vacant(entry) => {
@@ -572,9 +569,11 @@ fn merge_hashes(group_name: &str, rule_name: &str, dest: &mut HashMap<String, St
 }
 
 /// get_resolve_duration returns the duration after which firing alert can be considered as resolved.
-fn get_resolve_duration(group_interval: Duration,
-                        delta: &Duration,
-                        max_duration: &Duration) -> Duration {
+fn get_resolve_duration(
+    group_interval: Duration,
+    delta: &Duration,
+    max_duration: &Duration,
+) -> Duration {
     let mut delta = *delta;
     if group_interval > delta {
         delta = group_interval
@@ -586,9 +585,10 @@ fn get_resolve_duration(group_interval: Duration,
     resolve_duration
 }
 
-
 pub(super) fn labels_to_string(labels: &[Label]) -> String {
-    let capacity = labels.iter().fold(0, |acc, l| acc + l.name.len() + l.value.len() + 2);
+    let capacity = labels
+        .iter()
+        .fold(0, |acc, l| acc + l.name.len() + l.value.len() + 2);
     let mut b = String::with_capacity(capacity);
     b.push('{');
     for (i, label) in labels.iter().enumerate() {

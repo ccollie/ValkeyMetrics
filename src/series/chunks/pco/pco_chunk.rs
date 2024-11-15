@@ -575,15 +575,6 @@ fn remove_values_in_range(
 ) {
     debug_assert_eq!(timestamps.len(), values.len(), "Timestamps and scores vectors must be of the same length");
     if let Some((start_index, end_index)) = get_timestamp_index_bounds(timestamps, start_ts, end_ts) {
-        if start_index == end_index {
-            let ts = timestamps.get(start_index).unwrap();
-            if *ts >= start_ts && *ts <= end_ts {
-                timestamps.remove(start_index);
-                values.remove(start_index);
-            }
-            return
-        }
-
         timestamps.drain(start_index..=end_index);
         values.drain(start_index..=end_index);
     }

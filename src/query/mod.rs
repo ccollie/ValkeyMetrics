@@ -8,6 +8,7 @@ mod vm_metric_storage;
 pub mod datasource;
 mod series_querier;
 mod handlers;
+mod tracing;
 
 cfg_if::cfg_if! {
     if #[cfg(test)] {

@@ -2,16 +2,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::hash::Hasher;
-use std::sync::OnceLock;
 use std::time::Duration;
+use valkey_module::ConfigurationValue;
 use xxhash_rust::xxh3::Xxh3;
 
 use super::rule::RuleType;
 use crate::alerts::{AlertsError, AlertsResult};
 use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
 /***
-	rule_update_entries_limit = flag.Int("rules.updateEntriesLimit", 20, "Defines the max number of rules's state updates stored in-memory. "+
-		"Rule's updates are available on rules's Details page and are used for debugging purposes. The number of stored updates can be overridden per rules via update_entries_limit param.")
 	resendDelay = flag.Duration("rules.resendDelay", 0, "Minimum amount of time to wait before resending an alert to notifications")
 	maxResolveDuration = flag.Duration("rules.maxResolveDuration", 0, "Limits the maximum duration for automatic alert expiration, "+
 		"which by default is 4 times evaluationInterval of the parent group")
@@ -123,16 +121,10 @@ impl Display for RuleConfig {
     }
 }
 
-/// SkipRandSleepOnGroupStart will skip random sleep delay in group first evaluation
-pub static SKIP_RAND_SLEEP: OnceLock<bool> = OnceLock::new();
 
 // todo: this is a placeholder. use global config
 pub(crate) fn should_skip_rand_sleep_on_group_start() -> bool {
-    *SKIP_RAND_SLEEP.get_or_init(|| {
-        // get value from env
-        let env_val = std::env::var("SKIP_RAND_SLEEP").unwrap_or_default();
-        env_val == "true"
-    })
+    crate::config::SKIP_RAND_SLEEP_ON_GROUP_START.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Group contains list of Rules grouped into an entity with one name and evaluation interval

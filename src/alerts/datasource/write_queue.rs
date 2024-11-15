@@ -5,7 +5,7 @@ use crate::module::get_timeseries_mut;
 use crate::series::{TimeSeries, TimeSeriesOptions};
 use std::sync::{RwLock, RwLockWriteGuard};
 use std::time::Duration;
-use valkey_module::{ContextGuard, RedisModuleTimerID, ThreadSafeContext, ValkeyString};
+use valkey_module::{ContextGuard, ThreadSafeContext, ValkeyString};
 
 /// a queue for writing timeseries back to valkey.
 /// todo: have an output list, so that flushing does not block adding new series.
@@ -15,7 +15,6 @@ pub struct WriteQueue {
     pub(crate) flush_interval: Duration,
     max_batch_size: usize,
     max_queue_size: usize,
-    pub(crate) timer_id: Option<RedisModuleTimerID>
 }
 
 impl Default for WriteQueue {
@@ -25,7 +24,6 @@ impl Default for WriteQueue {
             flush_interval: Duration::from_millis(DEFAULT_FLUSH_INTERVAL as u64),
             max_batch_size: DEFAULT_MAX_BATCH_SIZE,
             max_queue_size: DEFAULT_MAX_QUEUE_SIZE,
-            timer_id: None,
         }
     }
 }

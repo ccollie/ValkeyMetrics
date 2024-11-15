@@ -660,15 +660,13 @@ pub(super) fn find_start_chunk_index(arr: &[TimeSeriesChunk], ts: Timestamp) -> 
 /// Return the index of the chunk in which the timestamp belongs. Assumes !chunks.is_empty()
 fn get_chunk_index(chunks: &[TimeSeriesChunk], timestamp: Timestamp) -> (usize, bool) {
     if chunks.len() <= 16 {
-        // don't use binary search for small arrays
-        for (i, chunk) in chunks.iter().enumerate() {
-            let start_ts = chunk.first_timestamp();
-            let end_ts = chunk.last_timestamp();
-            if timestamp >= start_ts && timestamp <= end_ts {
-                return (i, true);
+        return chunks.iter().enumerate().find_map(|(i, chunk)| {
+            if timestamp >= chunk.first_timestamp() && timestamp <= chunk.last_timestamp() {
+                Some((i, true))
+            } else {
+                None
             }
-        }
-        return (chunks.len(), false);
+        }).unwrap_or((chunks.len(), false));
     }
 
     binary_search_chunks_by_timestamp(chunks, timestamp)
@@ -676,20 +674,15 @@ fn get_chunk_index(chunks: &[TimeSeriesChunk], timestamp: Timestamp) -> (usize, 
 
 fn find_last_ge_index(chunks: &[TimeSeriesChunk], ts: Timestamp) -> (usize, bool) {
     if chunks.len() <= 16 {
-        return match chunks.iter().rposition(|x| ts >= x.last_timestamp()) {
-            Some(idx) => {
-                // todo: use get_unchecked
+        return chunks.iter().rposition(|x| ts >= x.last_timestamp())
+            .map_or((0, false), |idx| {
                 let chunk = &chunks[idx];
                 if chunk.is_timestamp_in_range(ts) {
                     (idx, true)
-                } else if chunk.last_timestamp() > ts {
-                    (idx.saturating_sub(1), false)
                 } else {
-                    (idx, false)
+                    (idx.saturating_sub(1), false)
                 }
-            },
-            None => (0, false)
-        }
+            });
     }
     binary_search_chunks_by_timestamp(chunks, ts)
 }

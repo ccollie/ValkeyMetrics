@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicI64};
 use std::sync::LazyLock;
 use std::time::Duration;
-use valkey_module::{ValkeyGILGuard, ValkeyString};
+use valkey_module::{logging, ValkeyGILGuard, ValkeyString};
 use crate::module::arg_parse::parse_duration;
 
 const MILLIS_PER_SEC: u64 = 1000;
@@ -19,11 +19,13 @@ pub const DEFAULT_STEP: Duration = Duration::from_millis(5 * MILLIS_PER_MIN);
 pub const DEFAULT_QUERY_STEP: Duration = Duration::from_millis(5 * MILLIS_PER_MIN);
 pub const DEFAULT_ROUND_DIGITS: u8 = 0;
 pub const DEFAULT_ALERT_LOOKBACK: Duration = Duration::from_secs(0);
+pub const DEFAULT_KEY_PREFIX: &str = "__VM$_";
 
 // I doubt we need this since we're querying locally
 pub const DEFAULT_EVAL_DELAY: Duration = Duration::from_secs(30);
 pub const DEFAULT_RESEND_DELAY: Duration = Duration::from_secs(0);
 
+const KEY_PREFIX_KEY: &str = "KEY_PREFIX";
 const RULE_UPDATE_ENTRIES_LIMIT_KEY: &str = "rules.update_entries_limit";
 const RULES_MAX_RESOLVE_DURATION_KEY: &str = "rules.max_resolve_duration";
 const RULES_EVAL_DELAY_KEY: &str = "rules.eval_delay";
@@ -51,15 +53,14 @@ const QUERY_MAX_STEP_FOR_POINTS_ADJUSTMENT_KEY: &str = "query.max_step_for_point
 
 lazy_static! {
     static ref RULE_UPDATE_ENTRIES_LIMIT: ValkeyGILGuard<i64> = ValkeyGILGuard::default();
-    static ref RULE_RESEND_DELAY: ValkeyGILGuard<String> = ValkeyGILGuard::new("default".into());
-    static ref NUM_OF_CONFIGURATION_CHANGES: ValkeyGILGuard<i64> = ValkeyGILGuard::default();
     static ref CONFIGURATION_I64: ValkeyGILGuard<i64> = ValkeyGILGuard::default();
     static ref CONFIGURATION_ATOMIC_I64: AtomicI64 = AtomicI64::new(1);
-    static ref CONFIGURATION_VALKEY_STRING: ValkeyGILGuard<ValkeyString> =
-        ValkeyGILGuard::new(ValkeyString::create(None, "default"));
-    static ref CONFIGURATION_STRING: ValkeyGILGuard<String> = ValkeyGILGuard::new("default".into());
     static ref CONFIGURATION_DISABLE_CACHE: AtomicBool = AtomicBool::default();
     static ref STATS_ENABLED: ValkeyGILGuard<bool> = ValkeyGILGuard::default();
+    // SkipRandSleepOnGroupStart will skip random sleep delay in group first evaluation
+    pub static ref SKIP_RAND_SLEEP_ON_GROUP_START: AtomicBool = AtomicBool::default();
+    pub static ref DISABLE_ALERT_GROUP_LABELS: AtomicBool = AtomicBool::default();
+    pub static ref VM_KEY_PREFIX: ValkeyGILGuard<String> = ValkeyGILGuard::new(DEFAULT_KEY_PREFIX.to_string());
 }
 
 
@@ -71,34 +72,23 @@ fn find_config_value<'a>(args: &'a [ValkeyString], name: &str) -> Option<&'a Val
 
 fn get_duration_config(args: &[ValkeyString], name: &str, default_duration: Option<Duration>) -> Duration {
     find_config_value(args, name)
-        .map(|arg| parse_duration(arg.as_str()))
-        .ok_or(default_duration.unwrap_or_default())
+        .and_then(|arg| parse_duration(arg.to_string_lossy().as_str()).ok())
+        .unwrap_or_else(|| default_duration.unwrap_or_default())
 }
 
+fn get_bool_config(args: &[ValkeyString], name: &str, default_value: bool) -> bool {
+    find_config_value(args, name)
+        .and_then(|arg| {
+            match arg.as_slice() {
+                b"yes" | b"YES" | b"1" => Some(true),
+                b"false" | b"FALSE" | b"0" => Some(false),
+                _ => None,
+            }
+        })
+        .unwrap_or(default_value)
+}
 
 /***
-Rules
-	rule_update_entries_limit = flag.Int("rules.updateEntriesLimit", 20, "Defines the max number of rules's state updates stored in-memory. "+
-		"Rule's updates are available on rule's Details page and are used for debugging purposes. The number of stored updates can be overridden per rules via update_entries_limit param.")
-	resendDelay = flag.Duration("rules.resendDelay", 0, "Minimum amount of time to wait before resending an alert to notifications")
-	maxResolveDuration = flag.Duration("rules.maxResolveDuration", 0, "Limits the maximum duration for automatic alert expiration, "+
-		"which by default is 4 times evaluationInterval of the parent group")
-	evalDelay = flag.Duration("rules.evalDelay", 30*time.Second, "Adjustment of the `time` parameter for rules evaluation requests to compensate intentional data delay from the datasource."+
-		"Normally, should be equal to `-search.latencyOffset` (cmd-line flag configured for VictoriaMetrics single-node or vmselect).")
-	disableAlertGroupLabel = flag.Bool("disableAlertgroupLabel", false, "Whether to disable adding group's Name as label to generated alerts and time series.")
-	read_lookback = flag.Duration("remoteRead.lookback", time.Hour, "Lookback defines how far to look into past for alerts timeseries."+
-		" For example, if lookback=1h then range from now() to now()-1h will be scanned.")
-
-	lookBack = flag.Duration("datasource.lookback", 0, `Deprecated: please adjust "-search.latencyOffset" at datasource side `+
-		`or specify "latency_offset" in rule group's params. Lookback defines how far into the past to look when evaluating queries. `+
-		`For example, if the datasource.lookback=5m then param "time" with value now()-5m will be added to every query.`)
-	queryStep = flag.Duration("datasource.queryStep", 5*time.Minute, "How far a value can fall back to when evaluating queries. "+
-		"For example, if -datasource.queryStep=15s then param \"step\" with value \"15s\" will be added to every query. "+
-		"If set to 0, rule's evaluation interval will be used instead.")
-
-	roundDigits = flag.Int("datasource.roundDigits", 0, `Adds "round_digits" GET param to datasource requests. `+
-		`In VM "round_digits" limits the number of digits after the decimal point in response values.`)
-
 Exec
 	maxResponseSeries = flag.Int("search.maxResponseSeries", 0, "The maximum number of time series which can be returned from /api/v1/query and /api/v1/query_range . "+
 		"The limit is disabled if it equals to 0. See also -search.maxPointsPerTimeseries and -search.maxUniqueTimeseries")
@@ -124,7 +114,7 @@ Exec
 
     /// The time when data points become visible in query results after the collection.
     /// Too small value can result in incomplete last points for query results
-    pub latency_offset: Duration,
+    latency_offset: Duration,
 
     /// The maximum amount of memory a single query may consume. Queries requiring more memory are
     /// rejected. The total memory limit for concurrently executed queries can be estimated as
@@ -134,7 +124,7 @@ Exec
     /// Set this flag to true if the database doesn't contain Prometheus stale markers, so there is
     /// no need in spending additional CPU time on its handling. Staleness markers may exist only in
     /// data obtained from Prometheus scrape targets
-    pub no_stale_markers: bool,
+    no_stale_markers: bool,
 
     /// The maximum number of points per series which can be generated by subquery.
     /// See https://valyala.medium.com/prometheus-subqueries-in-victoriametrics-9b1492b720b3
@@ -145,7 +135,7 @@ Exec
     /// closer to Influx-style data model.
     /// See https://prometheus.io/docs/prometheus/latest/querying/basics/#staleness for details.
     /// See also `set_lookback_to_step` flag
-    pub max_staleness_interval: Duration,
+    max_staleness_interval: Duration,
 
     /// The minimum interval for staleness calculations. This could be useful for removing gaps on
     /// graphs generated from time series with irregular intervals between samples.
@@ -153,7 +143,7 @@ Exec
 
     /// The maximum number of unique time series to be returned from instant or range queries
     /// This option allows limiting memory usage
-    pub max_unique_timeseries: usize,
+    max_unique_timeseries: usize,
 
     /// Synonym to -provider.lookback-delta from Prometheus.
     /// The value is dynamically detected from interval between time series data-points if not set.
@@ -164,17 +154,73 @@ Exec
     /// Whether to fix lookback interval to `step` query arg value.
     /// If set to true, the query model becomes closer to InfluxDB data model. If set to true,
     /// then `max_lookback` and `max_staleness_interval` are ignored. Defaults to `false`
-    pub set_lookback_to_step: bool,
+    set_lookback_to_step: bool,
 
     /// The maximum step when the range query handler adjusts points with timestamps closer than
     /// `latency_offset` to the current time. The adjustment is needed because such points may contain
     /// incomplete data
-    pub max_step_for_points_adjustment: Duration,
+    max_step_for_points_adjustment: Duration,
 
     /// The maximum duration for query execution (default 30 secs)
-    pub max_query_duration: Duration,
-
+    max_query_duration: Duration,
 */
+
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AlertSettings {
+    /// Limits the maximum duration for automatic alert expiration, which by default is 4 times
+    /// evaluation_interval of the parent group.
+    pub max_resolve_duration: Duration,
+
+    /// Minimum amount of time to wait before resending an alert to notifications
+    pub resend_delay: Duration,
+
+    /// Optional label in the form 'Name=value' to add to all generated recording rules and alerts.
+    /// Pass multiple -label flags in order to add multiple label sets.
+    pub external_labels: HashMap<String, String>,
+
+    /// look_back defines how far to look into past for alerts timeseries.
+    /// For example, if look_back=1h then range from now() to now()-1h will be scanned.
+    pub look_back: Duration,
+
+    /// Adjustment of the `time` parameter for rules evaluation requests to compensate for intentional data delay
+    /// from the datasource.
+    /// Normally, should be equal to `-search.latencyOffset`
+    pub eval_delay: Duration,
+
+    /// Synonym to -search.lookback-delta from Prometheus.
+    /// The value is dynamically detected from interval between time series data points if not set.
+    /// It can be overridden on per-query basis via max_lookback arg.
+    pub max_look_back: Duration,
+    
+    /// How far a value can fall back to when evaluating queries. For example, if query_step=15s then 
+    /// param \"step\" with value \"15s\" will be added to every query. If set to 0, rule's evaluation 
+    /// interval will be used instead.
+    pub query_step: Duration,
+
+    /// Whether to disable adding group's name as label to generated alerts and time series.
+    pub disable_alert_group_labels: bool,
+
+    /// How often to evaluate the rules
+    pub evaluation_interval: Duration,
+
+    /// Defines the max number of rule's state updates stored in-memory.
+    /// The number of stored updates can be overridden per rules via update_entries_limit param.
+    pub rule_update_entries_limit: usize,
+
+    /// Whether to align "time" parameter with evaluation interval.
+    pub query_time_alignment: bool,
+
+    /// Delay between rules evaluation within the group. Could be important if there are chained rules
+    /// inside the group and processing need to wait for previous rules results to be persisted by
+    /// remote series before evaluating the next rules.
+    /// Keep it equal or bigger than -remoteWrite.flushInterval.
+    pub replay_rules_delay: Duration,
+
+    /// Adds "round_digits" to datasource requests. This limits the number of
+    /// digits after the decimal point in response values.
+    pub round_digits: Option<u8>,
+}
 
 
 // todo: Clap
@@ -280,4 +326,8 @@ pub fn get_global_settings() -> &'static Settings {
 fn load_settings() -> Settings {
     // todo: load settings from config file
     Settings::default()
+}
+
+pub fn load_config(_args: &[ValkeyString]) {
+    logging::log_notice("Loading configuration...");
 }

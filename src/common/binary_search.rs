@@ -29,20 +29,12 @@ where
 
 pub fn find_last_ge_index<T: Ord>(arr: &[T], val: &T) -> usize {
     if arr.len() <= 16 {
-        return match arr.iter().rposition(|x| val >= x) {
-            Some(idx) => {
-                if arr[idx] > *val {
-                    idx.saturating_sub(1)
-                } else {
-                    idx
-                }
-            },
-            None => 0,
-        }
+        return arr.iter().rposition(|x| val >= x).map_or(0, |idx| {
+            if arr[idx] > *val { idx.saturating_sub(1) } else { idx }
+        });
     }
     arr.binary_search(val).unwrap_or_else(|x| x.saturating_sub(1))
 }
-
 
 /// Finds the start and end indices (inclusive) of a range within a sorted slice.
 ///

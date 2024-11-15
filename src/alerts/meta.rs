@@ -1,25 +1,19 @@
-use std::sync::Arc;
-use papaya::Guard;
-use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
-use crate::alerts::{GroupId, GroupManager, GROUP_MANAGERS, WRITE_QUEUE, VKM_RULE_GROUP};
 use crate::alerts::datasource::AlertDatasource;
-use crate::alerts::notifications::AlertNotifier;
 use crate::alerts::rules::Group;
+use crate::alerts::{GroupId, GroupManager, GROUP_MANAGERS, VKM_RULE_GROUP};
 use crate::series::index::get_current_db;
+use papaya::Guard;
+use std::sync::Arc;
+use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
 
 // todo: read configuration and construct accordingly
 pub(crate) fn create_group_manager() -> GroupManager {
-    let datasource = create_alert_datasource();
-    let mut manager = GroupManager::default();
-    // todo: get from config
-    let notifiers = vec![
-        AlertNotifier::pubsub(),
-        // AlertNotifier::stream(Some(50)),
-    ];
-    manager.notifiers = Arc::new(notifiers);
-    manager
+    let datasource = Arc::new(create_alert_datasource());
+    GroupManager::new(datasource)
 }
+
 fn create_alert_datasource() -> AlertDatasource {
+    // todo: read settings from config
     AlertDatasource::default()
 }
 
@@ -40,7 +34,7 @@ pub fn with_rule_groups<F, STATE>(
 }
 
 #[inline]
-pub fn get_group_manager_for_db(db: u32, guard: &impl Guard) -> &GroupManager {
+pub fn get_group_manager_for_db(db: i32, guard: &impl Guard) -> &GroupManager {
     GROUP_MANAGERS.get_or_insert_with(db, create_group_manager, guard)
 }
 
@@ -93,19 +87,15 @@ pub fn clear_all_group_managers() {
 }
 
 pub fn swap_group_manager_dbs(from_db: i32, to_db: i32) {
-    if from_db > 0 && to_db > 0 {
-        let from_db = from_db as u32;
-        let to_db = to_db as u32;
-        let map = GROUP_MANAGERS.pin();
-        let from = map.remove(&from_db);
-        let to = map.remove(&from_db);
+    let map = GROUP_MANAGERS.pin();
+    let from = map.remove(&from_db);
+    let to = map.remove(&from_db);
 
-        // change this if https://github.com/ibraheemdev/papaya/issues/29 is resolved
-        if let Some(to) = to {
-            map.insert(from_db, to.clone());
-        }
-        if let Some(from) = from {
-            map.insert(to_db, from.clone());
-        }
+    // change this if https://github.com/ibraheemdev/papaya/issues/29 is resolved
+    if let Some(to) = to {
+        map.insert(from_db, to.clone());
+    }
+    if let Some(from) = from {
+        map.insert(to_db, from.clone());
     }
 }

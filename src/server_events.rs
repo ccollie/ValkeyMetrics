@@ -115,20 +115,18 @@ unsafe extern "C" fn on_flush_event(
 
 
 unsafe extern "C" fn on_swap_db_event(
-    ctx: *mut raw::RedisModuleCtx,
+    _ctx: *mut raw::RedisModuleCtx,
     eid: raw::RedisModuleEvent,
     _sub_event: u64,
     data: *mut c_void) {
     if eid.id == raw::REDISMODULE_EVENT_SWAPDB {
         let ei: &raw::RedisModuleSwapDbInfo =
             unsafe { &*(data as *mut raw::RedisModuleSwapDbInfo) };
-
-        let ctx = Context::new(ctx);
-
+        
         let from_db = ei.dbnum_first;
         let to_db = ei.dbnum_second;
 
-        swap_timeseries_index_dbs(&ctx, from_db, to_db);
+        swap_timeseries_index_dbs(from_db, to_db);
         swap_group_manager_dbs(from_db, to_db);
     }
 }

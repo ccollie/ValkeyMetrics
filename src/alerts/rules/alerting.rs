@@ -29,10 +29,9 @@ use valkey_module::{Context, ValkeyError, ValkeyResult};
 
 /// the duration for which a resolved alert instance is kept in memory state and consequently
 /// repeatedly sent to the AlertManager.
+// TODO: read from config
 const RESOLVED_RETENTION: Duration = Duration::from_micros(15 * 60 * 1000);
 
-// todo: move to global config
-const DISABLE_ALERT_GROUP_LABEL: bool = false;
 
 #[derive(Debug, Default, Serialize, Deserialize, GetSize)]
 pub struct AlertingRuleMetrics {
@@ -244,7 +243,7 @@ impl AlertingRule {
             ls.origin
                 .insert(ALERT_NAME_LABEL.to_string(), self.name.clone());
         }
-        if !DISABLE_ALERT_GROUP_LABEL && !self.group_name.is_empty() {
+        if !should_disable_group_labels() && !self.group_name.is_empty() {
             ls.processed.insert(
                 ALERT_GROUP_NAME_LABEL.to_string(),
                 self.group_name.to_string(),
@@ -278,7 +277,8 @@ impl AlertingRule {
         let res = exec_template(ctx, &self.annotations, tpl_data)?;
         Ok((ls, res))
     }
-
+    
+    /// to_time_series creates `ALERTS` and `ALERTS_FOR_STATE` for active alerts
     fn to_time_series(&self, timestamp: Timestamp) -> Vec<RawTimeSeries> {
         self.alerts
             .iter()
@@ -452,48 +452,6 @@ impl AlertingRule {
     }
 }
 
-fn alert_to_time_series(alert: &Alert, timestamp: Timestamp) -> RawTimeSeries {
-    let mut labels = hashmap_to_labels(alert.labels.iter());
-    labels.push(Label {
-        name: ALERT_STATE_LABEL.to_string(),
-        value: alert.state.to_string(),
-    });
-    labels.push(Label {
-        name: METRIC_NAME_LABEL.to_string(),
-        value: ALERT_METRIC_NAME.to_string(),
-    });
-    labels.sort();
-
-    let key = make_series_key(&labels);
-    RawTimeSeries {
-        key,
-        samples: vec![Sample {
-            timestamp,
-            value: 1.0,
-        }],
-        labels,
-    }
-}
-
-/// returns a series that represents the state of active alerts, where value is the timestamp when
-/// the alert became active
-fn alert_for_to_time_series(alert: &Alert, timestamp: Timestamp) -> RawTimeSeries {
-    let mut labels = hashmap_to_labels(alert.labels.iter());
-    labels.push(Label {
-        name: METRIC_NAME_LABEL.to_string(),
-        value: ALERT_FOR_STATE_METRIC_NAME.to_string(),
-    });
-    labels.sort();
-
-    let value = alert.active_at as f64;
-    let key = make_series_key(&labels);
-    RawTimeSeries {
-        key,
-        samples: vec![Sample { timestamp, value }],
-        labels,
-    }
-}
-
 impl Rule for AlertingRule {
     fn id(&self) -> u64 {
         self.rule_id
@@ -542,6 +500,8 @@ impl Rule for AlertingRule {
 
         let end = current_time_millis();
         cur_state.duration = Duration::from_millis((end - start) as u64);
+        cur_state.samples = res.len();
+        cur_state.series_fetched = Some(res.len()); // todo: return this from provider
 
         if self.debug {
             let msg = format!(
@@ -625,12 +585,17 @@ impl Rule for AlertingRule {
 
         let mut to_delete = Vec::new();
         let keep_firing_for = self.keep_firing_for.as_millis() as i64;
+        
+        let mut tss: Vec<RawTimeSeries> = Vec::new();
 
         for (h, alert) in alerts.iter_mut() {
             // if alert wasn't updated in this iteration it means it is resolved already
             if !updated.contains(h) {
                 if alert.state == AlertState::Pending {
                     // alert was in Pending state - it is not active anymore
+                    // add stale time series
+                    tss.extend( pending_alert_stale_time_series(&alert.labels, ts, true) );
+
                     to_delete.push(h);
                     self.log_debug(
                         ts,
@@ -649,11 +614,16 @@ impl Rule for AlertingRule {
                     if ts.sub(alert.keep_firing_since) > keep_firing_for {
                         alert.state = AlertState::Inactive;
                         alert.resolved_at = ts;
+                        
+                        // add stale time series
+                        tss.extend(firing_alert_stale_time_series(&alert.labels, ts));
+
                         self.log_debug(
                             ts,
                             Some(alert),
                             "FIRING => INACTIVE: is absent in current evaluation round",
                         );
+                        
                         continue;
                     }
                     if self.debug {
@@ -671,7 +641,13 @@ impl Rule for AlertingRule {
             if alert.state == AlertState::Pending && ts.sub(alert.active_at) >= for_duration {
                 alert.state = AlertState::Firing;
                 alert.start = ts;
+                
                 // alertsFired.Inc()
+                if !alert.r#for.is_zero() {
+                    // add stale time series
+                    tss.extend(pending_alert_stale_time_series(&alert.labels, ts, false));
+                }
+                
                 if self.debug {
                     let msg = format!(
                         "PENDING => FIRING: {}ms since becoming active at {}",
@@ -695,7 +671,9 @@ impl Rule for AlertingRule {
         }
 
         self.state.add(cur_state);
-        Ok(self.to_time_series(ts))
+        tss.extend(self.to_time_series(ts));
+        
+        Ok(tss)
     }
 
     /// `exec_range` executes alerting rules on the given time range similarly to exec.
@@ -818,6 +796,10 @@ impl Rule for AlertingRule {
     }
 }
 
+fn should_disable_group_labels() -> bool {
+    crate::config::DISABLE_ALERT_GROUP_LABELS.load(Ordering::Relaxed)
+}
+
 fn hash_map(labels: &HashMap<String, String>) -> u64 {
     let mut hasher = AHasher::default();
 
@@ -876,4 +858,129 @@ pub(crate) fn validate_alert_expr(expr: &str) -> ValkeyResult<()> {
             err
         ))),
     }
+}
+
+fn alert_to_time_series(alert: &Alert, timestamp: Timestamp) -> RawTimeSeries {
+    let mut labels = hashmap_to_labels(alert.labels.iter());
+    labels.push(Label {
+        name: METRIC_NAME_LABEL.to_string(),
+        value: ALERT_METRIC_NAME.to_string(),
+    });
+    if let Some(label) = get_label_by_name(&mut labels, ALERT_STATE_LABEL) {
+        label.value = alert.state.to_string();
+    } else {
+        labels.push(Label {
+            name: ALERT_STATE_LABEL.to_string(),
+            value: alert.state.to_string(),
+        });
+    }
+    new_time_series(&[timestamp], &[1.0], labels)
+}
+
+/// returns a series that represents the state of active alerts, where value is the timestamp when
+/// the alert became active
+fn alert_for_to_time_series(alert: &Alert, timestamp: Timestamp) -> RawTimeSeries {
+    let mut labels = hashmap_to_labels(alert.labels.iter());
+    labels.push(Label {
+        name: METRIC_NAME_LABEL.to_string(),
+        value: ALERT_FOR_STATE_METRIC_NAME.to_string(),
+    });
+    labels.sort();
+
+    let value = alert.active_at as f64;
+    let key = make_series_key(&labels);
+    RawTimeSeries {
+        key,
+        samples: vec![Sample { timestamp, value }],
+        labels,
+    }
+}
+
+
+/// returns stale `ALERTS` and `ALERTS_FOR_STATE` time series for alerts which changed their state 
+/// from Pending to Inactive or Firing.
+fn pending_alert_stale_time_series(
+    labels: &HashMap<String, String>,
+    timestamp: Timestamp,
+    include_alert_for_state: bool,
+) -> Vec<RawTimeSeries> {
+    let mut result = Vec::new();
+    let base_labels = hashmap_to_labels(labels.iter());
+
+    // __name__ already been dropped, no need to check duplication
+    let mut alerts_labels = base_labels.clone();
+    alerts_labels.push(Label {
+        name: METRIC_NAME_LABEL.to_string(),
+        value: ALERT_METRIC_NAME.to_string(),
+    });
+    alerts_labels.push(Label {
+        name: ALERT_STATE_LABEL.to_string(),
+        value: AlertState::Pending.to_string(),
+    });
+    result.push( new_time_series(&[timestamp], &[f64::NAN], alerts_labels) );
+
+    if include_alert_for_state {
+        let mut alerts_for_state_labels = base_labels;
+        alerts_for_state_labels.push(Label {
+            name: METRIC_NAME_LABEL.to_string(),
+            value: ALERT_FOR_STATE_METRIC_NAME.to_string(),
+        });
+        result.push(
+            new_time_series(&[timestamp], &[f64::NAN], alerts_for_state_labels)
+        );
+    }
+
+    result
+}
+
+/// returns stale `ALERTS` and `ALERTS_FOR_STATE` time series for alerts which changed their state from 
+/// `Firing` to `Inactive`.
+fn firing_alert_stale_time_series(
+    labels: &HashMap<String, String>,
+    timestamp: Timestamp,
+) -> Vec<RawTimeSeries> {
+    let base_labels = hashmap_to_labels(labels.iter());
+
+    // __name__ already been dropped, no need to check duplication
+    let mut alerts_labels = base_labels.clone();
+    alerts_labels.push(Label {
+        name: METRIC_NAME_LABEL.to_string(),
+        value: ALERT_METRIC_NAME.to_string(),
+    });
+    alerts_labels.push(Label {
+        name: ALERT_STATE_LABEL.to_string(),
+        value: AlertState::Firing.to_string(),
+    });
+
+    let mut alerts_for_state_labels = base_labels;
+    alerts_for_state_labels.push(Label {
+        name: METRIC_NAME_LABEL.to_string(),
+        value: ALERT_FOR_STATE_METRIC_NAME.to_string(),
+    });
+
+    vec![
+        new_time_series(&[timestamp], &[f64::NAN], alerts_labels),
+        new_time_series(&[timestamp], &[f64::NAN], alerts_for_state_labels),
+    ]
+}
+
+// new_time_series first sorts given labels, then returns new time series.
+fn new_time_series(timestamps: &[Timestamp], values: &[f64], labels: Vec<Label>) -> RawTimeSeries {
+    let mut labels = labels;
+    labels.sort();
+    let key = make_series_key(&labels);
+    
+    let samples = timestamps.iter().zip(values.iter()) 
+        .map(|(ts, v)| Sample { timestamp: *ts, value: *v })
+        .collect();
+
+    RawTimeSeries {
+        key,
+        samples,
+        labels,
+    }
+}
+
+fn get_label_by_name<'a>(labels: &'a mut [Label], name: &str) -> Option<&'a mut Label> {
+    labels.iter_mut().find(|label| &*label.name == name)
 }

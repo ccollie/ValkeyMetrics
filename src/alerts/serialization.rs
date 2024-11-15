@@ -23,7 +23,7 @@ use valkey_module::{logging, raw, RedisModuleIO, ValkeyError, ValkeyResult};
 const RULE_TYPE_ALERTING: u8 = 1;
 const RULE_TYPE_RECORDING: u8 = 2;
 
-static STAGING_GROUP_MANAGERS: LazyLock<Mutex<HashMap<u32, GroupManager>>> = 
+static STAGING_GROUP_MANAGERS: LazyLock<Mutex<HashMap<i32, GroupManager>>> = 
     LazyLock::new(|| Mutex::new(HashMap::with_capacity(16)));
 
 
@@ -467,14 +467,14 @@ fn load_group_managers(rdb: *mut RedisModuleIO, _enc_ver: c_int, _when: c_int) -
         );
 
         for _ in 0..groups_count {
-            let id = raw::load_unsigned(rdb)? as u32;
+            let id = raw::load_signed(rdb)? as i32;
             let meta = load_group_manager(rdb, _enc_ver)?;
             staged.insert(id, meta);
         }
 
     } else {
         for _ in 0..groups_count {
-            let id = raw::load_unsigned(rdb)? as u32;
+            let id = raw::load_signed(rdb)? as i32;
             let meta = load_group_manager(rdb, _enc_ver)?;
             managers.insert(id, meta);
         }

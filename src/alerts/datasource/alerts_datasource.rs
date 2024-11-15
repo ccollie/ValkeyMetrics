@@ -5,6 +5,7 @@ use crate::alerts::{
     AlertsError,
     AlertsResult,
 };
+
 use crate::common::types::Timestamp;
 use crate::query::{
     create_query_context,
@@ -17,6 +18,7 @@ use crate::query::{
     RangeResult,
     SeriesQuerier
 };
+
 use metricsql_runtime::prelude::Context as QueryContext;
 
 pub(crate) static ALERT_QUERY_CONTEXT: LazyLock<QueryContext> = LazyLock::new(create_query_context);
@@ -25,19 +27,14 @@ pub(crate) static ALERT_QUERY_CONTEXT: LazyLock<QueryContext> = LazyLock::new(cr
 /// AlertDatasource represents entity with ability to read and write metrics
 #[derive(Debug, Copy, Clone, Default)]
 pub struct AlertDatasource {
-    querier: SeriesQuerier,
-    /// whether to print additional log messages for each sent request
-    debug: bool,
+    querier: SeriesQuerier
 }
 
 impl AlertDatasource {
     /// construct a RedisDatasource with default values
     pub fn new(look_back: Duration, query_step: Duration) -> Self {
         let querier: SeriesQuerier = SeriesQuerier::new(look_back, query_step);
-        AlertDatasource {
-            querier,
-            ..Default::default()
-        }
+        AlertDatasource { querier }
     }
 
     /// apply_params - changes given querier params.
