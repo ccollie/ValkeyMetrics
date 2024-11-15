@@ -4,13 +4,7 @@ use crate::series::time_series::TimeSeries;
 use crate::series::TimeSeriesOptions;
 use async_trait::async_trait;
 use metricsql_runtime::prelude::{
-    Deadline,
-    MetricName,
-    MetricStorage,
-    QueryResult,
-    QueryResults,
-    RuntimeResult,
-    SearchQuery
+    Deadline, MetricName, MetricStorage, QueryResult, QueryResults, RuntimeResult, SearchQuery,
 };
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -20,34 +14,29 @@ use valkey_module::{ValkeyError, ValkeyResult};
 /// Testing only
 pub(crate) struct TestMetricStorage {
     index: TimeSeriesIndex,
-    series: RwLock<HashMap<KeyType, TimeSeries>>
+    series: RwLock<HashMap<KeyType, TimeSeries>>,
 }
 
 impl TestMetricStorage {
-
     pub fn new() -> Self {
         TestMetricStorage {
             index: TimeSeriesIndex::new(),
-            series: RwLock::new(HashMap::new())
+            series: RwLock::new(HashMap::new()),
         }
     }
 
     fn add_by_key(&mut self, key: &str, ts: Timestamp, val: f64) -> ValkeyResult<()> {
         let key = string_to_key(key);
-        self.with_mutable_series(&key, |series| {
-            series.add(ts, val, None)
-        })
+        self.with_mutable_series(&key, |series| series.add(ts, val, None))
     }
 
     pub fn add(&mut self, metric: &str, ts: Timestamp, value: f64) -> ValkeyResult<()> {
         let mn = match MetricName::parse(metric) {
             Ok(mn) => mn,
-            Err(_) => return Err(ValkeyError::String("Invalid metric name".to_string()))
+            Err(_) => return Err(ValkeyError::String("Invalid metric name".to_string())),
         };
         let key = mn.to_string().into_bytes().into_boxed_slice();
-        self.with_mutable_series(&key, |series| {
-            series.add(ts, value, None)
-        })
+        self.with_mutable_series(&key, |series| series.add(ts, value, None))
     }
 
     pub fn add_sample(&mut self, mn: &MetricName, sample: &Sample) -> ValkeyResult<()> {
@@ -65,7 +54,10 @@ impl TestMetricStorage {
     }
 
     fn get_key_from_metric_name(&self, mn: &MetricName) -> Option<KeyType> {
-        if let Ok(key) = self.index.get_key_by_name_and_labels(&mn.measurement, &mn.labels) {
+        if let Ok(key) = self
+            .index
+            .get_key_by_name_and_labels(&mn.measurement, &mn.labels)
+        {
             return key;
         }
         None
@@ -75,7 +67,9 @@ impl TestMetricStorage {
         let mut time_series = self.create_series(mn);
         let mut map = self.series.write().unwrap();
         let key = timeseries_key(&time_series);
-        self.index.index_time_series(&mut time_series, &key).unwrap();
+        self.index
+            .index_time_series(&mut time_series, &key)
+            .unwrap();
         map.insert(key, time_series);
     }
 
@@ -94,16 +88,22 @@ impl TestMetricStorage {
     }
 
     fn with_mutable_series<F>(&mut self, key: &KeyType, mut f: F) -> ValkeyResult<()>
-    where F: FnMut(&mut TimeSeries) -> ValkeyResult<()>
+    where
+        F: FnMut(&mut TimeSeries) -> ValkeyResult<()>,
     {
         let mut map = self.series.write().unwrap();
         match map.get_mut(key) {
             Some(series) => f(series),
-            None => Ok(())
+            None => Ok(()),
         }
     }
 
-    fn get_series_range(&self, key: &KeyType, start_ts: Timestamp, end_ts: Timestamp) -> Option<(MetricName, Vec<Sample>)> {
+    fn get_series_range(
+        &self,
+        key: &KeyType,
+        start_ts: Timestamp,
+        end_ts: Timestamp,
+    ) -> Option<(MetricName, Vec<Sample>)> {
         let map = self.series.read().unwrap();
         match map.get(key) {
             Some(series) => {
@@ -111,37 +111,30 @@ impl TestMetricStorage {
                 let samples = series.get_range(start_ts, end_ts);
                 Some((metric, samples))
             }
-            None => None
+            None => None,
         }
     }
 
-    fn get_series(&self, key: &KeyType, start_ts: Timestamp, end_ts: Timestamp) -> RuntimeResult<Option<QueryResult>> {
-        if let Some((metric_name, samples)) = self.get_series_range(key, start_ts, end_ts) {
-
-            let count = samples.len();
-            let (mut timestamps, mut values) = if count > 0 {
-                (Vec::with_capacity(count), Vec::with_capacity(count))
-            } else {
-                (vec![], vec![])
-            };
-
-            for Sample { timestamp, value } in samples {
-                timestamps.push(timestamp);
-                values.push(value);
-            }
-
-            Ok(Some(QueryResult::new(metric_name, timestamps, values)))
-
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn get_series_data(
+    fn get_series(
         &self,
-        search_query: SearchQuery,
-    ) -> RuntimeResult<Vec<QueryResult>> {
-        let map = self.index.series_keys_by_matchers_internal(&[search_query.matchers]);
+        key: &KeyType,
+        start_ts: Timestamp,
+        end_ts: Timestamp,
+    ) -> RuntimeResult<Option<QueryResult>> {
+        self.get_series_range(key, start_ts, end_ts)
+            .map_or(Ok(None), |(metric_name, samples)| {
+                let (timestamps, values): (Vec<_>, Vec<_>) = samples
+                    .into_iter()
+                    .map(|Sample { timestamp, value }| (timestamp, value))
+                    .unzip();
+                Ok(Some(QueryResult::new(metric_name, timestamps, values)))
+            })
+    }
+
+    fn get_series_data(&self, search_query: SearchQuery) -> RuntimeResult<Vec<QueryResult>> {
+        let map = self
+            .index
+            .series_keys_by_matchers_internal(&[search_query.matchers]);
         let mut results: Vec<QueryResult> = Vec::with_capacity(map.len());
         let start_ts = search_query.start;
         let end_ts = search_query.end;

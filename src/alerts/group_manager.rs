@@ -27,23 +27,20 @@ pub type GroupManagerMap = HashMap<i32, GroupManager>;
 
 #[derive(Clone)]
 struct GroupTimerMeta {
-    group_id: GroupId,
-    executor: Executor,
+    group_id: GroupId
 }
 
 impl GroupTimerMeta {
-    fn get_key(&self, ctx: &Context) -> Option<ValkeyString> {
-        with_group_manager(ctx, |manager| manager.get_group_key(ctx, self.group_id))
-    }
-
     fn on_tick(&self, ctx: &Context) {
-        if let Some(key) = self.get_key(ctx) {
-            let _ = with_group_mut(ctx, &key, |group: &mut Group| {
-                let current = current_time_millis();
-                group.on_tick(&self.executor, current);
-                Ok(())
-            });
-        } // todo: else remove group
+        with_group_manager(ctx, |manager| {
+            let groups = manager.groups_by_id.pin();
+            if let Some(meta) = groups.get(&self.group_id) {
+                meta.with_group(ctx, |group| {
+                    let current = current_time_millis();
+                    group.on_tick(&meta.executor, current);
+                });
+            }
+        });
     }
 }
 
@@ -54,6 +51,7 @@ pub struct GroupMeta {
     pub timer_id: RedisModuleTimerID,
     pub name: String,
     pub group_key: Box<[u8]>,
+    pub executor: Executor,
 }
 
 impl GroupMeta {
@@ -115,6 +113,7 @@ impl GroupManager {
             hash,
             name: group.name.clone(),
             group_key: _key.clone(),
+            executor: self.create_executor(group),
             ..Default::default()
         };
 
@@ -138,15 +137,10 @@ impl GroupManager {
         &self,
         ctx: &Context,
         group: &Group,
-        executor: Option<Executor>,
     ) -> RedisModuleTimerID {
-        let executor = executor.unwrap_or_else(|| self.create_executor(group));
-        // todo: need to restore
         let meta = GroupTimerMeta {
             group_id: group.id,
-            executor,
         };
-
         ctx.create_timer(group.interval, group_timer_callback, meta)
     }
 
@@ -154,7 +148,6 @@ impl GroupManager {
         &self,
         ctx: &Context,
         group_id: GroupId,
-        executor: Option<Executor>,
     ) -> bool {
         let groups = self.groups_by_id.pin();
 
@@ -163,15 +156,12 @@ impl GroupManager {
                 // cancel timer if it's already running
                 stop_timer(group_meta.timer_id);
 
-                group_meta.with_group(ctx, {
-                    let value = executor.clone();
-                    move |group| {
-                        let mut new_meta = group_meta.clone();
-                        new_meta.timer_id = self.start_timer_internal(ctx, group, value);
-                        new_meta.started = true;
+                group_meta.with_group(ctx, |group| {
+                    let mut new_meta = group_meta.clone();
+                    new_meta.timer_id = self.start_timer_internal(ctx, group);
+                    new_meta.started = true;
 
-                        new_meta
-                    }
+                    new_meta
                 })
             })
             .is_some()
@@ -204,7 +194,7 @@ impl GroupManager {
                 }
             }
 
-            self.start_group_timer(ctx, group_id, Some(executor));
+            self.start_group_timer(ctx, group_id);
         })
     }
 
@@ -248,8 +238,9 @@ impl GroupManager {
                     new_meta.started = false;
                 }
                 if meta.started {
-                    new_meta.timer_id = self.start_timer_internal(ctx, group, None);
+                    new_meta.timer_id = self.start_timer_internal(ctx, group);
                 }
+                new_meta.executor = self.create_executor(group);
             }
 
             new_meta

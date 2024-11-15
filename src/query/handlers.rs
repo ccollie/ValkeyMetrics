@@ -15,26 +15,14 @@ fn map_error(err: RuntimeError) -> ValkeyError {
 }
 
 pub(crate) fn run_instant_query_internal(ctx: &QueryContext, params: &QueryParams) -> ValkeyResult<Vec<InstantQueryResult>> {
-    let results = block_on(async move {
-        match query(ctx, params) {
-            Ok(samples) => Ok(samples),
-            Err(e) => Err(map_error(e))
-        }
-    })?;
-    Ok(
-        results.into_iter()
-            .map(|result| {
-                // if this panics, we have problems in the base library
-                let sample = Sample {
-                    timestamp: result.timestamps[0],
-                    value: result.values[0]
-                };
-                InstantQueryResult {
-                    metric: result.metric,
-                    sample
-                }
-            }).collect()
-    )
+    let results = block_on(async { query(ctx, params).map_err(map_error) })?;
+    Ok(results.into_iter().map(|result| InstantQueryResult {
+        metric: result.metric,
+        sample: Sample {
+            timestamp: result.timestamps[0],
+            value: result.values[0],
+        },
+    }).collect())
 }
 
 pub(crate) fn run_instant_query(params: &QueryParams) -> ValkeyResult<Vec<InstantQueryResult>> {
@@ -42,24 +30,17 @@ pub(crate) fn run_instant_query(params: &QueryParams) -> ValkeyResult<Vec<Instan
 }
 
 pub(crate) fn run_range_query_internal(ctx: &QueryContext, params: &QueryParams) -> ValkeyResult<Vec<RangeQueryResult>> {
-    let results = block_on(async move {
-        match query_range(ctx, params) {
-            Ok(samples) => Ok(samples),
-            Err(e) => Err(map_error(e))
+    let results = block_on(async { query_range(ctx, params).map_err(map_error) })?;
+    Ok(results.into_iter().map(|result| {
+        let samples = result.timestamps.iter()
+            .zip(result.values.iter())
+            .map(|(&ts, &value)| Sample { timestamp: ts, value })
+            .collect();
+        RangeQueryResult {
+            metric: result.metric,
+            samples,
         }
-    })?;
-    Ok(
-        results.into_iter().map(|result| {
-            let samples = result.timestamps.iter()
-                .zip(result.values.iter())
-                .map(|(&ts, &value)| Sample { timestamp: ts, value })
-                .collect();
-            RangeQueryResult {
-                metric: result.metric,
-                samples,
-            }
-        }).collect()
-    )
+    }).collect())
 }
 
 pub(crate) fn run_range_query(params: &QueryParams) -> ValkeyResult<Vec<RangeQueryResult>> {

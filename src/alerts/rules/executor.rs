@@ -1,5 +1,5 @@
 use std::time::Duration;
-
+use get_size::GetSize;
 use crate::alerts::datasource::AlertDatasource;
 use crate::alerts::notifications::Notifier;
 use crate::alerts::rules::{AlertingRule, Group, MetricRule, Rule, RuleType};
@@ -10,7 +10,7 @@ use crate::config::get_global_settings;
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use valkey_module::ThreadSafeContext;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, GetSize)]
 pub struct Executor {
     querier: AlertDatasource,
 }

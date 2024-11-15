@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 use std::time::Duration;
-
+use get_size::GetSize;
 use crate::alerts::{
     AlertsError,
     AlertsResult,
@@ -25,7 +25,7 @@ pub(crate) static ALERT_QUERY_CONTEXT: LazyLock<QueryContext> = LazyLock::new(cr
 
 
 /// AlertDatasource represents entity with ability to read and write metrics
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default, GetSize)]
 pub struct AlertDatasource {
     querier: SeriesQuerier
 }

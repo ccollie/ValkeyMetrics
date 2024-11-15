@@ -452,7 +452,7 @@ pub(crate) fn eval(&mut self, e: &Executor, ts: Timestamp) {
     self.set_last_evaluation(start);
 }
 
-    pub(super) fn on_tick(&mut self, e: &Executor, eval_ts: Timestamp) {
+    pub(crate) fn on_tick(&mut self, e: &Executor, eval_ts: Timestamp) {
         self.metrics
             .iteration_interval
             .fetch_add(1, Ordering::Relaxed);

@@ -1,6 +1,6 @@
 use std::ops::Add;
 use std::time::Duration;
-
+use get_size::GetSize;
 use crate::alerts::{
     AlertsError,
     AlertsResult,
@@ -12,7 +12,7 @@ use metricsql_runtime::prelude::query::QueryParams;
 
 /// SeriesQuerier represents entity with ability to read and write metrics
 /// Query timeseries data using PromQL/MetricsQL
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default, Eq, PartialEq, GetSize)]
 pub struct SeriesQuerier {
     /// look_back defines how far to look into past for alerts timeseries.
     /// For example, if look_back=1h then range from now() to now()-1h will be scanned.

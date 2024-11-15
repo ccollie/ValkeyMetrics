@@ -35,7 +35,6 @@ impl<'a, T: Number> StreamState<'a, T> {
     }
 
     // https://docs.rs/pco/0.3.1/src/pco/standalone/decompressor.rs.html
-
     fn next_chunk(&mut self, data: &mut [T; FULL_BATCH_N]) -> ValkeyResult<bool> {
         if self.is_finished {
             return Ok(false);
