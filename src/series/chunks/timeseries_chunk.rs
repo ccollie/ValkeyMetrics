@@ -6,8 +6,6 @@ use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value
 use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, UncompressedChunk, SPLIT_FACTOR};
 use core::mem::size_of;
 use get_size::GetSize;
-use valkey_module::error::{Error, GenericError};
-use valkey_module::RedisModuleIO;
 
 #[derive(Debug, Clone, PartialEq)]
 #[derive(GetSize)]
@@ -374,40 +372,5 @@ impl Chunk for TimeSeriesChunk {
             Pco(chunk) => Ok(Pco(chunk.split()?)),
         }
     }
-
-    fn rdb_save(&self, rdb: *mut RedisModuleIO) {
-        use TimeSeriesChunk::*;
-        match self {
-            Uncompressed(chunk) => {
-                valkey_module::save_unsigned(rdb, ChunkCompression::Uncompressed as u8 as u64);
-                chunk.rdb_save(rdb);
-            },
-            Gorilla(chunk) => {
-                valkey_module::save_unsigned(rdb, ChunkCompression::Gorilla as u8 as u64);
-                chunk.rdb_save(rdb)
-            },
-            Pco(chunk) => {
-                valkey_module::save_unsigned(rdb, ChunkCompression::Pco as u8 as u64);
-                chunk.rdb_save(rdb)
-            },
-        }
-    }
-
-    fn rdb_load(rdb: *mut RedisModuleIO, _encver: i32) -> Result<Self, Error> {
-        let compression = ChunkCompression::try_from(valkey_module::load_unsigned(rdb)? as u8)
-            .map_err(|_e| Error::Generic(GenericError::new("Error loading chunk compression marker")))?;
-
-        let chunk = match compression {
-            ChunkCompression::Uncompressed => {
-                TimeSeriesChunk::Uncompressed(UncompressedChunk::rdb_load(rdb, _encver)?)
-            }
-            ChunkCompression::Gorilla => {
-                TimeSeriesChunk::Gorilla(GorillaChunk::rdb_load(rdb, _encver)?)
-            }
-            ChunkCompression::Pco => {
-                TimeSeriesChunk::Pco(PcoChunk::rdb_load(rdb, _encver)?)
-            }
-        };
-        Ok(chunk)
-    }
+    
 }

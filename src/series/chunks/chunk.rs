@@ -8,8 +8,7 @@ use get_size::GetSize;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::vec;
-use valkey_module::error::Error;
-use valkey_module::{RedisModuleIO, ValkeyError};
+use valkey_module::ValkeyError;
 
 pub const MIN_CHUNK_SIZE: usize = 48;
 pub const MAX_CHUNK_SIZE: usize = 1048576;
@@ -102,9 +101,6 @@ pub trait Chunk: Sized {
     ) -> TsdbResult<usize>;
 
     fn split(&mut self) -> TsdbResult<Self>;
-    
-    fn rdb_save(&self, rdb: *mut RedisModuleIO);
-    fn rdb_load(rdb: *mut RedisModuleIO, _encver: i32) -> Result<Self, Error>;
 }
 
 pub struct ChunkSampleIterator<'a> {

@@ -1,27 +1,26 @@
 use super::{validate_chunk_size, Chunk, ChunkCompression, TimeSeriesOptions};
 use crate::common::rounding::RoundingStrategy;
-use crate::common::types::{IntMap, Sample, Label, Timestamp};
+use crate::common::types::{IntMap, Label, Sample, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
 use crate::series::constants::DEFAULT_CHUNK_SIZE_BYTES;
 use crate::series::merge::merge_by_capacity;
-use crate::common::serialization::*;
 use crate::series::types::ValueFilter;
 use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value, format_prometheus_metric_name};
 use crate::series::DuplicatePolicy;
 use crate::series::TimeSeriesChunk;
+use ahash::HashMapExt;
 use get_size::GetSize;
 use smallvec::SmallVec;
 use std::hash::Hash;
 use std::mem::size_of;
 use std::time::Duration;
 use std::vec;
-use ahash::HashMapExt;
-use valkey_module::{raw, ValkeyError, ValkeyResult};
+use valkey_module::{ValkeyError, ValkeyResult};
 
-const TIMESTAMP_TYPE_U64: &str = "u64";
-const TIMESTAMP_TYPE_U32: &str = "u32";
+pub(super) const TIMESTAMP_TYPE_U64: &str = "u64";
+pub(super) const TIMESTAMP_TYPE_U32: &str = "u32";
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "id64")] {
@@ -265,24 +264,25 @@ impl TimeSeries {
         let chunk = self.chunks.get_mut(pos).unwrap(); // todo: get_unchecked
 
         match chunk.upsert(sample, dp_policy) {
-            Ok((size, new_chunk)) => {
-                if let Some(new_chunk) = new_chunk {
-                    self.trim()?;
-                    let insert_at = self.chunks.partition_point(|chunk| chunk.first_timestamp() <= new_chunk.first_timestamp());
-                    self.chunks.insert(insert_at, new_chunk);
-                }
+            Ok((size, Some(new_chunk))) => {
+                self.trim()?;
+                let insert_at = self.chunks.partition_point(|chunk| chunk.first_timestamp() <= new_chunk.first_timestamp());
+                self.chunks.insert(insert_at, new_chunk);
                 self.total_samples += size;
                 if sample.timestamp == self.last_timestamp {
                     self.last_value = sample.value;
                 }
                 Ok(size)
             },
-            Err(TsdbError::DuplicateSample(_)) => {
-                Err(ValkeyError::Str(error_consts::DUPLICATE_SAMPLE))
-            }
-            Err(_e) => {
-                Err(ValkeyError::Str(error_consts::CANNOT_ADD_SAMPLE))
+            Ok((size, None)) => {
+                self.total_samples += size;
+                if sample.timestamp == self.last_timestamp {
+                    self.last_value = sample.value;
+                }
+                Ok(size)
             },
+            Err(TsdbError::DuplicateSample(_)) => Err(ValkeyError::Str(error_consts::DUPLICATE_SAMPLE)),
+            Err(_) => Err(ValkeyError::Str(error_consts::CANNOT_ADD_SAMPLE)),
         }
     }
 
@@ -497,111 +497,6 @@ impl TimeSeries {
         }
         let retention_millis = self.retention.as_millis() as i64;
         (self.last_timestamp - retention_millis).min(0)
-    }
-
-    pub fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
-        raw::save_string(rdb, TIMESTAMP_TYPE);
-        raw::save_unsigned(rdb, self.id as u64);
-        raw::save_string(rdb, &self.metric_name);
-        rdb_save_usize(rdb, self.labels.len());
-        for label in self.labels.iter() {
-            raw::save_string(rdb, &label.name);
-            raw::save_string(rdb, &label.value);
-        }
-        rdb_save_duration(rdb, &self.retention);
-        rdb_save_optional_duration(rdb, &self.dedupe_interval);
-
-        let mut tmp = self.duplicate_policy.as_str();
-        raw::save_string(rdb, tmp);
-
-        tmp = self.chunk_compression.name();
-        raw::save_string(rdb, tmp);
-
-        rdb_save_optional_rounding(rdb, &self.rounding);
-        rdb_save_usize(rdb, self.chunk_size_bytes);
-        rdb_save_usize(rdb, self.chunks.len());
-        for chunk in self.chunks.iter() {
-            chunk.rdb_save(rdb);
-        }
-    }
-
-    pub fn rdb_load(rdb: *mut raw::RedisModuleIO, _encver: i32) -> *mut std::ffi::c_void {
-        if let Ok(series) = Self::load_internal(rdb, _encver) {
-            Box::into_raw(Box::new(series)) as *mut std::ffi::c_void
-        } else {
-            std::ptr::null_mut()
-        }
-    }
-
-     fn load_internal(rdb: *mut raw::RedisModuleIO, _encver: i32) -> ValkeyResult<Self> {
-        let id_type: String = rdb_load_string(rdb)?;
-        if id_type != TIMESTAMP_TYPE {
-            let other_type = if id_type == TIMESTAMP_TYPE_U32 {
-                TIMESTAMP_TYPE_U64
-            } else {
-                TIMESTAMP_TYPE_U32
-            };
-            let msg = format!("ERR module compiled with {other_type} timestamp support, found {id_type}. See the \"id64\" feature");
-            return Err(ValkeyError::String(msg))
-        }
-        let id = raw::load_unsigned(rdb)? as TimeseriesId;
-        let metric_name = rdb_load_string(rdb)?;
-        let labels_len = rdb_load_usize(rdb)?;
-        let mut labels = Vec::with_capacity(labels_len);
-        for _ in 0..labels_len {
-            let name = rdb_load_string(rdb)?;
-            let value = rdb_load_string(rdb)?;
-            labels.push(Label { name, value });
-        }
-        let retention = rdb_load_duration(rdb)?;
-
-        let dedupe_interval = rdb_load_optional_duration(rdb)?;
-        let duplicate_policy = DuplicatePolicy::try_from(rdb_load_string(rdb)?)?;
-
-        let chunk_compression = ChunkCompression::try_from(
-            rdb_load_string(rdb)?
-        )?;
-
-        let rounding = rdb_load_optional_rounding(rdb)?;
-        let chunk_size_bytes = rdb_load_usize(rdb)?;
-        let chunks_len = rdb_load_usize(rdb)?;
-        let mut chunks = Vec::with_capacity(chunks_len);
-        let mut last_value = f64::NAN;
-        let mut total_samples: usize = 0;
-        let mut first_timestamp = 0;
-        let mut last_timestamp = 0;
-
-        for _ in 0..chunks_len {
-            let chunk = TimeSeriesChunk::rdb_load(rdb, _encver)?;
-            last_value = chunk.last_value();
-            total_samples += chunk.len();
-            if first_timestamp == 0 {
-                first_timestamp = chunk.first_timestamp();
-            }
-            last_timestamp = last_timestamp.max(chunk.last_timestamp());
-            chunks.push(chunk);
-        }
-
-        let ts = TimeSeries {
-            id,
-            metric_name,
-            labels,
-            retention,
-            dedupe_interval,
-            duplicate_policy,
-            chunk_compression,
-            rounding,
-            chunk_size_bytes,
-            chunks,
-            total_samples,
-            first_timestamp,
-            last_timestamp,
-            last_value,
-        };
-
-        // ts.update_meta();
-         // add to index
-        Ok(ts)
     }
 }
 

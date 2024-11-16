@@ -1,4 +1,4 @@
-use valkey_module::RedisModuleTypeMethods;
+use valkey_module::{logging, RedisModuleTypeMethods};
 use valkey_module::REDISMODULE_AUX_BEFORE_RDB;
 use valkey_module::{native_types::ValkeyType, RedisModuleDefragCtx, RedisModuleString, ValkeyString};
 
@@ -8,6 +8,7 @@ use std::os::raw::{c_int, c_void};
 use valkey_module::raw;
 use crate::series::index::serialization::{ts_index_rdb_aux_load, ts_index_rdb_aux_save};
 use crate::series::index::with_timeseries_index;
+use crate::series::serialization::{rdb_load_series, rdb_save_series};
 // see https://github.com/redis/redis/blob/unstable/tests/modules
 
 pub static VKM_SERIES_VERSION: i32 = 1;
@@ -39,12 +40,17 @@ pub static VKM_SERIES_TYPE: ValkeyType = ValkeyType::new(
 
 unsafe extern "C" fn rdb_save(rdb: *mut raw::RedisModuleIO, value: *mut c_void) {
     let series = &*value.cast::<TimeSeries>();
-    series.rdb_save(rdb);
+    rdb_save_series(series, rdb);
 }
 
 unsafe extern "C" fn rdb_load(rdb: *mut raw::RedisModuleIO, enc_ver: c_int) -> *mut c_void {
-    TimeSeries::rdb_load(rdb, enc_ver)
-    // index.index_time_series(&new_series, &tmp);
+    match rdb_load_series(rdb, enc_ver) {
+        Ok(series) => Box::into_raw(Box::new(series)) as *mut std::ffi::c_void,
+        Err(e) => {
+            logging::log_notice(format!("Failed to load series from RDB. {:?}", e));
+            std::ptr::null_mut()
+        },
+    }
 }
 
 unsafe extern "C" fn mem_usage(value: *const c_void) -> usize {
@@ -63,15 +69,15 @@ unsafe extern "C" fn free(value: *mut c_void) {
 
 #[allow(non_snake_case, unused)]
 unsafe extern "C" fn copy(
-    fromkey: *mut RedisModuleString,
-    tokey: *mut RedisModuleString,
+    from_key: *mut RedisModuleString,
+    to_key: *mut RedisModuleString,
     value: *const c_void,
 ) -> *mut c_void {
     let guard = valkey_module::MODULE_CONTEXT.lock();
     with_timeseries_index(&guard, |index| {
         let sm = &*(value as *mut TimeSeries);
         let mut new_series = sm.clone();
-        let key = ValkeyString::from_redis_module_string(guard.ctx, tokey);
+        let key = ValkeyString::from_redis_module_string(guard.ctx, to_key);
         index.index_time_series(&mut new_series, key.as_slice());
         Box::into_raw(Box::new(new_series)).cast::<c_void>()
     })

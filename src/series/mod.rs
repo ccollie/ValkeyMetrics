@@ -11,7 +11,7 @@ pub mod chunks;
 pub mod types;
 mod merge;
 mod timestamp_range;
-mod serialization;
+pub mod serialization;
 
 use crate::common::types::Sample;
 pub(super) use chunks::*;

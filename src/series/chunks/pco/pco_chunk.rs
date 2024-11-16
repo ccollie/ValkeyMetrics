@@ -5,15 +5,13 @@ use crate::iterators::SampleIter;
 use crate::series::chunks::pco::pco_utils::{compress_timestamps, compress_values, decompress_timestamps, decompress_values};
 use crate::series::chunks::pco::PcoSampleIterator;
 use crate::series::chunks::Chunk;
-use crate::common::serialization::{rdb_load_usize, rdb_save_usize};
-use crate::series::utils::{get_timestamp_index_bounds};
+use crate::series::utils::get_timestamp_index_bounds;
 use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64, PooledVecF64, PooledVecI64};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::mem::size_of;
-use valkey_module::raw;
 
 /// items above this count will cause value and timestamp encoding/decoding to happen in parallel
 pub(in crate::series) const COMPRESSION_PARALLELIZATION_THRESHOLD: usize = 1024;
@@ -496,38 +494,6 @@ impl Chunk for PcoChunk {
         }
 
         Ok(result)
-    }
-
-    fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
-        raw::save_signed(rdb, self.min_time);
-        raw::save_signed(rdb, self.max_time);
-        rdb_save_usize(rdb, self.max_size);
-        raw::save_double(rdb, self.last_value);
-        rdb_save_usize(rdb, self.count);
-        raw::save_slice(rdb, &self.timestamps);
-        raw::save_slice(rdb, &self.values);
-    }
-
-    fn rdb_load(rdb: *mut raw::RedisModuleIO, _encver: i32) -> Result<Self, valkey_module::error::Error> {
-        let min_time = raw::load_signed(rdb)?;
-        let max_time = raw::load_signed(rdb)?;
-        let max_size = rdb_load_usize(rdb)?;
-        let last_value = raw::load_double(rdb)?;
-        let count = rdb_load_usize(rdb)?;
-        let ts = raw::load_string_buffer(rdb)?;
-        let vals = raw::load_string_buffer(rdb)?;
-        let timestamps: Vec<u8> = Vec::from(ts.as_ref());
-        let values: Vec<u8> = Vec::from(vals.as_ref());
-
-        Ok(Self {
-            min_time,
-            max_time,
-            max_size,
-            last_value,
-            count,
-            timestamps,
-            values,
-        })
     }
 }
 

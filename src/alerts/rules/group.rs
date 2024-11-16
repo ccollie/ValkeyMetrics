@@ -1,3 +1,4 @@
+use valkey_module::ValkeyResult;
 use crate::alerts::notifications::Alert;
 use crate::alerts::rules::executor::Executor;
 use crate::alerts::rules::{AlertingRule, GroupConfig, MetricRule, RecordingRule, Rule, RuleType};
@@ -608,7 +609,7 @@ pub(crate) fn validate_offset_and_interval(eval_offset: Option<Duration>, interv
         if offset > interval {
             let msg = format!("eval_offset should be smaller than interval; now eval_offset: {}, interval: {}",
                               offset.as_millis(), interval.as_millis());
-            return Ok(ValkeyError::String(msg));
+            return Err(ValkeyError::String(msg));
         }
     }
     Ok(())

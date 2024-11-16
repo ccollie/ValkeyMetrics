@@ -5,6 +5,7 @@ mod pco;
 mod timeseries_chunk;
 #[cfg(test)]
 mod timeseries_chunk_tests;
+mod serialization;
 
 pub use chunk::*;
 pub use gorilla::{
@@ -14,3 +15,4 @@ pub use gorilla::{
 pub use pco::{PcoChunk, PcoSampleIterator};
 pub use uncompressed::*;
 pub use timeseries_chunk::*;
+pub use serialization::*;

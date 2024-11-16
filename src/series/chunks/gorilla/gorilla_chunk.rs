@@ -5,20 +5,17 @@ use crate::error::{TsdbError, TsdbResult};
 use crate::iterators::SampleIter;
 use crate::series::chunks::chunk::Chunk;
 use crate::series::merge::merge_samples;
-use crate::common::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
 use crate::series::{DuplicatePolicy, DEFAULT_CHUNK_SIZE_BYTES};
 use get_size::GetSize;
 use std::cmp::Ordering;
 use std::mem::size_of;
-use valkey_module::error::Error as ValkeyError;
-use valkey_module::raw;
 
 /// `GorillaChunk` holds information about location and time range of a block of compressed data.
 #[derive(Debug, Clone, PartialEq)]
 #[derive(GetSize)]
 pub struct GorillaChunk {
-    xor_encoder: XOREncoder,
-    first_timestamp: Timestamp,
+    pub(crate) xor_encoder: XOREncoder,
+    pub(crate) first_timestamp: Timestamp,
     pub max_size: usize,
 }
 
@@ -345,24 +342,6 @@ impl Chunk for GorillaChunk {
 
         Ok(right_chunk)
     }
-
-    fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
-        rdb_save_usize(rdb, self.max_size);
-        rdb_save_timestamp(rdb, self.first_timestamp);
-        self.xor_encoder.rdb_save(rdb);
-    }
-
-    fn rdb_load(rdb: *mut raw::RedisModuleIO, _encver: i32) -> Result<Self, ValkeyError> {
-        let max_size = rdb_load_usize(rdb)?;
-        let first_timestamp = rdb_load_timestamp(rdb)?;
-        let xor_encoder = XOREncoder::rdb_load(rdb)?;
-        let chunk = GorillaChunk {
-            xor_encoder,
-            first_timestamp,
-            max_size,
-        };
-        Ok(chunk)
-    }
 }
 
 fn push_sample(encoder: &mut XOREncoder, sample: &Sample) -> TsdbResult<()> {
@@ -533,12 +512,12 @@ mod tests {
             ts += 1000;
             value *= 2.0;
 
-            match chunk.add_sample(&sample) {
-                Ok(_) => {}
-                Err(TsdbError::CapacityFull(_)) => {
-                    break
+            if let Err(e) = chunk.add_sample(&sample) {
+                if let TsdbError::CapacityFull(_) = e {
+                    break;
+                } else {
+                    panic!("unexpected error: {:?}", e);
                 }
-                Err(e) => panic!("unexpected error: {:?}", e),
             }
         }
 

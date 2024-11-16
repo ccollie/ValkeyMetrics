@@ -1,14 +1,12 @@
-use crate::common::types::{Timestamp, Sample};
+use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
 use crate::iterators::SampleIter;
-use crate::series::merge::merge_samples;
 use crate::series::chunks::Chunk;
-use crate::common::serialization::{rdb_load_usize, rdb_save_usize};
+use crate::series::merge::merge_samples;
 use crate::series::utils::get_sample_index_bounds;
 use crate::series::{DuplicatePolicy, SAMPLE_SIZE};
 use core::mem::size_of;
 use get_size::GetSize;
-use valkey_module::raw;
 
 // todo: move to constants
 pub const MAX_UNCOMPRESSED_SAMPLES: usize = 256;
@@ -18,7 +16,7 @@ pub const MAX_UNCOMPRESSED_SAMPLES: usize = 256;
 pub struct UncompressedChunk {
     pub max_size: usize,
     pub samples: Vec<Sample>,
-    max_elements: usize,
+    pub(crate) max_elements: usize,
 }
 
 impl Default for UncompressedChunk {
@@ -269,34 +267,6 @@ impl Chunk for UncompressedChunk {
             max_size: self.max_size,
             samples: right.to_vec(),
             max_elements: self.max_elements,
-        })
-    }
-
-    fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {
-        // todo: compress ?
-        rdb_save_usize(rdb, self.max_size);
-        rdb_save_usize(rdb, self.max_elements);
-        rdb_save_usize(rdb, self.samples.len());
-        for Sample { timestamp, value } in self.samples.iter() {
-            raw::save_signed(rdb, *timestamp);
-            raw::save_double(rdb, *value);
-        }
-    }
-
-    fn rdb_load(rdb: *mut raw::RedisModuleIO, _encver: i32) -> Result<Self, valkey_module::error::Error> {
-        let max_size = rdb_load_usize(rdb)?;
-        let max_elements = rdb_load_usize(rdb)?;
-        let len = rdb_load_usize(rdb)?;
-        let mut samples = Vec::with_capacity(len);
-        for _ in 0..len {
-            let ts = raw::load_signed(rdb)?;
-            let val = raw::load_double(rdb)?;
-            samples.push(Sample { timestamp: ts, value: val });
-        }
-        Ok(Self {
-            max_size,
-            samples,
-            max_elements,
         })
     }
 }
