@@ -15,6 +15,7 @@ use valkey_module::{
     VALKEY_OK
 };
 use valkey_module_macros::command;
+use crate::alerts::rules::validate_offset_and_interval;
 
 const INTERVAL: &str = "INTERVAL";
 const EVAL_OFFSET: &str = "EVAL_OFFSET";
@@ -142,7 +143,8 @@ pub fn parse_alter_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStrin
             }
         };
     }
-    
+
+    validate_offset_and_interval(config.eval_offset, config.eval_delay)?;
 
     Ok((key, config, changed))
 }

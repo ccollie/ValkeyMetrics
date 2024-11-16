@@ -19,7 +19,7 @@ use std::time::Duration;
 use std::vec;
 use topologic::AcyclicDependencyGraph;
 use tracing::info;
-use valkey_module::{Context};
+use valkey_module::{Context, ValkeyError};
 use xxhash_rust::xxh3::Xxh3;
 
 // `DependencyMap` describes the dependency associations between rules in a group whereby one rules uses the
@@ -185,6 +185,8 @@ impl Group {
         }
         g
     }
+    
+    
 
     /// id return unique group id that consists of rules file and group name
     pub(crate) fn id(&self) -> u64 {
@@ -599,4 +601,15 @@ pub(super) fn labels_to_string(labels: &[Label]) -> String {
     }
     b.push('}');
     b
+}
+
+pub(crate) fn validate_offset_and_interval(eval_offset: Option<Duration>, interval: Option<Duration>) -> ValkeyResult<()> {
+    if let (Some(offset), Some(interval)) = (&eval_offset, &interval) {
+        if offset > interval {
+            let msg = format!("eval_offset should be smaller than interval; now eval_offset: {}, interval: {}",
+                              offset.as_millis(), interval.as_millis());
+            return Ok(ValkeyError::String(msg));
+        }
+    }
+    Ok(())
 }

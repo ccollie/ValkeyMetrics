@@ -147,15 +147,11 @@ impl GroupConfig {
             return err("group name must be set");
         }
         
-        if let Some(offset) = &self.eval_offset {
-            if let Some(interval) = &self.interval {
-                // if `eval_offset` is set, interval won't use global evaluationInterval flag and
-                // must be bigger than offset.
-                if offset > interval {
-                    let msg = format!("eval_offset should be smaller than interval; now eval_offset: {}, interval: {}",
-                                      offset.as_millis(), interval.as_millis());
-                    return err(&msg);
-                }
+        if let (Some(offset), Some(interval)) = (&self.eval_offset, &self.interval) {
+            if offset > interval {
+                let msg = format!("eval_offset should be smaller than interval; now eval_offset: {}, interval: {}",
+                                  offset.as_millis(), interval.as_millis());
+                return err(&msg);
             }
         }
 

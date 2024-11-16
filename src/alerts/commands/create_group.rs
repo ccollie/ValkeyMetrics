@@ -1,5 +1,5 @@
 use crate::alerts::group_data_type::VKM_RULE_GROUP;
-use crate::alerts::rules::{Group, GroupConfig};
+use crate::alerts::rules::{validate_offset_and_interval, Group, GroupConfig};
 use crate::alerts::meta::with_group_manager;
 use crate::error_consts;
 use crate::module::arg_parse::*;
@@ -112,6 +112,8 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
         };
     }
 
+    validate_offset_and_interval(options.eval_offset, options.eval_delay)?;
+    
     Ok((key, options))
 }
 

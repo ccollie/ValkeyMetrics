@@ -38,17 +38,6 @@ impl GorillaChunk {
         }
     }
 
-    pub fn with_values(max_size: usize, samples: &[Sample]) -> TsdbResult<Self> {
-        let mut res = Self::with_max_size(max_size);
-
-        let count = samples.len();
-        if count > 0 {
-            res.set_data(samples)?;
-        }
-
-        Ok(res)
-    }
-
     pub fn is_full(&self) -> bool {
         let usage = self.xor_encoder.get_size();
         usage >= self.max_size
