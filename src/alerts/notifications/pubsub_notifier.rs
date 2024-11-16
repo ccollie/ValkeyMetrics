@@ -1,5 +1,5 @@
 use super::{Alert, Notifier};
-use crate::alerts::constants::KEY_PREFIX;
+use crate::config::KEY_PREFIX;
 use crate::alerts::AlertsResult;
 use std::collections::HashMap;
 use valkey_module::Context;
@@ -28,7 +28,8 @@ impl Notifier for PubSubNotifier {
         alerts: &[&Alert],
         _notifier_headers: &HashMap<String, String>,
     ) -> AlertsResult<()> {
-        let channel_prefix = format!("{KEY_PREFIX}{ALERT_PREFIX}");
+        let key_prefix = &*KEY_PREFIX.as_str();
+        let channel_prefix = format!("{key_prefix}{ALERT_PREFIX}");
         
         for alert in alerts.iter() {
            

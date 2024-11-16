@@ -5,7 +5,7 @@ use crate::alerts::rules::rule::fmt_rule;
 use crate::alerts::rules::{Group, Rule, RuleConfig, RuleState, RuleStateEntry, RuleType};
 use crate::alerts::templates::TemplateQueryContext;
 use crate::alerts::types::{hashmap_to_labels, RawTimeSeries};
-use crate::alerts::{AlertsError, AlertsResult};
+use crate::alerts::{AlertsError, AlertsResult, ALERT_SETTINGS};
 use crate::common::types::{Label, MetricName, Sample, Timestamp, TimestampTrait};
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::query::Querier;
@@ -797,7 +797,7 @@ impl Rule for AlertingRule {
 }
 
 fn should_disable_group_labels() -> bool {
-    crate::config::DISABLE_ALERT_GROUP_LABELS.load(Ordering::Relaxed)
+    ALERT_SETTINGS.disable_alert_group_labels
 }
 
 fn hash_map(labels: &HashMap<String, String>) -> u64 {
@@ -834,7 +834,8 @@ pub(crate) fn make_series_key(labels: &[Label]) -> String {
             value.hash(&mut hasher);
         }
     }
-    format!("{KEY_PREFIX}:{measurement}{:x}", hasher.finish())
+    let prefix = &*crate::config::KEY_PREFIX.as_str();
+    format!("{prefix}:{measurement}{:x}", hasher.finish())
 }
 // maybe x-vm:{alert_for_name}::name=joe::foo=bar::bar=baz
 

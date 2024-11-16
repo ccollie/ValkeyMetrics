@@ -1,5 +1,5 @@
 use crate::common::duration_to_chrono;
-use crate::config::get_global_settings;
+use crate::config::{QUERY_DEFAULT_STEP, QUERY_ROUND_DIGITS};
 use crate::error_consts;
 use crate::module::arg_parse::{parse_duration_arg, parse_timestamp_range};
 use crate::module::parse_timestamp_arg;
@@ -24,9 +24,8 @@ pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
     let query = args.next_string()?;
 
     let mut step_value: Option<chrono::Duration> = None;
-
-    let config = get_global_settings();
-    let mut round_digits: u8 = config.round_digits.unwrap_or(100);
+    
+    let mut round_digits: u8 = QUERY_ROUND_DIGITS.unwrap_or(100);
 
     while let Ok(arg) = args.next_str() {
         match arg {
@@ -73,9 +72,8 @@ pub fn query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let time_value = parse_timestamp_arg(ts_arg, "timestamp")?;
 
     let query = args.next_string()?;
-
-    let config = get_global_settings();
-    let mut round_digits: u8 = config.round_digits.unwrap_or(100);
+    
+    let mut round_digits: u8 = QUERY_ROUND_DIGITS.unwrap_or(100);
 
     while let Ok(arg) = args.next_str() {
         match arg {
@@ -110,19 +108,13 @@ fn parse_step(arg: &ValkeyString) -> ValkeyResult<chrono::Duration> {
 }
 
 fn normalize_step(step: Option<chrono::Duration>) -> ValkeyResult<chrono::Duration> {
-    let config = get_global_settings();
-    if let Some(val) = step {
-        Ok(val)
-    } else {
-        chrono::Duration::from_std(config.default_step)
-            .map_err(|_| ValkeyError::Str(error_consts::INVALID_STEP_DURATION))
-    }
+    step.or_else(|| chrono::Duration::from_std(*QUERY_DEFAULT_STEP).ok())
+        .ok_or_else(|| ValkeyError::Str(error_consts::INVALID_STEP_DURATION))
 }
 
 fn get_default_query_params() -> QueryParams {
-    let config = get_global_settings();
     let mut result = QueryParams::default();
-    if let Some(rounding) = config.round_digits {
+    if let Some(rounding) = *QUERY_ROUND_DIGITS {
         result.round_digits = rounding;
     }
     result

@@ -1,11 +1,11 @@
+use crate::common::current_time_millis;
+use crate::common::types::Timestamp;
+use crate::config::QUERY_DEFAULT_STEP;
+use crate::series::TimeSeries;
+use crate::series::MAX_TIMESTAMP;
 use std::cmp::Ordering;
 use std::fmt::Display;
 use valkey_module::{ValkeyError, ValkeyResult, ValkeyString};
-use crate::common::types::Timestamp;
-use crate::series::TimeSeries;
-use crate::common::current_time_millis;
-use crate::config::get_global_settings;
-use crate::series::MAX_TIMESTAMP;
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, Copy)]
 pub enum TimestampValue {
@@ -240,13 +240,12 @@ pub(crate) fn normalize_range_args(
     start: Option<TimestampValue>,
     end: Option<TimestampValue>,
 ) -> ValkeyResult<(Timestamp, Timestamp)> {
-    let config = get_global_settings();
     let now = current_time_millis();
 
     let start = if let Some(val) = start {
         val.as_timestamp()
     } else {
-        let ts = now - (config.default_step.as_millis() as i64); // todo: how to avoid overflow?
+        let ts = now - (QUERY_DEFAULT_STEP.as_millis() as i64); // todo: how to avoid overflow?
         ts as Timestamp
     };
 

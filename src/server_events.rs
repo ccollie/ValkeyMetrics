@@ -24,22 +24,17 @@ pub(crate) fn is_async_loading_in_progress() -> bool {
 }
 
 fn handle_key_restore(ctx: &Context, key: &[u8]) {
-    let _key: ValkeyString = ctx.create_string(key);
+    let _key = ctx.create_string(key);
     let is_ts = with_timeseries(ctx, &_key, |series| {
         with_timeseries_index(ctx, |index| {
             index.reindex_timeseries(series, key);
             Ok(true)
         })
     }).is_ok();
+
     if !is_ts {
-        let db_key = ctx.open_key(&_key);
-        match db_key.get_value::<Group>(&VKM_RULE_GROUP) {
-            Ok(Some(group)) => {
-                let _ = with_group_manager(ctx, |manager| {
-                    manager.add_group(ctx, group, &_key)
-                });
-            }
-            _ => {}
+        if let Ok(Some(group)) = ctx.open_key(&_key).get_value::<Group>(&VKM_RULE_GROUP) {
+            let _ = with_group_manager(ctx, |manager| manager.add_group(ctx, group, &_key));
         }
     }
 }
@@ -74,16 +69,15 @@ pub(crate) fn generic_key_event_handler(ctx: &Context, _event_type: NotifyEvent,
         "del" | "set" | "expired" | "evict" | "evicted" | "expire" | "trimmed" => {
             remove_key_from_index(ctx, key);
         }
-        // SAFETY: This is safe because the key is only used in the closure and this function 
+        // SAFETY: This is safe because the key is only used in the closure and this function
         // is not called concurrently
         "rename_from" => unsafe {
             RENAME_FROM_KEY.replace(key.to_vec());
         }
         "rename_to" => unsafe {
-            if let Some(old_key) = &RENAME_FROM_KEY {
-                handle_key_rename(ctx, old_key, key);
+            if let Some(old_key) = RENAME_FROM_KEY.take() {
+                handle_key_rename(ctx, &old_key, key);
             }
-            RENAME_FROM_KEY = None;
         }
         "restore" => {
             handle_key_restore(ctx, key);

@@ -1,10 +1,9 @@
 use crate::alerts::datasource::AlertDatasource;
 use crate::alerts::meta::{with_group, with_group_manager, with_group_mut};
-use crate::alerts::rules::{should_skip_rand_sleep_on_group_start, Executor, Group};
-use crate::alerts::VKM_RULE_GROUP;
+use crate::alerts::rules::{Executor, Group};
+use crate::alerts::{ALERT_SETTINGS, VKM_RULE_GROUP};
 use crate::common::current_time_millis;
 use crate::common::types::{Timestamp, TimestampTrait};
-use crate::config::GLOBAL_SETTINGS;
 use crate::query::QuerierParams;
 use get_size::GetSize;
 use papaya::HashMap;
@@ -181,10 +180,10 @@ impl GroupManager {
 
             // restore the rules state after the first evaluation so only active alerts can be restored.
             if restore {
-                let lookback = &GLOBAL_SETTINGS.look_back;
+                let lookback = ALERT_SETTINGS.look_back;
                 // AlertDatasource is Copy, so this is okay.
                 let builder = *self.querier_builder.deref();
-                if let Err(err) = group.restore(ctx, builder, ts, *lookback) {
+                if let Err(err) = group.restore(ctx, builder, ts, lookback) {
                     let error_msg = format!(
                         "ERR restoring ruleState for group {}: {:?}",
                         group.name, err
@@ -409,7 +408,7 @@ pub(super) fn get_hash(group: &Group) -> u64 {
 pub(super) fn get_start_delay(group: &Group, eval_ts: Timestamp) -> Duration {
     // sleep random duration to spread group rules evaluation
     // over time in order to reduce load on datasource.
-    if !should_skip_rand_sleep_on_group_start() {
+    if !ALERT_SETTINGS.skip_rand_sleep_on_group_start {
         delay_before_start(eval_ts, group.id, group.interval, Some(group.eval_offset))
     } else {
         Duration::from_millis(0)

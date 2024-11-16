@@ -30,13 +30,15 @@ pub fn get_query_context() -> &'static QueryContext {
 }
 
 pub(super) fn create_query_context() -> QueryContext {
-    // todo: read settings from config
     #[cfg(test)]
     let provider = Arc::new(TestMetricStorage::new());
     #[cfg(not(test))]
     let provider = Arc::new(VMMetricStorage {});
-    let ctx = QueryContext::new();
-    ctx.with_metric_storage(provider)
+    let default_config = crate::config::get_query_context_config();
+    
+    QueryContext::new()
+        .with_config(default_config.clone())
+        .with_metric_storage(provider)
 }
 
 pub use datasource::*;

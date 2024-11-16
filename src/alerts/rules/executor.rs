@@ -1,13 +1,12 @@
-use std::time::Duration;
-use get_size::GetSize;
 use crate::alerts::datasource::AlertDatasource;
 use crate::alerts::notifications::Notifier;
 use crate::alerts::rules::{AlertingRule, Group, MetricRule, Rule, RuleType};
 use crate::alerts::types::RawTimeSeries;
-use crate::alerts::{AlertsError, AlertsResult, NOTIFIERS, WRITE_QUEUE};
+use crate::alerts::{AlertsError, AlertsResult, ALERT_SETTINGS, NOTIFIERS, WRITE_QUEUE};
 use crate::common::types::Timestamp;
-use crate::config::get_global_settings;
+use get_size::GetSize;
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+use std::time::Duration;
 use valkey_module::ThreadSafeContext;
 
 #[derive(Clone, Default, GetSize)]
@@ -135,13 +134,12 @@ impl Executor {
                 self.push_to_rw(tss);
                 
                 if let MetricRule::AlertingRule(alerting_rule) = rule {
-                    let settings = get_global_settings();
                     return self.send_notifications(
                         group,
                         alerting_rule,
                         ts,
                         resolve_duration,
-                        settings.resend_delay,
+                        ALERT_SETTINGS.resend_delay,
                     );
                 }
                 Ok(())

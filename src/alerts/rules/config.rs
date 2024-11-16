@@ -3,31 +3,18 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::hash::Hasher;
 use std::time::Duration;
-use valkey_module::ConfigurationValue;
 use xxhash_rust::xxh3::Xxh3;
 
 use super::rule::RuleType;
 use crate::alerts::{AlertsError, AlertsResult};
 use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
-/***
-	resendDelay = flag.Duration("rules.resendDelay", 0, "Minimum amount of time to wait before resending an alert to notifications")
-	maxResolveDuration = flag.Duration("rules.maxResolveDuration", 0, "Limits the maximum duration for automatic alert expiration, "+
-		"which by default is 4 times evaluationInterval of the parent group")
-	evalDelay = flag.Duration("rules.evalDelay", 30*time.Second, "Adjustment of the `time` parameter for rules evaluation requests to compensate intentional data delay from the datasource."+
-		"Normally, should be equal to `-search.latencyOffset` (cmd-line flag configured for VictoriaMetrics single-node or vmselect).")
-	disableAlertGroupLabel = flag.Bool("disableAlertgroupLabel", false, "Whether to disable adding group's Name as label to generated alerts and time series.")
-	remoteReadLookBack     = flag.Duration("remoteRead.lookback", time.Hour, "Lookback defines how far to look into past for alerts timeseries."+
-		" For example, if lookback=1h then range from now() to now()-1h will be scanned.")
-)
-*/
 
 /// ValidateTplFn must validate the given annotations
 pub type ValidateTplFn = fn(annotations: &HashMap<String, String>) -> AlertsResult<()>;
 
 /// `RuleConfig` describes entity that represent either recording rules or alerting rules.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct RuleConfig {
-    #[serde(skip)]
     pub id: u64,
     pub key: String,
     pub record: String,
@@ -119,12 +106,6 @@ impl Display for RuleConfig {
         }
         Ok(())
     }
-}
-
-
-// todo: this is a placeholder. use global config
-pub(crate) fn should_skip_rand_sleep_on_group_start() -> bool {
-    crate::config::SKIP_RAND_SLEEP_ON_GROUP_START.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Group contains list of Rules grouped into an entity with one name and evaluation interval

@@ -1,9 +1,8 @@
 use crate::alerts::datasource::AlertDatasource;
 use crate::alerts::rules::{AlertingRule, RecordingRule};
 use crate::alerts::types::RawTimeSeries;
-use crate::alerts::{AlertsError, AlertsResult};
+use crate::alerts::{AlertsError, AlertsResult, ALERT_SETTINGS};
 use crate::common::types::Timestamp;
-use crate::config::GLOBAL_SETTINGS;
 use get_size::GetSize;
 use metricsql_common::hash::FastHasher;
 use serde::{Deserialize, Serialize};
@@ -265,7 +264,7 @@ pub struct RuleState(pub VecDeque<RuleStateEntry>);
 
 impl Default for RuleState {
     fn default() -> Self {
-        let limit = GLOBAL_SETTINGS.rule_update_entries_limit;
+        let limit = ALERT_SETTINGS.rule_update_entries_limit;
         RuleState(VecDeque::with_capacity(limit))
     }
 }

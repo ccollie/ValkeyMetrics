@@ -1,10 +1,10 @@
 use super::{Alert, Notifier};
+use crate::alerts::constants::STREAM_NOTIFIER_KEY_PREFIX;
 use crate::alerts::{AlertsError, AlertsResult};
 use crate::common::types::Timestamp;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use valkey_module::{Context, ValkeyValue};
-use crate::alerts::constants::{KEY_PREFIX, STREAM_NOTIFIER_KEY_PREFIX};
 
 #[derive(Debug, Copy, Clone, Default)]
 pub struct StreamNotifier {
@@ -71,7 +71,8 @@ impl StreamNotifier {
     }
 
     fn get_stream_key(&self, alert: &Alert) -> String {
-        format!("{KEY_PREFIX}:{STREAM_NOTIFIER_KEY_PREFIX}:{}", alert.group_id)
+        let prefix = &*crate::config::KEY_PREFIX.as_str();
+        format!("{prefix}:{STREAM_NOTIFIER_KEY_PREFIX}:{}", alert.group_id)
     }
     
     fn trim_stream(&self, ctx: &Context, key: &str) -> AlertsResult<()> {

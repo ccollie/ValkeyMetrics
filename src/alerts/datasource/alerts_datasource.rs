@@ -1,10 +1,7 @@
+use crate::alerts::{AlertsError, AlertsResult};
+use get_size::GetSize;
 use std::sync::LazyLock;
 use std::time::Duration;
-use get_size::GetSize;
-use crate::alerts::{
-    AlertsError,
-    AlertsResult,
-};
 
 use crate::common::types::Timestamp;
 use crate::query::{
@@ -21,8 +18,14 @@ use crate::query::{
 
 use metricsql_runtime::prelude::Context as QueryContext;
 
-pub(crate) static ALERT_QUERY_CONTEXT: LazyLock<QueryContext> = LazyLock::new(create_query_context);
+pub(crate) static ALERT_QUERY_CONTEXT: LazyLock<QueryContext> = LazyLock::new(create_alert_query_context);
 
+fn create_alert_query_context() -> QueryContext {
+    let query_context = create_query_context();
+    // TODO
+    // query_context.config.max_lookback = ALERT_SETTINGS.look_back;
+    query_context
+}
 
 /// AlertDatasource represents entity with ability to read and write metrics
 #[derive(Debug, Copy, Clone, Default, GetSize)]

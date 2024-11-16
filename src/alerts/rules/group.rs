@@ -1,10 +1,9 @@
 use crate::alerts::notifications::Alert;
 use crate::alerts::rules::executor::Executor;
 use crate::alerts::rules::{AlertingRule, GroupConfig, MetricRule, RecordingRule, Rule, RuleType};
-use crate::alerts::{AlertsError, AlertsResult};
+use crate::alerts::{AlertsError, AlertsResult, ALERT_SETTINGS};
 use crate::common::types::{Label, Timestamp, TimestampTrait};
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
-use crate::config::get_global_settings;
 use crate::query::{QuerierBuilder, QuerierParams};
 use enquote::enquote;
 use get_size::GetSize;
@@ -20,7 +19,7 @@ use std::time::Duration;
 use std::vec;
 use topologic::AcyclicDependencyGraph;
 use tracing::info;
-use valkey_module::{Context, DetachedContextGuard};
+use valkey_module::{Context};
 use xxhash_rust::xxh3::Xxh3;
 
 // `DependencyMap` describes the dependency associations between rules in a group whereby one rules uses the
@@ -485,11 +484,10 @@ pub(crate) fn eval(&mut self, e: &Executor, ts: Timestamp) {
     }
 
     pub(super) fn resolve_duration(&self) -> Duration {
-        let settings = get_global_settings();
         get_resolve_duration(
             self.interval,
-            &settings.resend_delay,
-            &settings.max_resolve_duration,
+            &ALERT_SETTINGS.resend_delay,
+            &ALERT_SETTINGS.max_resolve_duration,
         )
     }
 

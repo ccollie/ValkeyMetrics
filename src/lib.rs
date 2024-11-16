@@ -4,7 +4,6 @@ extern crate core;
 extern crate croaring;
 extern crate get_size;
 extern crate joinkit;
-extern crate lazy_static;
 extern crate phf;
 extern crate smallvec;
 extern crate topologic;
@@ -44,7 +43,11 @@ fn initialize(ctx: &Context, args: &[ValkeyString]) -> Status {
     
     init_runtime();
     
-    load_config(args);
+    if load_config(ctx, args).is_err() {
+        logging::log_warning("Failed to load configuration");
+        return Status::Err;
+    }
+    
     start_write_queue_timer(ctx);
     
     match register_server_events(ctx) {

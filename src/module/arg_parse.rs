@@ -119,24 +119,12 @@ pub fn parse_duration_arg(arg: &ValkeyString) -> ValkeyResult<Duration> {
 }
 
 pub fn parse_duration(arg: &str) -> ValkeyResult<Duration> {
-    match parse_duration_ms(arg) {
-        Ok(d) => Ok(Duration::from_millis(d as u64)),
-        Err(e) => Err(e)
-    }
+    parse_duration_ms(arg).map(|d| Duration::from_millis(d as u64))
 }
 
 pub fn parse_duration_ms(arg: &str) -> ValkeyResult<i64> {
-    match parse_duration_value(arg, 1) {
-        Ok(d) => Ok(d),
-        Err(_e) => {
-            match arg.parse::<i64>() {
-                Ok(v) => Ok(v),
-                Err(_e) => {
-                    Err(ValkeyError::Str(error_consts::INVALID_DURATION))
-                },
-            }
-        },
-    }
+    parse_duration_value(arg, 1)
+        .map_err(|_| ValkeyError::Str(error_consts::INVALID_DURATION))
 }
 
 pub fn parse_number_with_unit(arg: &str) -> TsdbResult<f64> {
