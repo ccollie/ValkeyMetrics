@@ -71,16 +71,14 @@ fn handle_collate(ctx: &Context, options: CollateOptions) -> ValkeyResult {
 
         let mut metas: Vec<SeriesMeta> = Vec::with_capacity(keys.len());
         let mut all_samples: Vec<SeriesSample> = Vec::with_capacity(keys.len() * 10);
-
+        
         for key in keys {
-            let db_key = ctx.open_key(&key);
-            if let Some(series) = db_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE)? {
-                let iter = get_series_iterator(series, options.date_range, &None, &None);
-                let samples = iter.map(|s| SeriesSample::new(series.id, s.timestamp, s.value) )
+            if let Some(series) = ctx.open_key(&key).get_value::<TimeSeries>(&VKM_SERIES_TYPE)? {
+                let samples = get_series_iterator(series, options.date_range, &None, &None)
+                    .map(|s| SeriesSample::new(series.id, s.timestamp, s.value))
                     .collect::<Vec<_>>();
 
-                let meta = get_series_meta(key, series, &options);
-                metas.push(meta);
+                metas.push(get_series_meta(key, series, &options));
                 all_samples.extend(samples);
             }
         }

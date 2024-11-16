@@ -35,13 +35,13 @@ pub const SAMPLE_SIZE: usize = size_of::<Sample>();
 #[derive(Clone, Copy)]
 pub struct SeriesSettings {
     pub retention_period: Option<Duration>,
+    pub chunk_compression: Option<ChunkCompression>,
     pub chunk_size_bytes: usize,
     pub chunk_size_min: usize,
     pub duplicate_policy: DuplicatePolicy,
+    pub dedupe_interval: Option<Duration>,
     pub rounding: Option<RoundingStrategy>,
 }
-
-static ONE_HOUR_MILLIS: u64 = 60 * 60 * 1000;
 
 impl Default for SeriesSettings {
     fn default() -> Self {
@@ -49,7 +49,9 @@ impl Default for SeriesSettings {
             retention_period: None,
             chunk_size_bytes: DEFAULT_CHUNK_SIZE_BYTES,
             chunk_size_min: 0,
-            duplicate_policy: DuplicatePolicy::Block,
+            chunk_compression: Some(ChunkCompression::Gorilla),
+            duplicate_policy: DuplicatePolicy::KeepLast,
+            dedupe_interval: None,
             rounding: None,
         }
     }

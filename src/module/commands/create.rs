@@ -2,11 +2,13 @@ use crate::common::rounding::RoundingStrategy;
 use crate::error_consts;
 use crate::module::arg_parse::*;
 use crate::module::VKM_SERIES_TYPE;
+use crate::series::index::with_timeseries_index;
 use crate::series::time_series::TimeSeries;
 use crate::series::{ChunkCompression, TimeSeriesOptions};
 use valkey_module::key::ValkeyKeyWritable;
-use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
-use crate::series::index::with_timeseries_index;
+use valkey_module::{
+    Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK,
+};
 
 const MAX_SIGNIFICANT_DIGITS: u8 = 16;
 const MAX_DECIMAL_DIGITS: u8 = 16;
@@ -28,23 +30,25 @@ pub fn create(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     VALKEY_OK
 }
 
-pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyString, TimeSeriesOptions)> {
+pub fn parse_create_options(
+    args: Vec<ValkeyString>,
+) -> ValkeyResult<(ValkeyString, TimeSeriesOptions)> {
     let mut args = args.into_iter().skip(1).peekable();
 
     let mut options = TimeSeriesOptions::default();
 
-    let key = args.next().ok_or(ValkeyError::Str("Err missing key argument"))?;
+    let key = args
+        .next()
+        .ok_or(ValkeyError::Str("Err missing key argument"))?;
 
     let metric = args.next_string()?;
-    options.labels = parse_metric_name(&metric)
-        .map_err(|_e| ValkeyError::Str(error_consts::INVALID_METRIC))?;
+    options.labels =
+        parse_metric_name(&metric).map_err(|_e| ValkeyError::Str(error_consts::INVALID_METRIC))?;
 
     while let Ok(arg) = args.next_str() {
         let arg_upper = arg.to_ascii_uppercase();
         match arg_upper.as_str() {
-            CMD_ARG_RETENTION => {
-                options.retention(parse_retention(&mut args)?)
-            }
+            CMD_ARG_RETENTION => options.retention(parse_retention(&mut args)?),
             CMD_ARG_DEDUPE_INTERVAL => {
                 options.dedupe_interval = Some(parse_dedupe_interval(&mut args)?)
             }
@@ -54,7 +58,9 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
             CMD_ARG_SIGNIFICANT_DIGITS => {
                 let next = args.next_u64()?;
                 if next > MAX_SIGNIFICANT_DIGITS as u64 {
-                    let msg = format!("ERR SIGNIFICANT_DIGITS must be between 0 and {MAX_SIGNIFICANT_DIGITS}");
+                    let msg = format!(
+                        "ERR SIGNIFICANT_DIGITS must be between 0 and {MAX_SIGNIFICANT_DIGITS}"
+                    );
                     return Err(ValkeyError::String(msg));
                 }
                 if options.rounding.is_some() {
@@ -66,7 +72,8 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
             CMD_ARG_DECIMAL_DIGITS => {
                 let next = args.next_u64()?;
                 if next > MAX_DECIMAL_DIGITS as u64 {
-                    let msg = format!("ERR DECIMAL_DIGITS must be between 0 and {MAX_DECIMAL_DIGITS}");
+                    let msg =
+                        format!("ERR DECIMAL_DIGITS must be between 0 and {MAX_DECIMAL_DIGITS}");
                     return Err(ValkeyError::String(msg));
                 }
                 if options.rounding.is_some() {
@@ -79,13 +86,10 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
                 options.chunk_size(parse_chunk_size(&mut args)?);
             }
             CMD_ARG_COMPRESSION => {
-                let enc = args.next_string()?;
-                match ChunkCompression::try_from(enc.as_str()) {
-                    Ok(compression) => { options.chunk_compression = Some(compression); }
-                    Err(_) => {
-                        return Err(ValkeyError::Str(error_consts::INVALID_CHUNK_COMPRESSION));
-                    }
-                }
+                options.chunk_compression = Some(
+                    ChunkCompression::try_from(args.next_string()?.as_str())
+                        .map_err(|_| ValkeyError::Str(error_consts::INVALID_CHUNK_COMPRESSION))?,
+                );
             }
             _ => {
                 return Err(ValkeyError::Str(error_consts::INVALID_ARGUMENT));
@@ -95,7 +99,6 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
 
     Ok((key, options))
 }
-
 
 pub(crate) fn create_series(
     key: &ValkeyString,
@@ -115,7 +118,11 @@ pub(crate) fn create_series(
     })
 }
 
-pub(crate) fn create_and_store_series(ctx: &Context, key: &ValkeyString, options: TimeSeriesOptions) -> ValkeyResult<()> {
+pub(crate) fn create_and_store_series(
+    ctx: &Context,
+    key: &ValkeyString,
+    options: TimeSeriesOptions,
+) -> ValkeyResult<()> {
     let _key = ValkeyKeyWritable::open(ctx.ctx, key);
     // check if this refers to an existing series
     if !_key.is_empty() {

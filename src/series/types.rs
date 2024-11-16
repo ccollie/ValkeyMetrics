@@ -4,7 +4,7 @@ use crate::common::types::{Matchers, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
 use crate::series::timestamp_range::{TimestampRange, TimestampValue};
-use crate::series::ChunkCompression;
+use crate::series::{ChunkCompression, SERIES_SETTINGS};
 use get_size::GetSize;
 use metricsql_common::label::Label;
 use serde::{Deserialize, Serialize};
@@ -82,17 +82,6 @@ impl DuplicatePolicy {
             DuplicatePolicy::Min => "min",
             DuplicatePolicy::Max => "max",
             DuplicatePolicy::Sum => "sum",
-        }
-    }
-
-    pub fn as_u8(&self) -> u8 {
-        match self {
-            DuplicatePolicy::Block => 0,
-            DuplicatePolicy::KeepFirst => 1,
-            DuplicatePolicy::KeepLast => 2,
-            DuplicatePolicy::Min => 4,
-            DuplicatePolicy::Max => 8,
-            DuplicatePolicy::Sum => 16,
         }
     }
 
@@ -332,7 +321,6 @@ pub struct TimeSeriesOptions {
     pub duplicate_policy: Option<DuplicatePolicy>,
     pub dedupe_interval: Option<Duration>,
     pub labels: Vec<Label>,
-    pub significant_digits: Option<u8>,
     pub rounding: Option<RoundingStrategy>
 }
 
@@ -347,6 +335,24 @@ impl TimeSeriesOptions {
 
     pub fn duplicate_policy(&mut self, duplicate_policy: DuplicatePolicy) {
         self.duplicate_policy = Some(duplicate_policy);
+    }
+    
+    pub fn set_defaults_from_config(&mut self) {
+        let globals = *SERIES_SETTINGS;
+        self.chunk_compression = self.chunk_compression.unwrap_or(globals.chunk_compression.unwrap_or_default()).into();
+        self.chunk_size = self.chunk_size.unwrap_or(globals.chunk_size_bytes).into();
+        if self.retention.is_none() && globals.retention_period.is_some() {
+            self.retention = globals.retention_period;
+        }
+        if self.duplicate_policy.is_none() {
+            self.duplicate_policy = Some(globals.duplicate_policy);
+        }
+        if self.rounding.is_none() {
+            self.rounding = globals.rounding;
+        }
+        if self.dedupe_interval.is_none() {
+            self.dedupe_interval = globals.dedupe_interval;
+        }
     }
 }
 

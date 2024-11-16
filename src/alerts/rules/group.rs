@@ -316,10 +316,6 @@ impl Group {
         None
     }
 
-    pub fn contains_rule_by_id(&self, id: u64) -> bool {
-        self.get_rule_by_id(id).is_some()
-    }
-
     pub fn remove_rule_by_id(&mut self, id: u64) -> bool {
         let len = self.rules.len();
         self.rules.retain(|x| x.id() != id);
@@ -470,7 +466,7 @@ pub(crate) fn eval(&mut self, e: &Executor, ts: Timestamp) {
         self.eval(e, eval_ts);
     }
 
-    pub(super) fn on_update(&mut self, ng: &Group, e: &mut Executor) -> AlertsResult<()> {
+    pub(super) fn on_update(&mut self, ng: &Group) -> AlertsResult<()> {
         self.update_with(ng)
             .map_err(|_| AlertsError::Generic(format!("group {}: failed to update", self.name)))?;
 

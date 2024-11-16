@@ -160,15 +160,10 @@ impl WriteQueue {
 
     fn create_series_if_not_exists<'a>(&self, ctx: &'a ContextGuard, key: &str) -> AlertsResult<&'a mut TimeSeries> {
         let key = ctx.create_string(key);
-        let series = get_timeseries_mut(ctx, &key, false)
-            .map_err(|e| AlertsError::Generic(format!("failed to get series: {:?}", e)))?;
-
-        match series {
-            Some(series) =>Ok(series),
-            None => {
-                self.create_series(ctx, &key)                
-            }
-        }
+        get_timeseries_mut(ctx, &key, false)
+            .map_err(|e| AlertsError::Generic(format!("failed to get series: {:?}", e)))?
+            .or_else(|| self.create_series(ctx, &key).ok())
+            .ok_or_else(|| AlertsError::Generic("failed to create or get series".to_string()))
     }
 
     fn send(&self, ctx: &ContextGuard, series: &mut [RawTimeSeries]) -> AlertsResult<()> {

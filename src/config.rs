@@ -1,7 +1,7 @@
 use crate::alerts::AlertSettings;
 use crate::common::rounding::RoundingStrategy;
 use crate::module::arg_parse::parse_duration_ms;
-use crate::series::{DuplicatePolicy, SeriesSettings};
+use crate::series::{ChunkCompression, DuplicatePolicy, SeriesSettings};
 use metricsql_parser::prelude::parse_number;
 use metricsql_runtime::prelude::SessionConfig;
 use std::sync::{LazyLock, Mutex};
@@ -61,7 +61,9 @@ const QUERY_MAX_STEP_FOR_POINTS_ADJUSTMENT_KEY: &str = "query.max_step_for_point
 const QUERY_ROUND_DIGITS_KEY: &str = "query.round_digits";
 
 const SERIES_RETENTION_KEY: &str = "series.retention";
+const SERIES_CHUNK_COMPRESSION_KEY: &str = "series.chunk_compression";
 const SERIES_CHUNK_SIZE_KEY: &str = "series.chunk_size";
+const SERIES_DEDUPE_INTERVAL_KEY: &str = "series.dedupe_interval";
 const SERIES_DUPLICATE_POLICY_KEY: &str = "series.duplicate_policy";
 const SERIES_ROUND_DIGITS_KEY: &str = "series.round_digits";
 const SERIES_SIGNIFICANT_DIGITS_KEY: &str = "series.significant_digits";
@@ -163,7 +165,7 @@ fn get_number_config_value(args: &[ValkeyString], name: &str, default_value: Opt
     if let Some(value) = find_config_value(args, name) {
         let string_value = value.try_as_str()?;
         let value = parse_number(string_value)
-            .map_err(|e| ValkeyError::String(format!("invalid number value for {}: {}", name, e)))?;
+            .map_err(|_e| ValkeyError::String(format!("error parsing \"{name}\". Expected number, got for {string_value}")))?;
         Ok(value)
     } else {
         Ok(default_value.unwrap_or(0.0))
@@ -268,6 +270,8 @@ fn load_series_config(args: &[ValkeyString]) -> ValkeyResult<()> {
     config.chunk_size_bytes = get_number_config_value(args, SERIES_CHUNK_SIZE_KEY, Some(DEFAULT_CHUNK_SIZE_BYTES as f64))? as usize;
     // todo: validate chunk_size_bytes
     
+    config.dedupe_interval = get_optional_duration_config_value(args, SERIES_DEDUPE_INTERVAL_KEY)?;
+    
     if let Some(policy) = find_config_value(args, SERIES_DUPLICATE_POLICY_KEY) {
         let temp = policy.try_as_str()?;
         if let Ok(policy) = DuplicatePolicy::try_from(temp) {
@@ -276,17 +280,26 @@ fn load_series_config(args: &[ValkeyString]) -> ValkeyResult<()> {
             return Err(ValkeyError::String(format!("Invalid value for {}: {temp}", SERIES_DUPLICATE_POLICY_KEY)));
         }
     }
+    
+    if let Some(compression) = find_config_value(args, SERIES_CHUNK_COMPRESSION_KEY) {
+        let temp = compression.try_as_str()?;
+        if let Ok(compression) = ChunkCompression::try_from(temp) {
+            config.chunk_compression = Some(compression);
+        } else {
+            return Err(ValkeyError::String(format!("Error parsing compression chunk value for \"{}\", got  \"{temp}\"", SERIES_CHUNK_COMPRESSION_KEY)));
+        }
+    }
 
     if let Some(significant_digits) = get_rounding_strategy_digit_value(args, SERIES_SIGNIFICANT_DIGITS_KEY)? {
         if significant_digits.abs() > 18 {
-            return Err(ValkeyError::String(format!("Invalid value for {}: {}", SERIES_SIGNIFICANT_DIGITS_KEY, significant_digits)));
+            return Err(ValkeyError::String(format!("Max number of significant figures for {}. Got {}", SERIES_SIGNIFICANT_DIGITS_KEY, significant_digits)));
         }
         config.rounding = Some(RoundingStrategy::SignificantDigits(significant_digits));    
     }
     
     if let Some(decimal_digits) = get_rounding_strategy_digit_value(args, SERIES_ROUND_DIGITS_KEY)? {
         if decimal_digits.abs() > 18 {
-            return Err(ValkeyError::String(format!("Invalid value for {}: {}", SERIES_ROUND_DIGITS_KEY, decimal_digits)));
+            return Err(ValkeyError::String(format!("Max number of decimal digits exceeded for \"{}\", got {}", SERIES_ROUND_DIGITS_KEY, decimal_digits)));
         }
         config.rounding = Some(RoundingStrategy::DecimalDigits(decimal_digits));
     }

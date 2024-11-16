@@ -32,10 +32,6 @@ impl ChunkCompression {
             ChunkCompression::Pco => "pco",
         }
     }
-
-    pub fn as_u8(&self) -> u8 {
-        *self as u8
-    }
 }
 
 impl Display for ChunkCompression {
