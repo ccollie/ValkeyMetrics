@@ -29,7 +29,7 @@ mod alerts;
 mod server_events;
 use module::*;
 
-use crate::alerts::{start_write_queue_timer, stop_write_queue_timer, VKM_RULE_GROUP};
+use crate::alerts::{VKM_RULE_GROUP};
 use crate::common::async_runtime::init_runtime;
 use crate::server_events::{generic_key_event_handler, register_server_events};
 use crate::config::load_config;
@@ -48,8 +48,6 @@ fn initialize(ctx: &Context, args: &[ValkeyString]) -> Status {
         return Status::Err;
     }
     
-    start_write_queue_timer(ctx);
-    
     match register_server_events(ctx) {
         Ok(_) => Status::Ok,
         Err(e) => {
@@ -60,9 +58,8 @@ fn initialize(ctx: &Context, args: &[ValkeyString]) -> Status {
     }
 }
 
-fn deinitialize(ctx: &Context) -> Status {
+fn deinitialize(_ctx: &Context) -> Status {
     logging::log_notice("deinitialize");
-    stop_write_queue_timer(ctx);
     Status::Ok
 }
 

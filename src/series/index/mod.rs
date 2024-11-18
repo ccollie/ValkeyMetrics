@@ -8,18 +8,14 @@ pub mod serialization;
 
 use std::sync::LazyLock;
 use papaya::{Guard, HashMap};
-use valkey_module::{raw, Context, RedisModule_GetSelectedDb};
+use valkey_module::{Context};
 pub use timeseries_index::*;
+use crate::common::get_current_db;
 
 /// Map from db to TimeseriesIndex
 pub type TimeSeriesIndexMap = HashMap<i32, TimeSeriesIndex>;
 
 pub(crate) static TIMESERIES_INDEX: LazyLock<TimeSeriesIndexMap> = LazyLock::new(TimeSeriesIndexMap::new);
-
-// Safety: RedisModule_GetSelectedDb is safe to call
-pub unsafe fn get_current_db(ctx: *mut raw::RedisModuleCtx) -> i32 {
-    RedisModule_GetSelectedDb.unwrap()(ctx)
-}
 
 #[inline]
 pub fn get_timeseries_index_for_db(db: i32, guard: &impl Guard) -> &TimeSeriesIndex {
@@ -30,7 +26,7 @@ pub fn with_timeseries_index<F, R>(ctx: &Context, f: F) -> R
 where
     F: FnOnce(&TimeSeriesIndex) -> R,
 {
-    let db = unsafe { get_current_db(ctx.ctx) };
+    let db = get_current_db(ctx);
     let guard = TIMESERIES_INDEX.guard();
     let index = get_timeseries_index_for_db(db, &guard);
     let res = f(index);
@@ -40,7 +36,7 @@ where
 
 // todo: move elsewhere
 pub fn clear_timeseries_index(ctx: &Context) {
-    let db = unsafe { get_current_db(ctx.ctx) };
+    let db = get_current_db(ctx);
     TIMESERIES_INDEX.pin().remove(&db);
 }
 

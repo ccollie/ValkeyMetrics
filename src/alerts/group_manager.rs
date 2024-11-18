@@ -1,4 +1,4 @@
-use crate::alerts::datasource::AlertDatasource;
+use crate::alerts::datasource::{AlertDatasource, WriteQueue};
 use crate::alerts::meta::{with_group, with_group_manager, with_group_mut};
 use crate::alerts::rules::{Executor, Group};
 use crate::alerts::{ALERT_SETTINGS, VKM_RULE_GROUP};
@@ -17,7 +17,6 @@ use valkey_module::{
     ValkeyError, ValkeyResult, ValkeyString,
 };
 use xxhash_rust::xxh3::Xxh3;
-
 
 pub type GroupId = u64;
 
@@ -73,6 +72,9 @@ pub struct GroupManager {
     pub querier_builder: Arc<AlertDatasource>,
     pub groups_by_id: HashMap<GroupId, GroupMeta>,
     pub ids_by_key: HashMap<Box<[u8]>, GroupId>,
+    pub db: i32,
+    write_queue: Arc<WriteQueue>,
+    write_queue_timer: RedisModuleTimerID,
     is_stopped: AtomicBool,
 }
 
@@ -83,6 +85,9 @@ impl Clone for GroupManager {
             is_stopped: AtomicBool::new(false),
             groups_by_id: self.groups_by_id.clone(),
             ids_by_key: self.ids_by_key.clone(),
+            write_queue: Arc::clone(&self.write_queue),
+            write_queue_timer: self.write_queue_timer,
+            db: Default::default(),
         }
     }
 }
@@ -91,16 +96,21 @@ impl Drop for GroupManager {
     fn drop(&mut self) {
         let ctx_guard = valkey_module::MODULE_CONTEXT.lock();
         self.stop(&ctx_guard);
+        self.stop_write_queue_timer(&ctx_guard);
     }
 }
 
 impl GroupManager {
-    pub fn new(querier_builder: Arc<AlertDatasource>) -> Self {
+    pub fn new(db: i32, querier_builder: Arc<AlertDatasource>) -> Self {
+        let write_queue = Arc::new(WriteQueue::new(db));
         Self {
+            db,
             querier_builder: Arc::clone(&querier_builder),
             is_stopped: Default::default(),
             groups_by_id: Default::default(),
             ids_by_key: Default::default(),
+            write_queue,
+            write_queue_timer: Default::default(),
         }
     }
 
@@ -131,6 +141,27 @@ impl GroupManager {
             groups.insert(group.id, group_meta);
             Ok(())
         }
+    }
+    
+    pub fn start_write_queue_timer(&mut self, ctx: &Context) {
+        let flush_timer_id = ctx.create_timer(
+            self.write_queue.flush_interval,
+            flush_callback,
+            Arc::clone(&self.write_queue),
+        );
+        let old_value = self.write_queue_timer;
+        if old_value != 0 {
+            ctx.stop_timer::<Arc<WriteQueue>>(old_value).ok();
+        }
+        self.write_queue_timer = flush_timer_id;
+    }
+    
+    fn stop_write_queue_timer(&mut self, ctx: &Context) {
+        if self.write_queue_timer != 0 {
+            ctx.stop_timer::<Arc<WriteQueue>>(self.write_queue_timer).ok();
+            self.write_queue_timer = 0;
+        }
+        // flush the queue
     }
 
     fn start_timer_internal(
@@ -294,13 +325,14 @@ impl GroupManager {
         }
 
         drop(groups);
-
+        self.stop_write_queue_timer(ctx);
+        
         self.is_stopped.store(true, Ordering::SeqCst);
     }
 
     fn create_executor(&self, group: &Group) -> Executor {
         let querier = self.create_querier(group);
-        Executor::new(querier)
+        Executor::new(self.db, querier, self.write_queue.clone())
     }
 
     fn create_querier(&self, group: &Group) -> AlertDatasource {
@@ -457,4 +489,12 @@ fn delayed_start_group_callback(ctx: &Context, msg: GroupDelayedStart) {
     with_group_manager(ctx, |manager| {
         manager.on_delay_timer_tick(ctx, msg.group_id)
     })
+}
+
+fn flush_callback(ctx: &Context, write_queue: Arc<WriteQueue>) {
+    let queue_len = write_queue.len();
+    ctx.log_debug(format!("[flush callback]: flushing write queue: {queue_len} series").as_str());
+    if queue_len > 0 {
+        write_queue.flush();
+    }
 }

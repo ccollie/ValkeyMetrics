@@ -6,11 +6,13 @@ use crate::series::{TimeSeries, TimeSeriesOptions};
 use std::sync::{RwLock, RwLockWriteGuard};
 use std::time::Duration;
 use valkey_module::{ContextGuard, ThreadSafeContext, ValkeyString};
+use crate::common::{get_current_db, set_current_db};
 
 /// a queue for writing timeseries back to valkey.
 /// todo: have an output list, so that flushing does not block adding new series.
 /// Essentially on flush, we just swap data and output
 pub struct WriteQueue {
+    db: i32,
     data: RwLock<Vec<RawTimeSeries>>, 
     pub(crate) flush_interval: Duration,
     max_batch_size: usize,
@@ -19,7 +21,9 @@ pub struct WriteQueue {
 
 impl Default for WriteQueue {
     fn default() -> Self {
+        // todo: read configuration and construct accordingly
         Self {
+            db: current_db(),
             data: RwLock::new(Vec::new()),
             flush_interval: Duration::from_millis(DEFAULT_FLUSH_INTERVAL as u64),
             max_batch_size: DEFAULT_MAX_BATCH_SIZE,
@@ -45,8 +49,18 @@ const DEFAULT_MAX_QUEUE_SIZE: usize  = 100usize;
 const DEFAULT_FLUSH_INTERVAL: usize = 3 * 1000;
 
 impl WriteQueue {
+    pub fn new(db: i32) -> Self {
+       Self {
+            db,
+            data: RwLock::new(Vec::new()),
+            flush_interval: Duration::from_millis(DEFAULT_FLUSH_INTERVAL as u64),
+            max_batch_size: DEFAULT_MAX_BATCH_SIZE,
+            max_queue_size: DEFAULT_MAX_QUEUE_SIZE,
+       } 
+    } 
+    
     /// new returns asynchronous client for writing timeseries via remotewrite protocol.
-    pub fn new(cfg: WriteQueueConfig) -> AlertsResult<WriteQueue> {
+    pub fn with_config(cfg: WriteQueueConfig) -> WriteQueue {
         let max_batch_size = if cfg.max_batch_size == 0 {
             DEFAULT_MAX_BATCH_SIZE
         } else {
@@ -64,14 +78,13 @@ impl WriteQueue {
         };
 
         let storage: Vec<RawTimeSeries> = Vec::with_capacity(cfg.max_queue_size);
-        let c = WriteQueue {
+        WriteQueue {
+            db: current_db(),
             flush_interval,
             max_batch_size,
             max_queue_size,
             data: RwLock::new(storage),
-        };
-
-        Ok(c)
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -170,6 +183,9 @@ impl WriteQueue {
         if series.is_empty() {
             return Ok(())
         }
+        
+        set_current_db(ctx, self.db);
+
         for ts in series.iter_mut() {
             let series = self.create_series_if_not_exists(ctx, &ts.key)?;
             series.merge_samples(&ts.samples, None)
@@ -177,7 +193,11 @@ impl WriteQueue {
         }
         Ok(())
     }
+}
 
+fn current_db() -> i32 {
+    let ctx_guard = valkey_module::MODULE_CONTEXT.lock();
+    get_current_db(&ctx_guard)
 }
 
 impl Drop for WriteQueue {

@@ -24,7 +24,7 @@ use std::ops::Sub;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tracing::debug;
-use valkey_module::{Context, ValkeyError, ValkeyResult};
+use valkey_module::{logging, Context, ValkeyError, ValkeyResult};
 // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmalert/alerting.go#L612
 
 /// the duration for which a resolved alert instance is kept in memory state and consequently
@@ -446,9 +446,8 @@ impl AlertingRule {
         }
 
         prefix.push_str(message);
-
-        // todo: use redis ctx.log_debug
-        debug!("{}", prefix);
+        
+        logging::log_debug(prefix);
     }
 }
 

@@ -1,22 +1,35 @@
-use crate::alerts::datasource::AlertDatasource;
+use std::sync::Arc;
+use crate::alerts::datasource::{AlertDatasource, WriteQueue};
 use crate::alerts::notifications::Notifier;
 use crate::alerts::rules::{AlertingRule, Group, MetricRule, Rule, RuleType};
 use crate::alerts::types::RawTimeSeries;
-use crate::alerts::{AlertsError, AlertsResult, ALERT_SETTINGS, NOTIFIERS, WRITE_QUEUE};
+use crate::alerts::{AlertsError, AlertsResult, ALERT_SETTINGS, NOTIFIERS};
 use crate::common::types::Timestamp;
 use get_size::GetSize;
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use std::time::Duration;
 use valkey_module::ThreadSafeContext;
+use crate::common::set_current_db;
 
-#[derive(Clone, Default, GetSize)]
+#[derive(Clone, Default)]
 pub struct Executor {
     querier: AlertDatasource,
+    db: i32,
+    write_queue: Arc<WriteQueue>
+}
+
+impl GetSize for Executor {
+    fn get_size(&self) -> usize {
+        self.querier.get_size() +
+            size_of_val(&self.db) +
+            size_of::<Arc<WriteQueue>>() +
+            size_of_val(&self.write_queue)
+    }
 }
 
 impl Executor {
-    pub fn new(querier: AlertDatasource) -> Self {
-        Executor { querier }
+    pub fn new(db: i32, querier: AlertDatasource, write_queue: Arc<WriteQueue>) -> Self {
+        Executor { querier, db, write_queue }
     }
 
     pub(super) fn exec(
@@ -148,7 +161,7 @@ impl Executor {
 
     fn push_to_rw(&self, tss: Vec<RawTimeSeries>) {
         tss.into_iter().for_each(|ts| {
-            WRITE_QUEUE.add(ts);
+            self.write_queue.add(ts);
         });
     }
 
@@ -161,9 +174,12 @@ impl Executor {
         resend_delay: Duration,
     ) -> AlertsResult<()> {
         rule.process_alerts_to_send(ts, resolve_duration, resend_delay, |alerts| {
+            let alert_slice = alerts.as_slice();
+
             let thread_ctx = ThreadSafeContext::new();
             let context_guard = thread_ctx.lock();
-            let alert_slice = alerts.as_slice();
+            set_current_db(&context_guard, self.db);
+            
             for nt in NOTIFIERS.iter() {
                 if let Err(err) = nt.send(&context_guard, alert_slice, &group.notifier_headers) {
                     let msg = format!("failed to send alerts to addr {}: {:?}", nt.addr(), err);

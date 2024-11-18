@@ -266,14 +266,14 @@ impl TimeSeriesIndex {
     }
 
     pub fn next_id(&self) -> TimeseriesId {
-        let mut inner = self.inner.write().unwrap();
+        let inner = self.inner.write().unwrap();
         const MAX_RETRIES: usize = 64;
         let mut counter = 0;
         loop {
             if counter >= MAX_RETRIES {
                 return 0;
             }
-            let mut current = self.last_id.load(std::sync::atomic::Ordering::Relaxed) as TimeseriesId;
+            let current = self.last_id.load(std::sync::atomic::Ordering::Relaxed) as TimeseriesId;
             if inner.id_to_key.contains_key(&current) {
                 counter += 1;
                 continue;

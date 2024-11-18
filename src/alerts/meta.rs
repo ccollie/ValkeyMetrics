@@ -1,16 +1,16 @@
 use crate::alerts::datasource::AlertDatasource;
 use crate::alerts::rules::Group;
 use crate::alerts::{GroupId, GroupManager, GROUP_MANAGERS, VKM_RULE_GROUP};
-use crate::series::index::get_current_db;
 use papaya::Guard;
 use std::sync::Arc;
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
+use crate::common::get_current_db;
 
 // todo: read configuration and construct accordingly
-pub(crate) fn create_group_manager() -> GroupManager {
+fn create_group_manager(ctx: &Context, db: i32) -> GroupManager {
     let datasource = Arc::new(create_alert_datasource());
-    let mut manager = GroupManager::default();
-    manager.querier_builder = datasource;
+    let mut manager = GroupManager::new(db, datasource);
+    manager.start_write_queue_timer(ctx);
     manager
 }
 
@@ -35,18 +35,21 @@ pub fn with_rule_groups<F, STATE>(
     with_group_manager(ctx, |manager| manager.with_groups(ctx, names, state, f))
 }
 
-#[inline]
-pub fn get_group_manager_for_db(db: i32, guard: &impl Guard) -> &GroupManager {
-    GROUP_MANAGERS.get_or_insert_with(db, create_group_manager, guard)
+fn get_group_manager_for_db_internal<'g>(ctx: &Context, db: i32, guard: &'g impl Guard) -> &'g GroupManager {
+    if let Some(manager) = GROUP_MANAGERS.get(&db, guard) {
+        return manager;
+    }
+    let manager = create_group_manager(ctx, db);
+    GROUP_MANAGERS.insert(db, manager, guard).unwrap()
 }
 
 pub fn with_group_manager<F, R>(ctx: &Context, f: F) -> R
 where
     F: FnOnce(&GroupManager) -> R,
 {
-    let db = unsafe { get_current_db(ctx.ctx) };
+    let db = get_current_db(ctx) ;
     let guard = GROUP_MANAGERS.guard();
-    let manager = get_group_manager_for_db(db, &guard);
+    let manager = get_group_manager_for_db_internal(ctx, db, &guard);
     let res = f(manager);
     drop(guard);
     res
@@ -79,7 +82,7 @@ where
 
 
 pub fn clear_group_manager(ctx: &Context) {
-    let db = unsafe { get_current_db(ctx.ctx) };
+    let db = get_current_db(ctx);
     // the drop trait on GroupManager ensures that the data is cleared
     GROUP_MANAGERS.pin().remove(&db);
 }
