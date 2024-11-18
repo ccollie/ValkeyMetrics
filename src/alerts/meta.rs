@@ -9,7 +9,9 @@ use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
 // todo: read configuration and construct accordingly
 pub(crate) fn create_group_manager() -> GroupManager {
     let datasource = Arc::new(create_alert_datasource());
-    GroupManager::new(datasource)
+    let mut manager = GroupManager::default();
+    manager.querier_builder = datasource;
+    manager
 }
 
 fn create_alert_datasource() -> AlertDatasource {

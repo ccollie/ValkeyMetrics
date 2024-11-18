@@ -1,10 +1,10 @@
-use crate::common::duration_to_chrono;
 use crate::config::{QUERY_DEFAULT_STEP, QUERY_ROUND_DIGITS};
 use crate::error_consts;
 use crate::module::arg_parse::{parse_duration_arg, parse_timestamp_range};
 use crate::module::parse_timestamp_arg;
 use crate::module::result::{to_instant_vector_result, to_matrix_result};
 use crate::query::{run_instant_query, run_range_query, QueryParams};
+use std::time::Duration;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString};
 
 const CMD_ARG_STEP: &str = "STEP";
@@ -23,7 +23,7 @@ pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
 
     let query = args.next_string()?;
 
-    let mut step_value: Option<chrono::Duration> = None;
+    let mut step_value: Option<Duration> = None;
     
     let mut round_digits: u8 = QUERY_ROUND_DIGITS.unwrap_or(100);
 
@@ -45,7 +45,7 @@ pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
 
     let (start, end) = time_range.get_timestamps();
 
-    let step = normalize_step(step_value)?;
+    let step = normalize_step(step_value);
 
     let mut query_params: QueryParams = get_default_query_params();
     query_params.query = query.to_string();
@@ -99,17 +99,13 @@ pub fn query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     Ok(to_instant_vector_result(result))
 }
 
-fn parse_step(arg: &ValkeyString) -> ValkeyResult<chrono::Duration> {
-    if let Ok(duration) = parse_duration_arg(arg) {
-        Ok(duration_to_chrono(duration))
-    } else {
-        Err(ValkeyError::Str(error_consts::INVALID_STEP_DURATION))
-    }
+fn parse_step(arg: &ValkeyString) -> ValkeyResult<Duration> {
+    parse_duration_arg(arg)
+        .map_err(|_| ValkeyError::Str(error_consts::INVALID_STEP_DURATION))
 }
 
-fn normalize_step(step: Option<chrono::Duration>) -> ValkeyResult<chrono::Duration> {
-    step.or_else(|| chrono::Duration::from_std(*QUERY_DEFAULT_STEP).ok())
-        .ok_or_else(|| ValkeyError::Str(error_consts::INVALID_STEP_DURATION))
+fn normalize_step(step: Option<Duration>) -> Duration {
+    step.unwrap_or(*QUERY_DEFAULT_STEP)
 }
 
 fn get_default_query_params() -> QueryParams {

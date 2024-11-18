@@ -142,13 +142,6 @@ fn get_optional_duration_config_value(args: &[ValkeyString], name: &str) -> Valk
     }
 }
 
-fn get_chrono_duration_config_value(args: &[ValkeyString], name: &str, default_value: Option<Duration>) -> ValkeyResult<chrono::Duration> {
-    get_duration_config_value(args, name, default_value)
-        .map(|d| chrono::Duration::from_std(d)
-            .map_err(|e| ValkeyError::String(format!("invalid duration value for {}: {}", name, e)))
-            .unwrap_or_default())
-}
-
 fn get_bool_config_value(args: &[ValkeyString], name: &str, default_value: bool) -> bool {
     find_config_value(args, name)
         .and_then(|arg| {
@@ -212,16 +205,16 @@ fn load_query_context_config(args: &[ValkeyString]) -> ValkeyResult<()> {
     config.disable_cache = get_bool_config_value(args, QUERY_DISABLE_CACHE_KEY, false);
     config.set_lookback_to_step = get_bool_config_value(args, QUERY_SET_LOOKBACK_TO_STEP_KEY, false);
 
-    config.max_query_duration = get_chrono_duration_config_value(args, QUERY_MAX_DURATION_KEY, Some(DEFAULT_MAX_QUERY_DURATION))?;
+    config.max_query_duration = get_duration_config_value(args, QUERY_MAX_DURATION_KEY, Some(DEFAULT_MAX_QUERY_DURATION))?;
     config.max_query_len = get_number_config_value(args, QUERY_MAX_LENGTH_KEY, Some(0.0))? as usize;
     config.max_memory_per_query = get_number_config_value(args, QUERY_MAX_MEMORY_KEY, Some(0.0))? as usize;
-    config.latency_offset = get_chrono_duration_config_value(args, QUERY_MAX_STALENESS_INTERVAL_KEY, None)?;
-    config.max_lookback = get_chrono_duration_config_value(args, QUERY_MAX_LOOKBACK_KEY, Some(DEFAULT_MAX_LOOKBACK))?;
+    config.latency_offset = get_duration_config_value(args, QUERY_MAX_STALENESS_INTERVAL_KEY, None)?;
+    config.max_lookback = get_duration_config_value(args, QUERY_MAX_LOOKBACK_KEY, Some(DEFAULT_MAX_LOOKBACK))?;
     config.max_unique_timeseries = get_number_config_value(args, QUERY_MAX_UNIQUE_SERIES_KEY, Some(0.0))? as usize;
     config.max_points_subquery_per_timeseries = get_number_config_value(args, QUERY_MAX_POINTS_SUBQUERY_KEY, Some(0.0))? as usize;
-    config.max_step_for_points_adjustment = get_chrono_duration_config_value(args, QUERY_MAX_STEP_FOR_POINTS_ADJUSTMENT_KEY, Some(Duration::from_secs(0)))?;
-    config.max_staleness_interval = get_chrono_duration_config_value(args, QUERY_MAX_STALENESS_INTERVAL_KEY, None)?;
-    config.min_staleness_interval = get_chrono_duration_config_value(args, QUERY_MIN_STALENESS_INTERVAL_KEY, None)?;
+    config.max_step_for_points_adjustment = get_duration_config_value(args, QUERY_MAX_STEP_FOR_POINTS_ADJUSTMENT_KEY, Some(Duration::from_secs(0)))?;
+    config.max_staleness_interval = get_duration_config_value(args, QUERY_MAX_STALENESS_INTERVAL_KEY, None)?;
+    config.min_staleness_interval = get_duration_config_value(args, QUERY_MIN_STALENESS_INTERVAL_KEY, None)?;
     config.no_stale_markers = get_bool_config_value(args, QUERY_NO_STALE_MARKERS_KEY, false);
     
     let mut res = _QUERY_CONTEXT_CONFIG.lock()

@@ -64,13 +64,13 @@ impl SeriesQuerier {
         if !self.evaluation_interval.is_zero() {
             // set step as evaluation_interval by default always convert to seconds to keep
             // compatibility with older Prometheus versions. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1943
-            params.step = duration_to_chrono(&self.evaluation_interval);
+            params.step = self.evaluation_interval;
         }
         if !self.query_step.is_zero() {
             // override step with user-specified value
             // always convert to seconds to keep compatibility with older
             // Prometheus versions. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1943
-            params.step = duration_to_chrono(&self.query_step);
+            params.step = self.query_step;
         }
         params
     }
@@ -95,7 +95,7 @@ impl SeriesQuerier {
             // set step as evaluation interval by default
             // always convert to seconds to keep compatibility with older
             // Prometheus versions. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1943
-            params.step = duration_to_chrono(&self.evaluation_interval);
+            params.step = self.evaluation_interval;
         }
         params
     }
@@ -158,8 +158,4 @@ impl QuerierBuilder for SeriesQuerier {
     fn build_with_params(&self, params: QuerierParams) -> Box<dyn Querier> {
         Box::new((*self).apply_params(params))
     }
-}
-
-fn duration_to_chrono(duration: &Duration) -> chrono::Duration {
-    chrono::Duration::from_std(*duration).unwrap()
 }

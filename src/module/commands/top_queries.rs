@@ -50,9 +50,7 @@ fn get_query_stats(
 
     let last_queries_count = ctx.query_stats.get_last_queries_count();
     let duration: Duration = ctx.query_stats
-        .get_min_query_duration()
-        .to_std()
-        .unwrap_or_else(|_| Duration::from_secs(0));
+        .get_min_query_duration();
 
     let min_duration = humanize_duration(&duration);
 
@@ -60,10 +58,7 @@ fn get_query_stats(
     res.insert("maxLifetime".into(), ValkeyValue::from(humanize_duration(&max_lifetime)));
     res.insert("lastQueriesCount".into(), ValkeyValue::from(last_queries_count));
     res.insert("minQueryDuration".into(), ValkeyValue::from(min_duration));
-
-    let max_lifetime = chrono::Duration::from_std(max_lifetime)
-        .unwrap_or_else(|_| { chrono::Duration::milliseconds(ONE_DAY_IN_MS as i64) });
-
+    
     let mut items: Vec<ValkeyValue> = Vec::new();
     let top_by_count = ctx.query_stats.get_top_by_count(top_n, max_lifetime);
     for r in top_by_count.iter() {
@@ -82,7 +77,7 @@ fn get_query_stats(
         let mut map: HashMap<String, ValkeyValue> = HashMap::with_capacity(4);
         map.insert("query".into(), ValkeyValue::from(&r.query));
         map.insert("timeRangeSeconds".into(), r.time_range_secs.into());
-        map.insert("avgDurationSeconds".into(), r.duration.num_seconds().into());
+        map.insert("avgDurationSeconds".into(), r.duration.as_secs_f64().into());
         map.insert("count".into(), ValkeyValue::from(r.count as f64));
         items.push(ValkeyValue::from(map));
     }
@@ -94,7 +89,7 @@ fn get_query_stats(
         let mut map: HashMap<String, ValkeyValue> = HashMap::with_capacity(4);
         map.insert("query".into(), ValkeyValue::from(&r.query));
         map.insert("timeRangeSeconds".into(), r.time_range_secs.into());
-        map.insert("sumDurationSeconds".into(), r.duration.num_seconds().into());
+        map.insert("sumDurationSeconds".into(), r.duration.as_secs_f64().into());
         map.insert("count".into(), ValkeyValue::from(r.count as f64));
         items.push(ValkeyValue::from(map));
     }

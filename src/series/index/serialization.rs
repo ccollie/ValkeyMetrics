@@ -11,6 +11,7 @@ use blart::AsBytes;
 use croaring::Portable;
 use std::os::raw::c_int;
 use std::sync::{LazyLock, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
 use valkey_module::{logging, raw, ValkeyError, ValkeyResult};
 
 pub(super) static STAGED_TIMESERIES_INDEX: LazyLock<Mutex<std::collections::HashMap<i32, TimeSeriesIndex>>> 
@@ -97,12 +98,16 @@ fn deserialize_index_inner(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<IndexIn
 
 pub fn serialize_timeseries_index(rdb: *mut raw::RedisModuleIO, index: &TimeSeriesIndex) {
     let inner = index.inner.read().unwrap();
+    let id = index.last_id.load(Ordering::Relaxed);
+    raw::save_unsigned(rdb, id);
     serialize_index_inner(rdb, &inner);
 }
 
 pub fn deserialize_timeseries_index(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<TimeSeriesIndex> {
     let inner = deserialize_index_inner(rdb)?;
-    Ok(TimeSeriesIndex { inner: RwLock::new(inner) })
+    let id = raw::load_unsigned(rdb)?;
+    
+    Ok(TimeSeriesIndex { inner: RwLock::new(inner), last_id: AtomicU64::new(id) })
 }
 
 fn aux_save(rdb: *mut raw::RedisModuleIO) {

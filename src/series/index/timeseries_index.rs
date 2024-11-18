@@ -12,8 +12,9 @@ use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 use std::ops::ControlFlow::Continue;
 use std::sync::{RwLock, RwLockReadGuard};
+use std::sync::atomic::AtomicU64;
 use valkey_module::redisvalue::ValkeyValueKey;
-use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use valkey_module::{logging, Context, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
 cfg_if! {
     if #[cfg(feature = "id64")] {
@@ -219,13 +220,16 @@ impl IndexInner {
 #[derive(Default)]
 pub(crate) struct TimeSeriesIndex {
     pub(super) inner: RwLock<IndexInner>,
+    pub(super) last_id: AtomicU64
 }
 
 impl Clone for TimeSeriesIndex {
     fn clone(&self) -> Self {
         let inner = self.inner.read().unwrap().clone();
+        let id = self.last_id.load(std::sync::atomic::Ordering::Relaxed);
         TimeSeriesIndex {
-            inner: RwLock::new(inner)
+            inner: RwLock::new(inner),
+            last_id: AtomicU64::new(id)
         }
     }
 }
@@ -233,13 +237,15 @@ impl Clone for TimeSeriesIndex {
 impl TimeSeriesIndex {
     pub fn new() -> Self {
         TimeSeriesIndex {
-            inner: RwLock::new(IndexInner::new())
+            inner: RwLock::new(IndexInner::new()),
+            last_id: AtomicU64::new(0)
         }
     }
 
     pub fn clear(&self) {
         let mut inner = self.inner.write().unwrap();
         inner.clear();
+        self.last_id.store(0, std::sync::atomic::Ordering::Relaxed);
     }
 
     // swap the inner value with some other value
@@ -247,6 +253,7 @@ impl TimeSeriesIndex {
     // todo: can this deadlock ?
     pub fn swap(&mut self, other: &mut TimeSeriesIndex) {
         std::mem::swap(&mut self.inner, &mut other.inner);
+        std::mem::swap(&mut self.last_id, &mut other.last_id);
     }
 
     pub fn label_count(&self) -> usize {
@@ -256,6 +263,27 @@ impl TimeSeriesIndex {
     pub fn series_count(&self) -> usize {
         let inner = self.inner.read().unwrap();
         inner.id_to_key.len()
+    }
+
+    pub fn next_id(&self) -> TimeseriesId {
+        let mut inner = self.inner.write().unwrap();
+        const MAX_RETRIES: usize = 64;
+        let mut counter = 0;
+        loop {
+            if counter >= MAX_RETRIES {
+                return 0;
+            }
+            let mut current = self.last_id.load(std::sync::atomic::Ordering::Relaxed) as TimeseriesId;
+            if inner.id_to_key.contains_key(&current) {
+                counter += 1;
+                continue;
+            } else {
+                if current == 0 {
+                    self.last_id.store(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                return current;
+            }
+        }
     }
 
     pub(crate) fn index_time_series(&self, ts: &mut TimeSeries, key: &[u8]) -> TsdbResult<()> {
@@ -307,7 +335,12 @@ impl TimeSeriesIndex {
     /// metric name and valkey key are distinct. IE we can have the metric http_requests_total{status="200"}
     /// stored at requests:http:total:200
     pub fn get_id_by_name_and_labels(&self, metric: &str, labels: &[Label]) -> ValkeyResult<Option<TimeseriesId>> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read()
+            .map_err(|_| {
+                logging::log_debug("Possible lock poison error reading timeseries index");
+                ValkeyError::Str("Error reading index")
+            })?;
+
         let mut key: String = String::new();
         format_key_for_metric_name(&mut key, metric);
         if let Some(measurement_bmp) = inner.label_index.get(key.as_bytes()) {
@@ -329,12 +362,10 @@ impl TimeSeriesIndex {
             }
             match acc.cardinality() {
                 0 => Ok(None),
-                1 => Ok(Some(acc.iter().next().unwrap())),
+                1 => Ok(acc.iter().next()),
                 _ => {
                     let metric_name = format_prometheus_metric_name(metric, labels);
-                    // todo: show keys in the error message ?
-                    let msg = format!("Err multiple series with the same metric: {metric_name}");
-                    Err(ValkeyError::String(msg))
+                    Err(ValkeyError::String(format!("Multiple series with the same metric: {metric_name}")))
                 }
             }
         } else {

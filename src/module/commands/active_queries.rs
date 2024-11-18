@@ -29,7 +29,7 @@ fn get_active_queries() -> ValkeyValue {
         map.insert("query".into(), ValkeyValue::from(&aqe.q));
         map.insert("start".into(), ValkeyValue::from(aqe.start));
         map.insert("end".into(), ValkeyValue::from(aqe.end));
-        map.insert("step".into(), ValkeyValue::from(aqe.step));
+        map.insert("step".into(), ValkeyValue::Integer(aqe.step.as_millis() as i64));
         items.push(ValkeyValue::from(map));
     }
 

@@ -1,4 +1,3 @@
-use valkey_module::ValkeyResult;
 use crate::alerts::notifications::Alert;
 use crate::alerts::rules::executor::Executor;
 use crate::alerts::rules::{AlertingRule, GroupConfig, MetricRule, RecordingRule, Rule, RuleType};
@@ -20,6 +19,7 @@ use std::time::Duration;
 use std::vec;
 use topologic::AcyclicDependencyGraph;
 use tracing::info;
+use valkey_module::ValkeyResult;
 use valkey_module::{Context, ValkeyError};
 use xxhash_rust::xxh3::Xxh3;
 
@@ -186,8 +186,6 @@ impl Group {
         }
         g
     }
-    
-    
 
     /// id return unique group id that consists of rules file and group name
     pub(crate) fn id(&self) -> u64 {
@@ -423,38 +421,41 @@ impl Group {
         self.last_evaluation.store(ts, Ordering::Relaxed);
     }
 
-pub(crate) fn eval(&mut self, e: &Executor, ts: Timestamp) {
-    self.metrics.iteration_total.fetch_add(1, Ordering::Relaxed);
-    let start = current_time_millis();
+    pub(crate) fn eval(&mut self, e: &Executor, ts: Timestamp) {
+        self.metrics.iteration_total.fetch_add(1, Ordering::Relaxed);
+        let start = current_time_millis();
 
-    if self.is_empty() {
-        self.set_last_evaluation(start);
-        return;
-    }
-
-    let resolve_duration = self.resolve_duration();
-    let ts = self.adjust_req_timestamp(ts);
-
-    if let Err(res) = e.exec(self, ts, resolve_duration, self.limit) {
-        let ctx_guard = valkey_module::MODULE_CONTEXT.lock();
-        let log_error = |err: &AlertsError| {
-            ctx_guard.log_warning(&format!("group {}: failed to execute rules {}", self.name, err))
-        };
-
-        match res {
-            AlertsError::GroupExecutionError(errs) => errs.iter().for_each(log_error),
-            _ => log_error(&res),
+        if self.is_empty() {
+            self.set_last_evaluation(start);
+            return;
         }
-    }
 
-    self.set_last_evaluation(start);
-}
+        let resolve_duration = self.resolve_duration();
+        let ts = self.adjust_req_timestamp(ts);
+
+        if let Err(res) = e.exec(self, ts, resolve_duration, self.limit) {
+            let ctx_guard = valkey_module::MODULE_CONTEXT.lock();
+            let log_error = |err: &AlertsError| {
+                ctx_guard.log_warning(&format!(
+                    "group {}: failed to execute rules {}",
+                    self.name, err
+                ))
+            };
+
+            match res {
+                AlertsError::GroupExecutionError(errs) => errs.iter().for_each(log_error),
+                _ => log_error(&res),
+            }
+        }
+
+        self.set_last_evaluation(start);
+    }
 
     pub(crate) fn on_tick(&mut self, e: &Executor, eval_ts: Timestamp) {
         self.metrics
             .iteration_interval
             .fetch_add(1, Ordering::Relaxed);
-        
+
         let elapsed = eval_ts - self.get_last_evaluation();
         let interval_millis = self.interval.as_millis() as i64;
         let missed = (elapsed / interval_millis.max(1) as u64 as i64).max(0);
@@ -582,33 +583,17 @@ fn get_resolve_duration(
     resolve_duration
 }
 
-pub(super) fn labels_to_string(labels: &[Label]) -> String {
-    let capacity = labels
-        .iter()
-        .fold(0, |acc, l| acc + l.name.len() + l.value.len() + 2);
-    let mut b = String::with_capacity(capacity);
-    b.push('{');
-    for (i, label) in labels.iter().enumerate() {
-        if label.name.is_empty() {
-            b.push_str(METRIC_NAME_LABEL);
-        } else {
-            b.push_str(&label.name)
-        }
-        b.push('=');
-        b.push_str(&enquote('"', &label.value));
-        if i < labels.len() - 1 {
-            b.push(',')
-        }
-    }
-    b.push('}');
-    b
-}
-
-pub(crate) fn validate_offset_and_interval(eval_offset: Option<Duration>, interval: Option<Duration>) -> ValkeyResult<()> {
+pub(crate) fn validate_offset_and_interval(
+    eval_offset: Option<Duration>,
+    interval: Option<Duration>,
+) -> ValkeyResult<()> {
     if let (Some(offset), Some(interval)) = (&eval_offset, &interval) {
         if offset > interval {
-            let msg = format!("eval_offset should be smaller than interval; now eval_offset: {}, interval: {}",
-                              offset.as_millis(), interval.as_millis());
+            let msg = format!(
+                "eval_offset should be smaller than interval; now eval_offset: {}, interval: {}",
+                offset.as_millis(),
+                interval.as_millis()
+            );
             return Err(ValkeyError::String(msg));
         }
     }

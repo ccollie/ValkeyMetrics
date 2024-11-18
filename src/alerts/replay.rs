@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use crate::alerts::rules::{Group, Rule};
 use crate::alerts::types::RawTimeSeries;
 use crate::alerts::{AlertsError, AlertsResult};
@@ -44,7 +45,7 @@ pub(crate) fn replay(
     ctx: &ValkeyContext,
     group: &mut Group,
     options: &ReplayOptions,
-    rw: &WriteQueue,
+    rw: &Arc<WriteQueue>,
 ) -> AlertsResult<usize> {
     if options.max_data_points < 1 {
         return Err(AlertsError::Generic(
@@ -73,7 +74,7 @@ fn replay_group(
     querier: &AlertDatasource,
     ctx: &ValkeyContext,
     options: &ReplayOptions,
-    rw: &WriteQueue,
+    rw: &Arc<WriteQueue>,
 ) -> AlertsResult<usize> {
     let ReplayOptions {
         from: start,
@@ -121,7 +122,7 @@ fn replay_range(
     end: Timestamp,
     step: Duration,
     retry_attempts: usize,
-    rw: &WriteQueue,
+    rw: &Arc<WriteQueue>,
 ) -> AlertsResult<usize> {
     let mut total: usize = 0;
 
@@ -153,7 +154,7 @@ fn replay_rule(
     start: Timestamp,
     end: Timestamp,
     rule_retry_attempts: usize,
-    rw: &WriteQueue,
+    rw: &Arc<WriteQueue>,
 ) -> AlertsResult<usize> {
     let mut tss: Vec<RawTimeSeries> = vec![];
     let mut err: Option<AlertsError> = None;

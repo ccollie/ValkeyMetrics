@@ -7,9 +7,9 @@ use super::utils::{
 use crate::common::types::Label;
 use crate::common::METRIC_NAME_LABEL;
 use crate::query::InstantQueryResult;
-use chrono::{DateTime, Utc};
 use gtmpl_value::{FuncError, Value};
 use metricsql_runtime::prelude::MetricName;
+use metricsql_runtime::types::{Timestamp, TimestampTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
@@ -111,8 +111,8 @@ pub struct Alert {
     status: String,
     labels: BTreeMap<String, String>,
     annotations: BTreeMap<String, String>,
-    starts_at: DateTime<Utc>,
-    ends_at: DateTime<Utc>,
+    starts_at: Timestamp,
+    ends_at: Timestamp,
     generator_url: String,
     fingerprint: String,
 }
@@ -132,15 +132,15 @@ impl From<&Alert> for Value {
     }
 }
 
-pub struct DateTimeModel(pub DateTime<Utc>);
+pub struct DateTimeModel(pub Timestamp);
 impl DateTimeModel {
-    pub(super) fn new(at: DateTime<Utc>) -> Self {
+    pub(super) fn new(at: Timestamp) -> Self {
         Self(at)
     }
 }
 
 impl Deref for DateTimeModel {
-    type Target = DateTime<Utc>;
+    type Target = Timestamp;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -149,8 +149,9 @@ impl Deref for DateTimeModel {
 impl From<&DateTimeModel> for Value {
     fn from(d: &DateTimeModel) -> Self {
         let mut result: HashMap<String, Value> = HashMap::new();
-        result.insert("timestamp".to_owned(), Value::from(d.timestamp()));
-        result.insert("timestamp_millis".to_owned(), Value::from(d.timestamp_millis()));
+        let secs = d.0 / 1000;
+        result.insert("timestamp".to_owned(), Value::from(secs));
+        result.insert("timestamp_millis".to_owned(), Value::from(d.0));
         result.insert("rfc3339".to_owned(), Value::from(d.to_rfc3339()));
         Value::Object(result)
     }
@@ -178,6 +179,7 @@ impl DurationModel {
         Value::Object(result)
     }
 }
+
 
 impl From<&DurationModel> for Value {
     fn from(d: &DurationModel) -> Self {

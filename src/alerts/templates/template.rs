@@ -16,7 +16,6 @@ use super::utils::*;
 use crate::alerts::datasource::{AlertDatasource};
 use crate::common::types::Timestamp;
 use crate::common::METRIC_NAME_LABEL;
-use chrono::DateTime;
 use enquote::enquote;
 use gtmpl::{Func, FuncError, Template, Value};
 use htmlescape::encode_minimal;
@@ -25,7 +24,7 @@ use regex::Regex;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
-use std::time::Duration;
+use std::time::{Duration, UNIX_EPOCH};
 use titlecase::titlecase;
 use url::Url;
 use crate::alerts::{AlertsError, AlertsResult};
@@ -250,11 +249,7 @@ fn to_time(args: &[Value]) -> Result<Value, FuncError> {
     }
     let secs = ensure_number_arg(args, 0, "toTime")?;
     let millis = (secs as i64) * 1000;
-    // v here is seconds
-    match DateTime::from_timestamp_millis(millis) {
-        Some(t) => Ok(DateTimeModel(t).into()),
-        None => Err(FuncError::Generic(format!("cannot convert {} to Time", millis)))
-    }
+    Ok(DateTimeModel(millis).into())
 }
 
 /// match reports whether the string s contains any match of the regular expression pattern.
@@ -520,14 +515,77 @@ fn humanize_timestamp(args: &[Value]) -> Result<Value, FuncError> {
             if v == i64::MAX || v == i64::MIN {
                 return Ok(format!("{:.4}", v).into());
             }
-            if let Some(t) = DateTime::from_timestamp(v, 0) {
-                Ok(t.to_string().into())
-            } else {
-                Ok("".to_string().into())
-            }
+            Ok(format_unix_millis(v as u64).into())
         }
         Err(_e) => Ok(Value::NoValue)
     }
+}
+
+fn format_unix_millis(millis: u64) -> String {
+    let secs = millis / 1000;
+    let nanos = ((millis % 1000) * 1_000_000) as u32;
+
+    let duration = Duration::new(secs, nanos);
+    let datetime = UNIX_EPOCH + duration;
+
+    let datetime = datetime.duration_since(UNIX_EPOCH).unwrap();
+
+    let secs = datetime.as_secs();
+    let nanos = datetime.subsec_nanos();
+
+    let year = 1970 + secs / 31_536_000;
+    let mut days = (secs % 31_536_000) / 86_400;
+
+    let is_leap_year = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    if is_leap_year && days >= 59 {
+        days += 1;
+    }
+
+    let month = match days {
+        0..=30 => 1,
+        31..=58 => 2,
+        59..=89 => 3,
+        90..=119 => 4,
+        120..=150 => 5,
+        151..=180 => 6,
+        181..=211 => 7,
+        212..=242 => 8,
+        243..=272 => 9,
+        273..=303 => 10,
+        304..=333 => 11,
+        _ => 12,
+    };
+
+    let addendum = if is_leap_year { 1 } else { 0 };
+    let day = days - match month {
+        1 => 0,
+        2 => 31,
+        3 => 59 + addendum,
+        4 => 90 + addendum,
+        5 => 120 + addendum,
+        6 => 151 + addendum,
+        7 => 181 + addendum,
+        8 => 212 + addendum,
+        9 => 243 + addendum,
+        10 => 273 + addendum,
+        11 => 304 + addendum,
+        _ => 334 + addendum,
+    } + 1;
+    
+    let hours = (secs % 86_400) / 3600;
+    let minutes = (secs % 3600) / 60;
+    let seconds = secs % 60;
+
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03} +0000 UTC",
+        year,
+        month,
+        day,
+        hours,
+        minutes,
+        seconds,
+        nanos / 1_000_000
+    )
 }
 
 /// `query` executes the MetricsQL/PromQL query against the db.

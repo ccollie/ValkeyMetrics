@@ -18,6 +18,7 @@ use valkey_module::{
 };
 use xxhash_rust::xxh3::Xxh3;
 
+
 pub type GroupId = u64;
 
 // map a db to its group manager
@@ -81,7 +82,7 @@ impl Clone for GroupManager {
             querier_builder: Arc::clone(&self.querier_builder),
             is_stopped: AtomicBool::new(false),
             groups_by_id: self.groups_by_id.clone(),
-            ids_by_key: Default::default(),
+            ids_by_key: self.ids_by_key.clone(),
         }
     }
 }
