@@ -33,7 +33,7 @@ fn handle_key_restore(ctx: &Context, key: &[u8]) {
     }).is_ok();
 
     if !is_ts {
-        if let Ok(Some(group)) = ctx.open_key(&_key).get_value::<Group>(&VKM_RULE_GROUP) {
+        if let Ok(Some(group)) = ctx.open_key_writable(&_key).get_value::<Group>(&VKM_RULE_GROUP) {
             let _ = with_group_manager(ctx, |manager| manager.add_group(ctx, group, &_key));
         }
     }

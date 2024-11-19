@@ -1,19 +1,12 @@
+use crate::alerts::meta::with_group_manager;
 use crate::alerts::rules::Group;
 use crate::alerts::serialization::{load_group, rdb_load_group_metadata, rdb_save_group_metadata, save_group};
-use crate::alerts::meta::with_group_manager;
 use crate::common::current_time_millis;
 use std::ffi::c_int;
 use std::os::raw::c_void;
 use std::ptr::null_mut;
 use valkey_module::native_types::ValkeyType;
-use valkey_module::{
-    raw,
-    Context,
-    RedisModuleDefragCtx,
-    RedisModuleString,
-    ValkeyString,
-    REDISMODULE_AUX_AFTER_RDB
-};
+use valkey_module::{logging, raw, Context, RedisModuleDefragCtx, RedisModuleString, ValkeyString, REDISMODULE_AUX_AFTER_RDB};
 
 const VM_GROUP_VERSION: i32 = 1;
 
@@ -77,9 +70,18 @@ unsafe extern "C" fn copy(
     let guard = valkey_module::MODULE_CONTEXT.lock();
     let group = &*(value as *mut Group);
     let mut new_group = group.clone();
-    // todo: new id.
+    new_group.id = 0; // will be set in manager
+    
     let key = ValkeyString::from_redis_module_string(guard.ctx, to_key);
-    // TODO: schedule group or set to disabled
+    let res = with_group_manager(&guard, |manager| {
+        manager.add_group(&guard, &mut new_group, &key)
+    });
+
+    if res.is_err() {
+        logging::log_debug(format!("Failed to copy group: {:?}", res));
+        return null_mut();
+    }
+    
     Box::into_raw(Box::new(new_group)).cast::<c_void>()
 }
 

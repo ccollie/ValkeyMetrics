@@ -16,7 +16,7 @@ use crate::server_events::is_async_loading_in_progress;
 use std::collections::{HashMap, VecDeque};
 use std::ffi::c_int;
 use std::str::FromStr;
-use std::sync::atomic::AtomicI64;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{LazyLock, Mutex};
 use valkey_module::{logging, raw, RedisModuleIO, ValkeyError, ValkeyResult};
 
@@ -425,6 +425,8 @@ fn save_group_manager(rdb: *mut RedisModuleIO, manager: &GroupManager) {
         raw::save_unsigned(rdb, *id);
         save_group_meta(rdb, group);
     }
+    let last_id = manager.last_id.load(Ordering::Relaxed);
+    raw::save_unsigned(rdb, last_id);
 }
 
 fn load_group_manager(rdb: *mut RedisModuleIO, _enc_ver: c_int) -> ValkeyResult<GroupManager> {
@@ -439,7 +441,9 @@ fn load_group_manager(rdb: *mut RedisModuleIO, _enc_ver: c_int) -> ValkeyResult<
             map.insert(id, meta);
         }   
     }
+    let last_id = raw::load_unsigned(rdb)?;
     manager.groups_by_id = groups;
+    manager.last_id.store(last_id, Ordering::Relaxed);
     Ok(manager)
 }
 

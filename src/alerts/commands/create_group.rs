@@ -124,7 +124,7 @@ pub(crate) fn create_group(ctx: &Context, key: &ValkeyString, options: GroupConf
     if !_key.is_empty() {
         return Err(ValkeyError::Str("ERR: the key already exists"));
     }
-    let group = Group::from_config(options, Duration::from_millis(0), vec![]);
+    let mut group = Group::from_config(options, Duration::from_millis(0), vec![]);
     _key.set_value(&VKM_RULE_GROUP, group.clone())?;
 
     ctx.replicate_verbatim();
@@ -132,7 +132,7 @@ pub(crate) fn create_group(ctx: &Context, key: &ValkeyString, options: GroupConf
     ctx.log_verbose("group created");
 
     // todo: handle errors
-    let _ = with_group_manager(ctx, |manager| manager.add_group(ctx, &group, key));
+    let _ = with_group_manager(ctx, |manager| manager.add_group(ctx, &mut group, key));
     
     Ok(())
 }

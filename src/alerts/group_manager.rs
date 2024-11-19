@@ -9,7 +9,7 @@ use get_size::GetSize;
 use papaya::HashMap;
 use std::hash::Hasher;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use valkey_module::{
@@ -73,6 +73,7 @@ pub struct GroupManager {
     pub groups_by_id: HashMap<GroupId, GroupMeta>,
     pub ids_by_key: HashMap<Box<[u8]>, GroupId>,
     pub db: i32,
+    pub(super) last_id: AtomicU64,
     write_queue: Arc<WriteQueue>,
     write_queue_timer: RedisModuleTimerID,
     is_stopped: AtomicBool,
@@ -87,6 +88,7 @@ impl Clone for GroupManager {
             ids_by_key: self.ids_by_key.clone(),
             write_queue: Arc::clone(&self.write_queue),
             write_queue_timer: self.write_queue_timer,
+            last_id: AtomicU64::new(self.last_id.load(Ordering::Relaxed)),
             db: Default::default(),
         }
     }
@@ -111,12 +113,15 @@ impl GroupManager {
             ids_by_key: Default::default(),
             write_queue,
             write_queue_timer: Default::default(),
+            last_id: Default::default(),
         }
     }
 
-    pub fn add_group(&self, ctx: &Context, group: &Group, key: &ValkeyString) -> ValkeyResult<()> {
+    pub fn add_group(&self, ctx: &Context, group: &mut Group, key: &ValkeyString) -> ValkeyResult<()> {
         let groups = self.groups_by_id.pin();
         let hash = get_hash(group);
+        
+        group.id = self.next_id();
 
         let _key = key.to_vec().into_boxed_slice();
         let mut group_meta = GroupMeta {
@@ -173,6 +178,23 @@ impl GroupManager {
             group_id: group.id,
         };
         ctx.create_timer(group.interval, group_timer_callback, meta)
+    }
+    
+    fn next_id(&self) -> GroupId {
+        let guard = self.groups_by_id.guard();
+        loop {
+            if self.is_stopped.load(Ordering::SeqCst) {
+                return 0;
+            }
+            let current = self.last_id.fetch_add(1, Ordering::Relaxed);
+            if !self.groups_by_id.contains_key(&current, &guard) {
+                return current;
+            }
+            if current == 0 {
+                self.last_id.store(1, Ordering::Relaxed);
+            }
+        }
+        // todo: handle overflow
     }
 
     fn start_group_timer(
