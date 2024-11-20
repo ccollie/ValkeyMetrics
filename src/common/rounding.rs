@@ -3,6 +3,9 @@ use std::fmt::Display;
 use get_size::GetSize;
 use rand_distr::num_traits::Pow;
 
+pub const MAX_SIGNIFICANT_DIGITS: u8 = 16;
+pub const MAX_DECIMAL_DIGITS: u8 = 16;
+
 #[derive(Clone, Debug, PartialEq, Copy)]
 #[derive(GetSize)]
 pub enum RoundingStrategy {

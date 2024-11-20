@@ -107,7 +107,7 @@ impl TimeSeries {
         if let Some(label) = label {
             res.metric_name.clone_from(&label.value);
         } else {
-            return Err(TsdbError::InvalidMetric("ERR expected METRIC name label".to_string()));
+            return Err(TsdbError::InvalidMetric("ERR missing metric name".to_string()));
         }
 
         options.labels.retain(|x| x.name != METRIC_NAME_LABEL);

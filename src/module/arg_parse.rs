@@ -5,7 +5,7 @@ use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
 use crate::join::join_reducer::JoinReducer;
 use crate::series::types::*;
-use crate::series::{DuplicatePolicy, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
+use crate::series::{ChunkCompression, DuplicatePolicy, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
 use crate::series::{TimestampRange, TimestampValue};
 use chrono::DateTime;
 use metricsql_parser::common::{Value, ValueType};
@@ -22,6 +22,7 @@ use std::iter::{Peekable, Skip};
 use std::time::Duration;
 use std::vec::IntoIter;
 use valkey_module::{NextArg, ValkeyError, ValkeyResult, ValkeyString};
+use crate::common::rounding::{RoundingStrategy, MAX_DECIMAL_DIGITS, MAX_SIGNIFICANT_DIGITS};
 
 const MAX_TS_VALUES_FILTER: usize = 16;
 pub const CMD_ARG_ANNOTATIONS: &str = "ANNOTATIONS";
@@ -49,6 +50,7 @@ pub const CMD_ARG_EXPR: &str = "EXPR";
 pub const CMD_ARG_NAME: &str = "NAME";
 pub const CMD_ARG_LABELS: &str = "LABELS";
 pub const CMD_ARG_LIMIT: &str = "LIMIT";
+pub const CMD_ARG_METRIC: &str = "METRIC";
 
 pub type CommandArgIterator = Peekable<Skip<IntoIter<ValkeyString>>>;
 
@@ -183,19 +185,20 @@ pub fn parse_chunk_size(args: &mut CommandArgIterator) -> ValkeyResult<usize> {
     Ok(chunk_size)
 }
 
+pub fn parse_chunk_compression(args: &mut CommandArgIterator) -> ValkeyResult<ChunkCompression> {
+    args.next_str()
+        .and_then(|next| ChunkCompression::try_from(next)
+            .map_err(|_| ValkeyError::Str(error_consts::INVALID_CHUNK_COMPRESSION))
+        )
+}
+
 pub fn parse_duplicate_policy(args: &mut CommandArgIterator) -> ValkeyResult<DuplicatePolicy> {
-    match args.next_str() {
-        Ok(next) => {
-            if let Ok(policy) = DuplicatePolicy::try_from(next) {
-                Ok(policy)
-            } else {
-                Err(ValkeyError::Str(error_consts::INVALID_DUPLICATE_POLICY))
-            }
-        },
-        Err(_e) => {
-            Err(ValkeyError::Str(error_consts::INVALID_DUPLICATE_POLICY))
-        }
-    }
+    args.next_str()
+        .and_then(
+            |next| DuplicatePolicy::try_from(next)
+                        .map_err(|_| ValkeyError::Str(error_consts::INVALID_DUPLICATE_POLICY)
+            )
+        )
 }
 
 pub fn parse_timestamp_range(args: &mut CommandArgIterator) -> ValkeyResult<TimestampRange> {
@@ -473,6 +476,26 @@ pub fn parse_grouping_params(args: &mut CommandArgIterator) -> ValkeyResult<Rang
     )
 }
 
+pub fn parse_significant_digit_rounding(args: &mut CommandArgIterator) -> ValkeyResult<RoundingStrategy> {
+    let next = args.next_u64()?;
+    if next > MAX_SIGNIFICANT_DIGITS as u64 {
+        let msg = format!(
+            "ERR SIGNIFICANT_DIGITS must be between 0 and {MAX_SIGNIFICANT_DIGITS}"
+        );
+        return Err(ValkeyError::String(msg));
+    }
+    Ok(RoundingStrategy::SignificantDigits(next as i32))
+}
+
+pub fn parse_decimal_digit_rounding(args: &mut CommandArgIterator) -> ValkeyResult<RoundingStrategy> {
+    let next = args.next_u64()?;
+    if next > MAX_DECIMAL_DIGITS as u64 {
+        let msg =
+            format!("ERR DECIMAL_DIGITS must be between 0 and {MAX_DECIMAL_DIGITS}");
+        return Err(ValkeyError::String(msg));
+    }
+    Ok(RoundingStrategy::DecimalDigits(next as i32))
+}
 
 pub fn parse_promql_vector_expr(args: &mut CommandArgIterator) -> ValkeyResult<String> {
     const ERROR_MSG: &str = "ERR: invalid PromQL vector expression";

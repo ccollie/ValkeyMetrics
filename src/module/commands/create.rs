@@ -1,17 +1,13 @@
-use crate::common::rounding::RoundingStrategy;
 use crate::error_consts;
 use crate::module::arg_parse::*;
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::index::with_timeseries_index;
 use crate::series::time_series::TimeSeries;
-use crate::series::{ChunkCompression, TimeSeriesOptions};
+use crate::series::TimeSeriesOptions;
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{
     Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK,
 };
-
-const MAX_SIGNIFICANT_DIGITS: u8 = 16;
-const MAX_DECIMAL_DIGITS: u8 = 16;
 
 /// Create a new time series
 ///
@@ -56,40 +52,24 @@ pub fn parse_create_options(
                 options.duplicate_policy = Some(parse_duplicate_policy(&mut args)?)
             }
             CMD_ARG_SIGNIFICANT_DIGITS => {
-                let next = args.next_u64()?;
-                if next > MAX_SIGNIFICANT_DIGITS as u64 {
-                    let msg = format!(
-                        "ERR SIGNIFICANT_DIGITS must be between 0 and {MAX_SIGNIFICANT_DIGITS}"
-                    );
-                    return Err(ValkeyError::String(msg));
-                }
                 if options.rounding.is_some() {
-                    let msg = "ERR rounding already set";
-                    return Err(ValkeyError::Str(msg));
+                    return Err(ValkeyError::Str(error_consts::ROUNDING_ALREADY_SET));
                 }
-                options.rounding = Some(RoundingStrategy::SignificantDigits(next as i32));
+                let rounding = parse_significant_digit_rounding(&mut args)?;
+                options.rounding = Some(rounding);
             }
             CMD_ARG_DECIMAL_DIGITS => {
-                let next = args.next_u64()?;
-                if next > MAX_DECIMAL_DIGITS as u64 {
-                    let msg =
-                        format!("ERR DECIMAL_DIGITS must be between 0 and {MAX_DECIMAL_DIGITS}");
-                    return Err(ValkeyError::String(msg));
-                }
                 if options.rounding.is_some() {
-                    let msg = "ERR rounding already set";
-                    return Err(ValkeyError::Str(msg));
+                    return Err(ValkeyError::Str(error_consts::ROUNDING_ALREADY_SET));
                 }
-                options.rounding = Some(RoundingStrategy::DecimalDigits(next as i32));
+                let rounding = parse_decimal_digit_rounding(&mut args)?;
+                options.rounding = Some(rounding);
             }
             CMD_ARG_CHUNK_SIZE => {
                 options.chunk_size(parse_chunk_size(&mut args)?);
             }
             CMD_ARG_COMPRESSION => {
-                options.chunk_compression = Some(
-                    ChunkCompression::try_from(args.next_string()?.as_str())
-                        .map_err(|_| ValkeyError::Str(error_consts::INVALID_CHUNK_COMPRESSION))?,
-                );
+                options.chunk_compression = Some(parse_chunk_compression(&mut args)?);
             }
             _ => {
                 return Err(ValkeyError::Str(error_consts::INVALID_ARGUMENT));

@@ -2,12 +2,13 @@
 
 #### Syntax
 ```
-VKM.CREATE key metric 
+VM.CREATE key metric 
   [RETENTION retentionPeriod]
   [ENCODING <COMPRESSED|UNCOMPRESSED>]
   [CHUNK_SIZE chunkSize]
   [DUPLICATE_POLICY policy]
   [DEDUPE_INTERVAL duplicateTimediff]
+  [SIGNIFICANT_DIGITS significantDigits | DECIMAL_DIGITS decimalDigits]
 ```
 #### Options
 - **ENCODING**: The encoding to use for the timeseries. Default is `COMPRESSED`.
@@ -37,6 +38,13 @@ The chunk size for the timeseries, in bytes. Default is `4096`.
 <details open><summary><code>dedupeInterval</code></summary>
 Limits sample ingest to the timeseries. If a sample arrives less than `dedupeInterval` from the most
 recent sample it is ignored. Default is `0`
+</details>
+
+<details open><summary><code>significantDigits</code></summary>
+The number of significant digits to store for the timeseries.
+</details>
+<details open><summary><code>decimalDigits</code></summary>
+The number of decimal digits to store for the timeseries.
 </details>
 
 ```sh
