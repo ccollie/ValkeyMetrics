@@ -44,9 +44,9 @@ impl<'a, T: PartialOrd + 'a> AsofJoinState<'a, T> for AsofJoinForwardState {
         mut right: F,
         n_right: IdxSize,
     ) -> Option<IdxSize> {
-        while (self.scan_offset) < n_right {
+        while self.scan_offset < n_right {
             if let Some(right_val) = right(self.scan_offset) {
-                if right_val >= *left_val {
+                if right_val >= left_val {
                     return Some(self.scan_offset);
                 }
             }
@@ -73,7 +73,7 @@ impl<'a, T: PartialOrd + 'a> AsofJoinState<'a, T> for AsofJoinBackwardState {
     ) -> Option<IdxSize> {
         while self.scan_offset < n_right {
             if let Some(right_val) = right(self.scan_offset) {
-                if right_val <= *left_val {
+                if right_val <= left_val {
                     self.best_bound = Some(self.scan_offset);
                 } else {
                     break;
@@ -127,7 +127,7 @@ impl<'a, T: 'a + PartialEq> AsofJoinState<'a, T> for AsofJoinNearestState where 
                         // scan, so keep going on.
                         while self.scan_offset < n_right {
                             if let Some(next_right_val) = right(self.scan_offset) {
-                                if next_right_val == scan_right_val {
+                                if next_right_val == *scan_right_val {
                                     self.best_bound = Some(self.scan_offset);
                                 } else {
                                     break;
