@@ -25,6 +25,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, UNIX_EPOCH};
+use metricsql_parser::parser::parse_duration_value;
 use titlecase::titlecase;
 use url::Url;
 use crate::alerts::{AlertsError, AlertsResult};
@@ -189,17 +190,17 @@ fn to_lower(args: &[Value]) -> Result<Value, FuncError> {
 }
 
 fn trim_spaces(args: &[Value]) -> Result<Value, FuncError> {
-    let s = ensure_single_arg(args, "trimSpaces")?;
-    match s {
-        Value::String(s) => Ok(s.trim().into()),
-        _ => Err(FuncError::Generic(format!("expected string for trimSpaces, got {s}")))
+    if let Value::String(s) = ensure_single_arg(args, "trimSpaces")? {
+        Ok(s.trim().into())
+    } else {
+        Err(FuncError::Generic("expected string for trimSpaces".to_string()))
     }
 }
 
 /// parses a duration string such as "1h" into the number of seconds it represents
 fn parse_duration(args: &[Value]) -> Result<Value, FuncError> {
     let s = ensure_single_arg(args, "parseDuration")?.to_string();
-    match metricsql_parser::prelude::parse_duration_value(&s, 1) {
+    match parse_duration_value(&s, 1) {
         Ok(d) => Ok(((d / 1000) as f64).into()),
         Err(_e) => Ok(Value::from(0f64))
     }
@@ -208,10 +209,7 @@ fn parse_duration(args: &[Value]) -> Result<Value, FuncError> {
 /// same with parseDuration but returns a std::time::Duration
 fn parse_duration_time(args: &[Value]) -> Result<Value, FuncError> {
     let s = ensure_single_arg(args, "parseDurationTime")?.to_string();
-    let millis = match metricsql_parser::prelude::parse_duration_value(&s, 1) {
-        Ok(d) => d as u64,
-        Err(_e) => 0
-    };
+    let millis = parse_duration_value(&s, 1).unwrap_or(0) as u64;
     Ok(DurationModel::from(Duration::from_millis(millis)).to_value())
 }
 

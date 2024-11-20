@@ -35,7 +35,7 @@ pub fn with_rule_groups<F, STATE>(
     with_group_manager(ctx, |manager| manager.with_groups(ctx, names, state, f))
 }
 
-fn get_group_manager_for_db_internal<'g>(ctx: &Context, db: i32, guard: &'g impl Guard) -> &'g GroupManager {
+pub fn get_group_manager_for_db<'g>(ctx: &Context, db: i32, guard: &'g impl Guard) -> &'g GroupManager {
     if let Some(manager) = GROUP_MANAGERS.get(&db, guard) {
         return manager;
     }
@@ -49,28 +49,22 @@ where
 {
     let db = get_current_db(ctx) ;
     let guard = GROUP_MANAGERS.guard();
-    let manager = get_group_manager_for_db_internal(ctx, db, &guard);
+    let manager = get_group_manager_for_db(ctx, db, &guard);
     let res = f(manager);
     drop(guard);
     res
 }
 
 pub(crate) fn with_group<T>(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&Group) -> ValkeyResult<T>) -> ValkeyResult<T> {
-    let redis_key = ctx.open_key(key);
-    let group = redis_key.get_value::<Group>(&VKM_RULE_GROUP)?;
-    match group {
-        Some(group) => f(group),
-        None => Err(ValkeyError::Str("ERR TSDB: the key is not a group")),
-    }
+    ctx.open_key(key)
+        .get_value::<Group>(&VKM_RULE_GROUP)?
+        .map_or_else(|| Err(ValkeyError::Str("ERR TSDB: the key is not a group")), f)
 }
 
 pub(crate) fn with_group_mut<T>(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&mut Group) -> ValkeyResult<T>) -> ValkeyResult<T> {
-    let redis_key = ctx.open_key_writable(key);
-    let group = redis_key.get_value::<Group>(&VKM_RULE_GROUP)?;
-    match group {
-        Some(group) => f(group),
-        None => Err(ValkeyError::Str("ERR TSDB: the key is not a group")),
-    }
+    ctx.open_key_writable(key)
+        .get_value::<Group>(&VKM_RULE_GROUP)?
+        .map_or_else(|| Err(ValkeyError::Str("ERR TSDB: the key is not a group")), f)
 }
 
 pub fn with_rule_group_mut<F, R>(ctx: &Context, group_id: GroupId, f: F) -> ValkeyResult<R>

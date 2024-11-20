@@ -13,7 +13,7 @@ use crate::common::set_current_db;
 
 #[derive(Clone, Default)]
 pub struct Executor {
-    querier: AlertDatasource,
+    pub querier: AlertDatasource,
     db: i32,
     write_queue: Arc<WriteQueue>
 }

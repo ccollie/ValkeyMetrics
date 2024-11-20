@@ -67,7 +67,7 @@ impl PartialEq for AlertingRuleMetrics {
 }
 
 /// `AlertingRule` is basic alert entity
-#[derive(Clone, Debug, Default, Serialize, Deserialize, GetSize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, GetSize)]
 pub struct AlertingRule {
     pub rule_id: u64,
     pub name: String,

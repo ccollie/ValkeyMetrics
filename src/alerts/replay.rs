@@ -1,13 +1,14 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use crate::alerts::datasource::{AlertDatasource, WriteQueue};
 use crate::alerts::rules::{Group, Rule};
 use crate::alerts::types::RawTimeSeries;
 use crate::alerts::{AlertsError, AlertsResult};
 use metricsql_common::humanize::humanize_duration;
 use metricsql_runtime::types::{Timestamp, TimestampTrait};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use valkey_module::Context as ValkeyContext;
-use crate::alerts::datasource::{AlertDatasource, WriteQueue};
+use valkey_module::logging;
 
 #[derive(Debug, Clone)]
 pub struct ReplayOptions {
@@ -24,6 +25,7 @@ pub struct ReplayOptions {
     pub max_data_points: usize,
     /// Defines how many retries to make before giving up on rules if request for it returns an error.
     pub rule_retry_attempts: usize,
+    pub extra_labels: HashMap<String, String>,
 }
 
 impl Default for ReplayOptions {
@@ -34,6 +36,7 @@ impl Default for ReplayOptions {
             rules_delay: Duration::from_secs(1),
             max_data_points: 1000,
             rule_retry_attempts: 5,
+            extra_labels: Default::default(),
         }
     }
 }
@@ -42,7 +45,6 @@ impl Default for ReplayOptions {
 
 pub(crate) fn replay(
     querier: &AlertDatasource,
-    ctx: &ValkeyContext,
     group: &mut Group,
     options: &ReplayOptions,
     rw: &Arc<WriteQueue>,
@@ -64,15 +66,14 @@ pub(crate) fn replay(
         options.max_data_points
     );
 
-    ctx.log_debug(&msg);
+    logging::log_debug(&msg);
 
-    replay_group(group, querier, ctx, options, rw)
+    replay_group(group, querier, options, rw)
 }
 
 fn replay_group(
     group: &mut Group,
     querier: &AlertDatasource,
-    ctx: &ValkeyContext,
     options: &ReplayOptions,
     rw: &Arc<WriteQueue>,
 ) -> AlertsResult<usize> {
@@ -97,25 +98,24 @@ fn replay_group(
         humanize_duration(&step)
     );
 
-    ctx.log_debug(&msg);
+    logging::log_debug(&msg);
     if group.limit > 0 {
         let msg = format!(
             "\nPlease note, `limit: {}` param has no effect during replay.\n",
             group.limit
         );
-        ctx.log_debug(&msg);
+        logging::log_debug(&msg);
     }
     // todo: rayon
 
     for rule in group.rules.iter_mut() {
-        total += replay_range(ctx, querier, rule, start, *end, step, *rule_retry_attempts, rw)?;
+        total += replay_range(querier, rule, start, *end, step, *rule_retry_attempts, rw)?;
     }
 
     Ok(total)
 }
 
 fn replay_range(
-    ctx: &ValkeyContext,
     querier: &AlertDatasource,
     rule: &mut impl Rule,
     start: Timestamp,
@@ -126,19 +126,23 @@ fn replay_range(
 ) -> AlertsResult<usize> {
     let mut total: usize = 0;
 
-    ctx.log_debug(&format!("> Rule {:?} (ID: {})\n", rule, rule.id()));
-    for ri in RangeIterator::new(start, end, step) {
-        match replay_rule(ctx, querier, rule, ri.start, ri.end, retry_attempts, rw) {
+    logging::log_debug(&format!("> Rule {:?} (ID: {})\n", rule, rule.id()));
+    let mut cursor = start;
+    let step_ms = step.as_millis() as i64;
+    while cursor < end {
+        let next = (cursor + step_ms).min(end);
+        match replay_rule(querier, rule, cursor, next, retry_attempts, rw) {
             Ok(n) => {
-                let msg = format!("{} samples imported", n);
+                let msg = format!("{n} samples imported");
                 total += n;
-                ctx.log_debug(&msg);
+                logging::log_debug(&msg);
             }
             Err(err) => {
                 let msg = format!("rules {:?}: {:?}", rule, err);
-                ctx.log_warning(&msg);
+                logging::log_warning(&msg);
             }
         }
+        cursor = next;
     }
 
     // flush data so chained rules could be calculated correctly
@@ -148,7 +152,6 @@ fn replay_range(
 }
 
 fn replay_rule(
-    ctx: &ValkeyContext,
     querier: &AlertDatasource,
     rule: &mut impl Rule,
     start: Timestamp,
@@ -162,9 +165,7 @@ fn replay_rule(
     for i in 0..rule_retry_attempts {
         match rule.exec_range(querier, start, end) {
             Ok(res) => {
-                for ts in res.into_iter() {
-                    tss.push(ts);
-                }
+                tss.extend(res.into_iter());
                 break;
             }
             Err(e) => {
@@ -174,7 +175,7 @@ fn replay_rule(
                     rule,
                     err
                 );
-                ctx.log_warning(&msg);
+                logging::log_warning(&msg);
                 err = Some(e);
                 thread::sleep(Duration::from_secs(1))
             }
@@ -197,6 +198,7 @@ fn replay_rule(
     Ok(n)
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Range {
     start: Timestamp,
     end: Timestamp,
@@ -208,7 +210,6 @@ pub struct RangeIterator {
     end: Timestamp,
     iter: usize,
     start_cursor: Timestamp,
-    end_cursor: Timestamp,
 }
 
 impl RangeIterator {
@@ -219,32 +220,132 @@ impl RangeIterator {
             end,
             iter: 0,
             start_cursor: Timestamp::default(),
-            end_cursor: Timestamp::default(),
         }
     }
 
     pub fn reset(&mut self) {
         self.iter = 0;
         self.start_cursor = Timestamp::default();
-        self.end_cursor = Timestamp::default();
     }
 }
 
 impl Iterator for RangeIterator {
     type Item = Range;
     fn next(&mut self) -> Option<Self::Item> {
-        self.start_cursor = (self.start as u64 + (self.step_ms * self.iter as u64)) as Timestamp;
-        if self.start_cursor > self.end {
+        if self.start_cursor >= self.end {
             return None;
         }
-        self.end_cursor = self.start_cursor + self.step_ms as i64;
-        if self.end_cursor > self.end {
-            self.end_cursor = self.end;
-        }
+        let start = (self.start as u64 + (self.step_ms * self.iter as u64)) as Timestamp;
+        let end = (start + self.step_ms as i64).min(self.end);
+        
+        self.start_cursor = end;
         self.iter += 1;
+        
         Some(Range {
-            start: self.start_cursor,
-            end: self.end_cursor,
+            start,
+            end,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_range_iterator_basic() {
+        let start = 0;
+        let end = 100;
+        let step = Duration::from_millis(20);
+        let mut iter = RangeIterator::new(start, end, step);
+
+        let expected_ranges = vec![
+            Range { start: 0, end: 20 },
+            Range { start: 20, end: 40 },
+            Range { start: 40, end: 60 },
+            Range { start: 60, end: 80 },
+            Range { start: 80, end: 100 },
+        ];
+
+        for expected in expected_ranges {
+            assert_eq!(iter.next(), Some(expected));
+        }
+
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_range_iterator_exact_step() {
+        let start = 0;
+        let end = 100;
+        let step = Duration::from_millis(25);
+        let mut iter = RangeIterator::new(start, end, step);
+
+        let expected_ranges = vec![
+            Range { start: 0, end: 25 },
+            Range { start: 25, end: 50 },
+            Range { start: 50, end: 75 },
+            Range { start: 75, end: 100 },
+        ];
+
+        for expected in expected_ranges {
+            assert_eq!(iter.next(), Some(expected));
+        }
+
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_range_iterator_no_step() {
+        let start = 0;
+        let end = 0;
+        let step = Duration::from_millis(10);
+        let mut iter = RangeIterator::new(start, end, step);
+
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_range_iterator_large_step() {
+        let start = 0;
+        let end = 50;
+        let step = Duration::from_millis(100);
+        let mut iter = RangeIterator::new(start, end, step);
+
+        let expected_ranges = vec![
+            Range { start: 0, end: 50 },
+        ];
+
+        for expected in expected_ranges {
+            assert_eq!(iter.next(), Some(expected));
+        }
+
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_range_iterator_reset() {
+        let start = 0;
+        let end = 100;
+        let step = Duration::from_millis(20);
+        let mut iter = RangeIterator::new(start, end, step);
+
+        iter.next();
+        iter.next();
+        iter.reset();
+
+        let expected_ranges = vec![
+            Range { start: 0, end: 20 },
+            Range { start: 20, end: 40 },
+            Range { start: 40, end: 60 },
+            Range { start: 60, end: 80 },
+            Range { start: 80, end: 100 },
+        ];
+
+        for expected in expected_ranges {
+            assert_eq!(iter.next(), Some(expected));
+        }
+
+        assert_eq!(iter.next(), None);
     }
 }

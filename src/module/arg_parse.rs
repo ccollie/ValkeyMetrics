@@ -212,11 +212,9 @@ pub fn parse_timestamp_range(args: &mut CommandArgIterator) -> ValkeyResult<Time
 }
 
 pub fn parse_retention(args: &mut CommandArgIterator) -> ValkeyResult<Duration> {
-    if let Ok(next) = args.next_str() {
-        match parse_duration(next) {
-            Ok(d) => Ok(d),
-            Err(_) => Err(ValkeyError::Str(error_consts::INVALID_DURATION)),
-        }
+    if let Ok(next) = args.next_str() { 
+        parse_duration(next)
+            .map_err(|_e| ValkeyError::Str(error_consts::INVALID_DURATION))
     } else {
         Err(ValkeyError::Str("ERR missing RETENTION value"))
     }
@@ -360,11 +358,8 @@ pub fn parse_key_value_pairs(args: &mut CommandArgIterator, is_cmd_token: fn(&st
 
 pub fn parse_dedupe_interval(args: &mut CommandArgIterator) -> ValkeyResult<Duration> {
     let next = args.next_arg()?;
-    if let Ok(val) = parse_duration_arg(&next) {
-        Ok(val)
-    } else {
-        Err(ValkeyError::Str("ERR invalid DEDUPE_INTERVAL value"))
-    }
+    parse_duration_arg(&next)
+        .map_err(|_e| ValkeyError::Str("ERR invalid DEDUPE_INTERVAL value"))
 }
 
 pub fn parse_series_selector_list(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool) -> ValkeyResult<Vec<Matchers>> {

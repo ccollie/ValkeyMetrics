@@ -61,7 +61,7 @@ impl FromStr for AlertState {
 
 /// the triggered alert
 // TODO: Looks like alert name isn't unique
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[derive(GetSize)]
 pub struct Alert {
     /// id is the unique identifier for the Alert

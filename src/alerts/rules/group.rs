@@ -18,7 +18,7 @@ use std::time::Duration;
 use std::vec;
 use topologic::AcyclicDependencyGraph;
 use tracing::info;
-use valkey_module::ValkeyResult;
+use valkey_module::{logging, ValkeyResult};
 use valkey_module::{Context, ValkeyError};
 use xxhash_rust::xxh3::Xxh3;
 
@@ -542,7 +542,8 @@ fn new_group_metrics(_g: &Group) -> GroupMetrics {
     GroupMetrics::default()
 }
 
-fn merge_hashes(
+// merges group rule labels into result map. set2 has priority over set1.
+pub(crate) fn merge_hashes(
     group_name: &str,
     rule_name: &str,
     dest: &mut HashMap<String, String>,
@@ -552,10 +553,9 @@ fn merge_hashes(
         use std::collections::hash_map::Entry;
         match dest.entry(k.clone()) {
             Entry::Occupied(mut entry) => {
-                info!(
-                    "hash {k} for rules {}.{} overwritten with external hash {k}={v}",
-                    group_name, rule_name
-                );
+                logging::log_debug(format!(
+                    "hash {k} for rules {group_name}.{rule_name} overwritten with external hash {k}={v}",
+                ));
                 entry.get_mut().clone_from(v);
             }
             Entry::Vacant(entry) => {

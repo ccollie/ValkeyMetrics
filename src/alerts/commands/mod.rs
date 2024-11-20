@@ -8,5 +8,6 @@ mod alerts;
 mod groups;
 mod get_alert;
 mod get_rule;
+mod replay_group;
 
 pub use api::*;

@@ -74,7 +74,7 @@ pub struct GroupManager {
     pub ids_by_key: HashMap<Box<[u8]>, GroupId>,
     pub db: i32,
     pub(super) last_id: AtomicU64,
-    write_queue: Arc<WriteQueue>,
+    pub(crate) write_queue: Arc<WriteQueue>,
     write_queue_timer: RedisModuleTimerID,
     is_stopped: AtomicBool,
 }
@@ -403,6 +403,17 @@ impl GroupManager {
         Err(ValkeyError::Str("ERR TSDB: the group does not exist"))
     }
 
+    pub fn with_group_meta<F, R>(&self, group_id: GroupId, f: F) -> ValkeyResult<R>
+    where
+        F: FnOnce(&GroupMeta) -> R,
+    {
+        let groups = self.groups_by_id.pin();
+        if let Some(meta) = groups.get(&group_id) {
+            return Ok(f(meta));
+        }
+        Err(ValkeyError::String(format!("ERR the group with id {group_id} does not exist")))
+    }
+    
     pub fn with_groups<F, STATE>(
         &self,
         ctx: &Context,
