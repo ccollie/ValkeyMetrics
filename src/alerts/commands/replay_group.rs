@@ -136,12 +136,13 @@ pub fn parse_replay_options(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRes
 
     if !options.extra_labels.is_empty() {
         for rule in cloned_group.rules.iter_mut() {
+            let name = rule.name().to_string();
             match rule {
                 MetricRule::AlertingRule(ar) => {
-                    merge_hashes(&cloned_group.name, ar.name(), &mut ar.labels, &options.extra_labels);
+                    merge_hashes(&cloned_group.name, &name, &mut ar.labels, &options.extra_labels);
                 }
                 MetricRule::RecordingRule(rr) => {
-                    merge_hashes(&cloned_group.name, rr.name(), &mut rr.labels, &options.extra_labels);
+                    merge_hashes(&cloned_group.name, &name, &mut rr.labels, &options.extra_labels);
                 }
             }
         }

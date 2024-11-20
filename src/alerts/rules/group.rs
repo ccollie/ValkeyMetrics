@@ -528,14 +528,16 @@ impl Group {
     }
 }
 
+// this doesn't handle parsing errors, since that would have been done
+// on rule construction
 fn inspect_query(rule: &impl Rule) -> Option<MetricExpr> {
-    match parse_expr(rule.expr()) {
-        Ok(expr) => match expr {
-            Expr::MetricExpression(me) => Some(me),
-            _ => None,
-        },
-        Err(_) => None, // Handle parsing errors here
-    }
+    parse_expr(rule.expr()).ok().and_then(|expr| {
+        if let Expr::MetricExpression(me) = expr {
+            Some(me)
+        } else {
+            None
+        }
+    })
 }
 
 fn new_group_metrics(_g: &Group) -> GroupMetrics {
