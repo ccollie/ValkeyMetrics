@@ -3,7 +3,6 @@ VM.CREATE-RULE-GROUP key name
    [INTERVAL interval]
    [EVAL_OFFSET evalOffset]
    [EVAL_DELAY evalDelay]
-   [CONCURRENCY concurrency]
    [EVAL_ALIGNMENT isAligned]
    [LIMIT limit]
    [LABELS name value ...]
@@ -65,7 +64,6 @@ params:
 see more details at https://docs.victoriametrics.com#prometheus-querying-api-enhancements
 
 params:
-[ <string>: [<string>, ...]]
 </details>
 
 <details open><summary><code>params</code></summary>
@@ -77,7 +75,8 @@ For example:
     - "CustomHeader2: bar"
 Headers set via this param have priority over headers set via `-datasource.headers` flag.
 headers:
-[ <details>, ...]
+    - slslls
+    - ssss
 </details>
 
 <details open><summary><code>params</code></summary>
@@ -90,7 +89,7 @@ For example:
   notifier_headers:
     - "TenantID: foo"
 notifier_headers:
-[ <details>, ...]
+
 </details>
 
 <details open><summary><code>labels</code></summary>

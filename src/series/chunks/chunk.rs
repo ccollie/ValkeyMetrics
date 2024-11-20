@@ -144,7 +144,7 @@ impl<'a> ChunkSampleIterator<'a> {
 }
 
 // todo: implement next_chunk
-impl<'a> Iterator for ChunkSampleIterator<'a> {
+impl Iterator for ChunkSampleIterator<'_> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {

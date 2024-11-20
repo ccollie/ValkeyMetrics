@@ -18,7 +18,7 @@ impl<'a> JoinInnerIter<'a> {
     }
 }
 
-impl<'a> Iterator for JoinInnerIter<'a> {
+impl Iterator for JoinInnerIter<'_> {
     type Item = JoinValue;
 
     fn next(&mut self) -> Option<Self::Item> {

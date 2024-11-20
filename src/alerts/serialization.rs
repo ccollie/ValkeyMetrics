@@ -227,7 +227,7 @@ pub fn save_metric_rule(rdb: *mut RedisModuleIO, rule: &MetricRule) {
 pub fn load_metric_rule(rdb: *mut RedisModuleIO) -> ValkeyResult<MetricRule> {
     let rule_type = rdb_load_u8(rdb)?;
     match rule_type {
-        RULE_TYPE_ALERTING => Ok(MetricRule::AlertingRule(load_alerting_rule(rdb)?)),
+        RULE_TYPE_ALERTING => Ok(MetricRule::AlertingRule(Box::new(load_alerting_rule(rdb)?))),
         RULE_TYPE_RECORDING => Ok(MetricRule::RecordingRule(load_recording_rule(rdb)?)),
         _ => Err(ValkeyError::Str("Invalid rules type")),
     }

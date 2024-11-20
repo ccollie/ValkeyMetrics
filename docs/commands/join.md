@@ -135,7 +135,7 @@ performs an operation on the value in each returned row.
   | `absdiff`     | abs(`left` - `right`)                                                  |
   | `add` or `+`  | `left` + `right`                                                       |
   | `and`         | Returns `left` if either value is NAN/NULL, `right` otherwise          |
-  | `avg`         | Arithmetic mean of both mut values                                         |
+  | `avg`         | Arithmetic mean of both mut values                                     |
   | `default`     | If left is is NaN/NULL, return right, else left                        | 
   | `div` or `/`  | `left` / `right`                                                       |
   | `eq` or `=`   | Returns 1 if left == right, 0 otherwise                                |

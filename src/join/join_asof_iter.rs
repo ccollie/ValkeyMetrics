@@ -33,7 +33,7 @@ impl<'a> JoinAsOfIter<'a> {
     }
 }
 
-impl<'a> Iterator for JoinAsOfIter<'a> {
+impl Iterator for JoinAsOfIter<'_> {
     type Item = JoinValue;
 
     fn next(&mut self) -> Option<Self::Item> {

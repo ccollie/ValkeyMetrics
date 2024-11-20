@@ -69,6 +69,9 @@ const SERIES_ROUND_DIGITS_KEY: &str = "series.round_digits";
 const SERIES_SIGNIFICANT_DIGITS_KEY: &str = "series.significant_digits";
 
 pub const DEFAULT_CHUNK_SIZE_BYTES: usize = 4 * 1024;
+pub const DEFAULT_CHUNK_COMPRESSION: ChunkCompression = ChunkCompression::Gorilla;
+pub const DEFAULT_DUPLICATE_POLICY: DuplicatePolicy = DuplicatePolicy::KeepLast;
+pub const DEFAULT_RETENTION_PERIOD:Duration = Duration::ZERO;
 pub const DEFAULT_CHUNK_SIZE_MIN: usize = 0;
 
 static _KEY_PREFIX: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(DEFAULT_KEY_PREFIX.to_string()));
@@ -107,7 +110,7 @@ pub(crate) fn get_query_context_config() -> SessionConfig {
 }
 
 pub(crate) fn get_series_settings() -> SeriesSettings {
-    _SERIES_SETTINGS.lock().unwrap().clone()
+    *_SERIES_SETTINGS.lock().unwrap()
 }
 
 fn find_config_value<'a>(args: &'a [ValkeyString], name: &str) -> Option<&'a ValkeyString> {
@@ -121,10 +124,9 @@ fn get_duration_config_value_ms(args: &[ValkeyString], name: &str, default_durat
         let str_value = value.try_as_str()?;
         let duration = parse_duration_ms(str_value)
             .map_err(|_| ValkeyError::String(format!("error parsing value for \"{name}\". Expected duration, got \"{str_value}\"")))?;
-        // returns chrono::Duration, we need std::time::Duration
         Ok(duration)
     } else {
-        Ok(default_duration.unwrap_or_default().into()) // ????
+        Ok(default_duration.unwrap_or_default()) // ????
     }
 }
 
@@ -310,7 +312,7 @@ pub fn load_config(_ctx: &Context, args: &[ValkeyString]) -> ValkeyResult<()> {
     let key_prefix = find_config_value(args, KEY_PREFIX_KEY)
         .map(|v| v.try_as_str())
         .transpose()?
-        .unwrap_or_else(|| DEFAULT_KEY_PREFIX);
+        .unwrap_or(DEFAULT_KEY_PREFIX);
     
     let mut prefix = _KEY_PREFIX.lock()
         .map_err(|_| ValkeyError::String("mutex lock error setting key prefix".to_string()))?;

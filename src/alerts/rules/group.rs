@@ -175,7 +175,7 @@ impl Group {
                 r.labels = extra_labels;
 
                 if matches!(r.rule_type(), RuleType::Alerting) {
-                    let ar = MetricRule::AlertingRule(AlertingRule::new(&g, r));
+                    let ar = MetricRule::AlertingRule(Box::new(AlertingRule::new(&g, r)));
                     g.rules.push(ar);
                 } else {
                     let rr = MetricRule::RecordingRule(RecordingRule::new(&g, r));

@@ -9,7 +9,7 @@ returns the list of time series that match a certain label set.
 
 #### Options
 
-- **filterExpr**: Repeated series selector argument that selects the series to return. At least one match[] argument must be provided..
+- **filterExpr**: Repeated series selector argument that selects the series to return. At least one match[] argument must be provided.
 - **START**: Start timestamp, inclusive. Optional.
 - **END**: End timestamp, inclusive. Optional.
 

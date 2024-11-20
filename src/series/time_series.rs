@@ -4,7 +4,6 @@ use crate::common::types::{IntMap, Label, Sample, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
-use crate::series::constants::DEFAULT_CHUNK_SIZE_BYTES;
 use crate::series::merge::merge_by_capacity;
 use crate::series::types::ValueFilter;
 use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value, format_prometheus_metric_name};
@@ -18,6 +17,7 @@ use std::mem::size_of;
 use std::time::Duration;
 use std::vec;
 use valkey_module::{ValkeyError, ValkeyResult};
+use crate::config::{DEFAULT_CHUNK_COMPRESSION, DEFAULT_CHUNK_SIZE_BYTES, DEFAULT_DUPLICATE_POLICY, DEFAULT_RETENTION_PERIOD};
 
 pub(super) const TIMESTAMP_TYPE_U64: &str = "u64";
 pub(super) const TIMESTAMP_TYPE_U32: &str = "u32";
@@ -88,13 +88,12 @@ impl TimeSeries {
             res.chunk_size_bytes = chunk_size;
         }
 
-        res.chunk_compression = options.chunk_compression.unwrap_or(ChunkCompression::Gorilla);
+        res.chunk_compression = options.chunk_compression.unwrap_or(DEFAULT_CHUNK_COMPRESSION);
 
-        res.duplicate_policy = options.duplicate_policy.unwrap_or(DuplicatePolicy::KeepLast);
+        res.duplicate_policy = options.duplicate_policy.unwrap_or(DEFAULT_DUPLICATE_POLICY);
 
-        if let Some(retention) = options.retention {
-            res.retention = retention;
-        }
+        res.retention = options.retention.unwrap_or(DEFAULT_RETENTION_PERIOD);
+
         if let Some(dedupe_interval) = options.dedupe_interval {
             res.dedupe_interval = Some(dedupe_interval);
         }
@@ -639,7 +638,7 @@ impl<'a> SeriesSampleIterator<'a> {
 }
 
 // todo: implement next_chunk
-impl<'a> Iterator for SeriesSampleIterator<'a> {
+impl Iterator for SeriesSampleIterator<'_> {
     type Item = Sample;
     fn next(&mut self) -> Option<Self::Item> {
         if !self.is_init {

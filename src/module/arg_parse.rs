@@ -1,5 +1,6 @@
 use crate::aggregators::Aggregator;
-use crate::common::current_time_millis;
+use crate::common::get_current_time_millis;
+use crate::common::rounding::{RoundingStrategy, MAX_DECIMAL_DIGITS, MAX_SIGNIFICANT_DIGITS};
 use crate::common::types::{Label, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
@@ -7,13 +8,13 @@ use crate::join::join_reducer::JoinReducer;
 use crate::series::types::*;
 use crate::series::{ChunkCompression, DuplicatePolicy, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
 use crate::series::{TimestampRange, TimestampValue};
-use chrono::DateTime;
 use metricsql_parser::common::{Value, ValueType};
 use metricsql_parser::parser::{
     parse as parse_expr,
     parse_duration_value,
     parse_metric_name as parse_metric,
-    parse_number
+    parse_number,
+    parse_timestamp as parse_timestamp_internal,
 };
 use metricsql_parser::prelude::Matchers;
 use metricsql_runtime::parse_metric_selector;
@@ -22,7 +23,6 @@ use std::iter::{Peekable, Skip};
 use std::time::Duration;
 use std::vec::IntoIter;
 use valkey_module::{NextArg, ValkeyError, ValkeyResult, ValkeyString};
-use crate::common::rounding::{RoundingStrategy, MAX_DECIMAL_DIGITS, MAX_SIGNIFICANT_DIGITS};
 
 const MAX_TS_VALUES_FILTER: usize = 16;
 pub const CMD_ARG_ANNOTATIONS: &str = "ANNOTATIONS";
@@ -89,19 +89,10 @@ pub fn parse_integer_arg(arg: &ValkeyString, name: &str, allow_negative: bool) -
 pub fn parse_timestamp(arg: &str) -> ValkeyResult<Timestamp> {
     // todo: handle +,
     if arg == "*" {
-        return Ok(current_time_millis());
+        return Ok(get_current_time_millis());
     }
-    let value = if let Ok(dt) = arg.parse::<i64>() {
-        dt
-    } else {
-        let value = DateTime::parse_from_rfc3339(arg)
-            .map_err(|_| ValkeyError::Str(error_consts::INVALID_TIMESTAMP))?;
-        value.timestamp_millis()
-    };
-    if value < 0 {
-        return Err(ValkeyError::Str("ERR: invalid timestamp, must be a non-negative integer"));
-    }
-    Ok(value)
+    parse_timestamp_internal(arg)
+        .map_err(|_| ValkeyError::Str(error_consts::INVALID_TIMESTAMP))
 }
 
 

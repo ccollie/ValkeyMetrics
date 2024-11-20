@@ -28,7 +28,7 @@ impl<'a> GroupAggregationIter<'a> {
     }
 }
 
-impl<'a> Iterator for GroupAggregationIter<'a> {
+impl Iterator for GroupAggregationIter<'_> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {

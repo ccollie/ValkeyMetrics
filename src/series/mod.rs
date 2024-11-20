@@ -21,7 +21,7 @@ pub(crate) use time_series::*;
 pub(crate) use timestamp_range::*;
 pub(crate) use types::*;
 use crate::common::rounding::RoundingStrategy;
-use crate::config::get_series_settings;
+use crate::config::{get_series_settings, DEFAULT_CHUNK_SIZE_BYTES};
 
 cfg_if::cfg_if! {
     if #[cfg(test)] {
@@ -37,7 +37,6 @@ pub struct SeriesSettings {
     pub retention_period: Option<Duration>,
     pub chunk_compression: Option<ChunkCompression>,
     pub chunk_size_bytes: usize,
-    pub chunk_size_min: usize,
     pub duplicate_policy: DuplicatePolicy,
     pub dedupe_interval: Option<Duration>,
     pub rounding: Option<RoundingStrategy>,
@@ -48,7 +47,6 @@ impl Default for SeriesSettings {
         Self {
             retention_period: None,
             chunk_size_bytes: DEFAULT_CHUNK_SIZE_BYTES,
-            chunk_size_min: 0,
             chunk_compression: Some(ChunkCompression::Gorilla),
             duplicate_policy: DuplicatePolicy::KeepLast,
             dedupe_interval: None,

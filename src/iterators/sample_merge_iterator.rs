@@ -49,7 +49,7 @@ impl<'a> SampleMergeIterator<'a>
     }
 }
 
-impl<'a> Iterator for SampleMergeIterator<'a>
+impl Iterator for SampleMergeIterator<'_>
 {
     type Item = Sample;
 

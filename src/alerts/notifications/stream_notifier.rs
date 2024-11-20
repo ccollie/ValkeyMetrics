@@ -71,7 +71,7 @@ impl StreamNotifier {
     }
 
     fn get_stream_key(&self, alert: &Alert) -> String {
-        let prefix = &*crate::config::KEY_PREFIX.as_str();
+        let prefix = crate::config::KEY_PREFIX.as_str();
         format!("{prefix}:{STREAM_NOTIFIER_KEY_PREFIX}:{}", alert.group_id)
     }
     
@@ -109,7 +109,7 @@ impl Notifier for StreamNotifier {
 
         let mut drain_ofs = 2;
         if !notifier_headers.is_empty() {
-            let headers_str = hash_map_to_string(&notifier_headers);
+            let headers_str = hash_map_to_string(notifier_headers);
             keys.push("headers".to_string());
             keys.push(headers_str);
             drain_ofs += 1;

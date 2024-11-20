@@ -73,7 +73,7 @@ impl<'a> MultiSeriesSampleIter<'a> {
     }
 }
 
-impl<'a> Iterator for MultiSeriesSampleIter<'a> {
+impl Iterator for MultiSeriesSampleIter<'_> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {

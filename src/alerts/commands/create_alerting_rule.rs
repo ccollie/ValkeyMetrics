@@ -48,7 +48,7 @@ pub fn create_alerting_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRes
     with_group_mut(ctx, &group_key, move |group| {
         let rule = parse_alerting_rule_config(args)?;
         
-        let to_add = MetricRule::AlertingRule(rule);
+        let to_add = MetricRule::AlertingRule(Box::new(rule));
         group.add_rule(to_add)
             .map_err(|_e| ValkeyError::Str(error_consts::ALERTS_DUPLICATE_RULE))?;
         

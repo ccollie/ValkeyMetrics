@@ -56,10 +56,10 @@ pub fn groups(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     Ok(groups.into())
 }
 
-const CMD_ARG_GROUPNAME: &'static str = "RULE_GROUP";
-const CMD_ARG_RULENAME: &'static str = "RULE_NAME";
-const CMD_ARG_RULE_TYPE: &'static str = "RULE_TYPE";
-const CMD_ARG_EXCLUDE_ALERTS: &'static str = "EXCLUDE_ALERTS";
+const CMD_ARG_GROUPNAME: &str = "RULE_GROUP";
+const CMD_ARG_RULENAME: &str = "RULE_NAME";
+const CMD_ARG_RULE_TYPE: &str = "RULE_TYPE";
+const CMD_ARG_EXCLUDE_ALERTS: &str = "EXCLUDE_ALERTS";
 
 pub fn parse_alert_rules_filter(args: Vec<ValkeyString>) -> ValkeyResult<RulesFilter> {
     let mut args = args.into_iter().skip(1).peekable();

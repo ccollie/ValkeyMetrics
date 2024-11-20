@@ -143,7 +143,7 @@ impl XORIterator<'_> {
     }
 }
 
-impl<'a> Iterator for XORIterator<'a> {
+impl Iterator for XORIterator<'_> {
     type Item = TsdbResult<Sample>;
 
     fn next(&mut self) -> Option<Self::Item> {

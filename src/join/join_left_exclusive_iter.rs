@@ -18,7 +18,7 @@ impl<'a> JoinLeftExclusiveIter<'a> {
     }
 }
 
-impl<'a> Iterator for JoinLeftExclusiveIter<'a> {
+impl Iterator for JoinLeftExclusiveIter<'_> {
     type Item = JoinValue;
 
     fn next(&mut self) -> Option<Self::Item> {

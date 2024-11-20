@@ -7,8 +7,8 @@ VM.DELETE-RANGE selector.. [START fromTimestamp] [END toTimestamp]
 #### Options
 
 - **selector**: one or more PromQL series selector.
-- **START**: Start timestamp, inclusive. Optional.
-- **END**: End timestamp, inclusive. Optional.
+- **fromTimestamp**: Start timestamp, inclusive. Optional.
+- **toTimestamp**: End timestamp, inclusive. Optional.
 
 #### Return
 

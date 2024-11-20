@@ -335,7 +335,7 @@ impl GroupManager {
             .map(|group_id| {
                 self.stop_group(ctx, *group_id);
                 let groups = self.groups_by_id.pin();
-                groups.remove(&group_id);
+                groups.remove(group_id);
             })
             .is_some()
     }
@@ -386,7 +386,7 @@ impl GroupManager {
         let groups = self.groups_by_id.pin();
         if let Some(meta) = groups.get(&group_id) {
             let key = ctx.create_string(&*meta.group_key);
-            return with_group(ctx, &key, move |group| Ok(f(&group)));
+            return with_group(ctx, &key, move |group| Ok(f(group)));
         }
         Err(ValkeyError::Str("ERR TSDB: the group does not exist"))
     }

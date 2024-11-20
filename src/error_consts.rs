@@ -18,6 +18,7 @@ pub const INVALID_SERIES_SELECTOR: &str = "ERR series selector is invalid";
 pub const INVALID_STEP_DURATION: &str = "ERR invalid step duration";
 pub const INVALID_TIMESTAMP: &str = "ERR invalid timestamp.";
 pub const KEY_NOT_FOUND: &str = "ERR key not found";
+pub const DUPLICATE_KEY: &str = "ERR the key already exists";
 pub const MISSING_FILTER: &str = "ERR missing filter";
 pub const NO_SERIES_FOUND: &str = "ERR no series found";
 pub const SAMPLE_TOO_OLD: &str = "ERR sample timestamp exceeds retention period";

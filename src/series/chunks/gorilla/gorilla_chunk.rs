@@ -5,7 +5,7 @@ use crate::error::{TsdbError, TsdbResult};
 use crate::iterators::SampleIter;
 use crate::series::chunks::chunk::Chunk;
 use crate::series::merge::merge_samples;
-use crate::series::{DuplicatePolicy, DEFAULT_CHUNK_SIZE_BYTES};
+use crate::series::{DuplicatePolicy, SERIES_SETTINGS};
 use get_size::GetSize;
 use std::cmp::Ordering;
 use std::mem::size_of;
@@ -21,7 +21,7 @@ pub struct GorillaChunk {
 
 impl Default for GorillaChunk {
     fn default() -> Self {
-        Self::with_max_size(DEFAULT_CHUNK_SIZE_BYTES)
+        Self::with_max_size(SERIES_SETTINGS.chunk_size_bytes)
     }
 }
 
@@ -363,7 +363,7 @@ impl<'a> ChunkIter<'a> {
     }
 }
 
-impl<'a> Iterator for ChunkIter<'a> {
+impl Iterator for ChunkIter<'_> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -411,7 +411,7 @@ impl<'a> GorillaChunkIterator<'a> {
     }
 }
 
-impl<'a> Iterator for GorillaChunkIterator<'a> {
+impl Iterator for GorillaChunkIterator<'_> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {

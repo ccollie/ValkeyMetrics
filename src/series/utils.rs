@@ -1,7 +1,10 @@
+use std::hash::{Hash, Hasher};
 use crate::common::types::{Label, Sample, Timestamp};
 use enquote::enquote;
+use metricsql_common::hash::FastHasher;
 use crate::series::types::ValueFilter;
 use crate::common::binary_search::*;
+use crate::common::METRIC_NAME_LABEL;
 
 #[inline]
 pub(crate) fn filter_samples_by_date_range(samples: &mut Vec<Sample>, start: Timestamp, end: Timestamp) {
@@ -18,13 +21,13 @@ pub(crate) fn filter_samples_by_value(samples: &mut Vec<Sample>, value_filter: &
 /// This function searches for the indices of timestamps that fall within the given
 /// start and end timestamps (inclusive).
 ///
-/// # Parameters
+/// ## Parameters
 ///
 /// * `timestamps`: A slice of i64 values representing timestamps, expected to be sorted.
 /// * `start_ts`: The lower bound of the timestamp range to search for (inclusive).
 /// * `end_ts`: The upper bound of the timestamp range to search for (inclusive).
 ///
-/// # Returns
+/// ## Returns
 ///
 /// Returns `Option<(usize, usize)>`:
 /// * `Some((start_index, end_index))` if valid indices are found within the range.
@@ -100,6 +103,26 @@ pub fn format_prometheus_metric_name(name: &str, labels: &[Label]) -> String {
     full_name
 }
 
+// Generate a unique key for a series based on its labels. Assumes that labels are sorted,
+pub(crate) fn make_series_key(labels: &[Label]) -> String {
+    let mut hasher = FastHasher::default();
+    let mut measurement: String = "".to_string();
+    for Label { name, value } in labels {
+        if name == METRIC_NAME_LABEL {
+            measurement.push('{');
+            measurement.push_str(value);
+            measurement.push_str("}:");
+            value.hash(&mut hasher);
+        } else {
+            name.hash(&mut hasher);
+            hasher.write_u8(0xfe);
+            value.hash(&mut hasher);
+        }
+    }
+    let prefix = crate::config::KEY_PREFIX.as_str();
+    format!("{prefix}:{measurement}{:x}", hasher.finish())
+}
+// maybe x-vm:{alert_for_name}::name=joe::foo=bar::bar=baz
 
 #[cfg(test)]
 mod tests {

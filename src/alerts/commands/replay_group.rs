@@ -59,7 +59,7 @@ struct ParsedOptions {
 )]
 pub fn replay_group_function(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let blocked_client = ctx.block_client();
-    let mut options = parse_replay_options(&ctx, args)?;
+    let mut options = parse_replay_options(ctx, args)?;
     
     thread::spawn(move || {
         let thread_ctx = ThreadSafeContext::with_blocked_client(blocked_client);
@@ -76,7 +76,7 @@ pub fn replay_group_function(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRe
                 thread_ctx.reply(Ok(val.into()));
             }
             Err(e) => {
-                logging::log_warning(&format!("group replay failed: {}", e));
+                logging::log_warning(format!("group replay failed: {:?}", e));
                 thread_ctx.reply(Err(ValkeyError::Str("ERR: group replay failed")));
             }
         }
@@ -85,7 +85,7 @@ pub fn replay_group_function(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRe
     Ok(ValkeyValue::NoReply)
 }
 
-pub fn parse_replay_options(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult<ParsedOptions> {
+fn parse_replay_options(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult<ParsedOptions> {
     let mut args = args.into_iter().skip(1).peekable();
 
     let mut options = ReplayOptions::default();
@@ -127,7 +127,7 @@ pub fn parse_replay_options(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRes
         };
     }
 
-    let db = get_current_db(&ctx);
+    let db = get_current_db(ctx);
     
     let mut cloned_group = ctx.open_key(&key)
         .get_value::<Group>(&VKM_RULE_GROUP)?
@@ -149,7 +149,7 @@ pub fn parse_replay_options(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRes
     }
     
     let guard = GROUP_MANAGERS.guard();
-    let manager = get_group_manager_for_db(&ctx, db, &guard);
+    let manager = get_group_manager_for_db(ctx, db, &guard);
     let res = manager.with_group_meta(cloned_group.id, |group_meta| {
         let data_source = group_meta.executor.querier;
         let write_queue = manager.write_queue.clone();

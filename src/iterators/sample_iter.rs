@@ -38,7 +38,7 @@ impl<'a> SampleIter<'a> {
 }
 
 
-impl<'a> Iterator for SampleIter<'a> {
+impl Iterator for SampleIter<'_> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -66,13 +66,13 @@ impl<'a> From<ChunkSampleIterator<'a>> for SampleIter<'a> {
     }
 }
 
-impl<'a> From<VecSampleIterator> for SampleIter<'a> {
+impl From<VecSampleIterator> for SampleIter<'_> {
     fn from(value: VecSampleIterator) -> Self {
         Self::Vec(value)
     }
 }
 
-impl<'a> From<Vec<Sample>> for SampleIter<'a> {
+impl From<Vec<Sample>> for SampleIter<'_> {
     fn from(value: Vec<Sample>) -> Self {
         Self::Vec(VecSampleIterator::new(value))
     }

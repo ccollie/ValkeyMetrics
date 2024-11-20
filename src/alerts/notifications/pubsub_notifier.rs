@@ -28,7 +28,7 @@ impl Notifier for PubSubNotifier {
         alerts: &[&Alert],
         _notifier_headers: &HashMap<String, String>,
     ) -> AlertsResult<()> {
-        let key_prefix = &*KEY_PREFIX.as_str();
+        let key_prefix = KEY_PREFIX.as_str();
         let channel_prefix = format!("{key_prefix}{ALERT_PREFIX}");
         
         for alert in alerts.iter() {

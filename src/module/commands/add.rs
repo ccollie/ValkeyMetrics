@@ -12,9 +12,9 @@ use crate::error_consts;
 ///     [RETENTION duration]
 ///     [DUPLICATE_POLICY policy]
 ///     [DEDUPE_INTERVAL duration]
-///     [CHUNK_SIZE size]
+///     [CHUNK_SIZE chunkSize]
 ///     [METRIC metric | LABELS labelName labelValue ...]
-///     [SIGNIFICANT_DIGITS digits | DECIMAL_DIGITS digits]
+///     [SIGNIFICANT_DIGITS significantDigits | DECIMAL_DIGITS decimalDigits]
 ///
 pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1).peekable();
@@ -25,10 +25,7 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
     if let Some(series) = get_timeseries_mut(ctx, &key, true)? {
         args.done()?;
-        return match series.add(timestamp, value, None) {
-            Ok(_) => Ok(ValkeyValue::Integer(timestamp)),
-            Err(e) => Err(e),
-        }
+        series.add(timestamp, value, None).map(|_| ValkeyValue::Integer(timestamp))?;   
     }
 
     let mut options = TimeSeriesOptions::default();
@@ -93,6 +90,7 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
                 for (k, v) in labels {
                     options.labels.push(Label { name: k, value: v });
                 }
+
                 labels_set = true;
             }
             CMD_ARG_COMPRESSION => {

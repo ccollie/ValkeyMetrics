@@ -117,7 +117,7 @@ pub struct RulesFilter {
 
 #[derive(Debug, Clone, Serialize, Deserialize, GetSize)]
 pub enum MetricRule {
-    AlertingRule(AlertingRule), // possibly box this to conserve space
+    AlertingRule(Box<AlertingRule>), // possibly box this to conserve space
     RecordingRule(RecordingRule),
 }
 

@@ -12,19 +12,19 @@ use crate::query::Querier;
 use ahash::AHasher;
 use enquote::enquote;
 use get_size::GetSize;
-use metricsql_common::hash::FastHasher;
 use metricsql_common::prelude::humanize_duration;
 use metricsql_parser::ast::Expr;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use std::hash::{Hash, Hasher};
+use std::hash::{Hasher};
 use std::ops::Sub;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tracing::debug;
 use valkey_module::{logging, Context, ValkeyError, ValkeyResult};
+use crate::series::utils::make_series_key;
 // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmalert/alerting.go#L612
 
 /// the duration for which a resolved alert instance is kept in memory state and consequently
@@ -817,26 +817,6 @@ fn hash_map(labels: &HashMap<String, String>) -> u64 {
     hasher.finish()
 }
 
-// Generate a unique key for a series based on its labels. Assumes that labels are sorted,
-pub(crate) fn make_series_key(labels: &[Label]) -> String {
-    let mut hasher = FastHasher::default();
-    let mut measurement: String = "".to_string();
-    for Label { name, value } in labels {
-        if name == METRIC_NAME_LABEL {
-            measurement.push('{');
-            measurement.push_str(value);
-            measurement.push_str("}:");
-            value.hash(&mut hasher);
-        } else {
-            name.hash(&mut hasher);
-            hasher.write_u8(0xfe);
-            value.hash(&mut hasher);
-        }
-    }
-    let prefix = &*crate::config::KEY_PREFIX.as_str();
-    format!("{prefix}:{measurement}{:x}", hasher.finish())
-}
-// maybe x-vm:{alert_for_name}::name=joe::foo=bar::bar=baz
 
 pub(crate) fn validate_alert_expr(expr: &str) -> ValkeyResult<()> {
     let expr = expr.trim();

@@ -58,7 +58,7 @@ fn remove_key_from_index(ctx: &Context, key: &[u8]) {
     if !is_ts {
         // see if it's a group
         with_group_manager(ctx, |manager| {
-            manager.delete_group_by_key(ctx, &key)
+            manager.delete_group_by_key(ctx, key)
         });
     }
 }

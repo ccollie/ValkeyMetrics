@@ -18,7 +18,7 @@ impl<'a> JoinFullIter<'a> {
     }
 }
 
-impl<'a> Iterator for JoinFullIter<'a> {
+impl Iterator for JoinFullIter<'_> {
     type Item = JoinValue;
 
     fn next(&mut self) -> Option<Self::Item> {

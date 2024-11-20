@@ -136,7 +136,7 @@ impl<'a> PcoSampleIterator<'a> {
     }
 }
 
-impl<'a> Iterator for PcoSampleIterator<'a> {
+impl Iterator for PcoSampleIterator<'_> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {

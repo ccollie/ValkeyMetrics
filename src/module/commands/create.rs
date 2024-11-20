@@ -13,10 +13,10 @@ use valkey_module::{
 ///
 /// VM.CREATE-SERIES key metric
 ///   [RETENTION retentionPeriod]
-///   [ENCODING <COMPRESSED|UNCOMPRESSED>]
-///   [CHUNK_SIZE size]
-///   [DUPLICATE_POLICY policy]
-///   [SIGNIFICANT_DIGITS digits | DECIMAL_DIGITS digits]
+///   [COMPRESSION <pco|gorilla|uncompressed>]
+///   [CHUNK_SIZE chunkSize]
+///   [DUPLICATE_POLICY duplicatePolicy]
+///   [SIGNIFICANT_DIGITS significantDigits | DECIMAL_DIGITS decimalDigits]
 ///   [DEDUPE_INTERVAL duplicateTimediff]
 pub fn create(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let (parsed_key, options) = parse_create_options(args)?;
@@ -106,7 +106,7 @@ pub(crate) fn create_and_store_series(
     let _key = ValkeyKeyWritable::open(ctx.ctx, key);
     // check if this refers to an existing series
     if !_key.is_empty() {
-        return Err(ValkeyError::Str("ERR: the key already exists"));
+        return Err(ValkeyError::Str(error_consts::DUPLICATE_KEY));
     }
 
     let ts = create_series(key, options, ctx)?;

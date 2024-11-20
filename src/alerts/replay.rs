@@ -126,7 +126,7 @@ fn replay_range(
 ) -> AlertsResult<usize> {
     let mut total: usize = 0;
 
-    logging::log_debug(&format!("> Rule {:?} (ID: {})\n", rule, rule.id()));
+    logging::log_debug(format!("> Rule {:?} (ID: {})\n", rule, rule.id()));
     let mut cursor = start;
     let step_ms = step.as_millis() as i64;
     while cursor < end {

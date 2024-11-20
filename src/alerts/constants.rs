@@ -21,4 +21,4 @@ pub const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
 
 // todo: better name
 // todo: have global configurable key prefix
-pub const STREAM_NOTIFIER_KEY_PREFIX: &'static str = "x-alert-stream"; 
+pub const STREAM_NOTIFIER_KEY_PREFIX: &str = "x-alert-stream"; 

@@ -266,7 +266,7 @@ impl TimeSeriesIndex {
     }
 
     pub fn next_id(&self) -> TimeseriesId {
-        let inner = self.inner.write().unwrap();
+        let inner = self.inner.read().unwrap();
         const MAX_RETRIES: usize = 64;
         let mut counter = 0;
         loop {

@@ -15,7 +15,7 @@ impl<'a, T: Copy> SharedVecIter<'a, T> {
     }
 }
 
-impl<'a, T: Copy> Iterator for SharedVecIter<'a, T> {
+impl<T: Copy> Iterator for SharedVecIter<'_, T> {
     type Item = T;
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.inner.len() {
