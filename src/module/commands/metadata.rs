@@ -1,5 +1,5 @@
 use crate::common::METRIC_NAME_LABEL;
-use crate::module::arg_parse::parse_series_selector_list;
+use crate::module::arg_parse::{parse_series_selector_list, CMD_ARG_LIMIT};
 use crate::module::result::{format_array_result, get_ts_metric_selector};
 use crate::series::types::MetadataFunctionArgs;
 use crate::module::{parse_timestamp_arg, VKM_SERIES_TYPE};
@@ -114,7 +114,6 @@ where
 const CMD_ARG_START: &str = "START";
 const CMD_ARG_END: &str = "END";
 const CMD_ARG_MATCH: &str = "MATCH";
-const CMD_ARG_LIMIT: &str = "LIMIT";
 
 fn parse_metadata_command_args(
     _ctx: &RedisContext,

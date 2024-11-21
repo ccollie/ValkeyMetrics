@@ -8,7 +8,6 @@ mod alerts_error;
 mod templates;
 mod constants;
 mod replay;
-mod group_data_type;
 mod commands;
 mod group_manager;
 
@@ -19,7 +18,7 @@ pub mod meta;
 
 use crate::alerts::notifications::AlertNotifier;
 pub use alerts_error::*;
-pub use group_data_type::VKM_RULE_GROUP;
+pub use crate::module::group_data_type::VKM_RULE_GROUP;
 pub use group_manager::*;
 
 #[derive(Clone, Debug, Default)]

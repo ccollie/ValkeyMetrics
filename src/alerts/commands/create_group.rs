@@ -1,4 +1,4 @@
-use crate::alerts::group_data_type::VKM_RULE_GROUP;
+use crate::module::group_data_type::VKM_RULE_GROUP;
 use crate::alerts::rules::{validate_offset_and_interval, Group, GroupConfig};
 use crate::alerts::meta::with_group_manager;
 use crate::error_consts;
