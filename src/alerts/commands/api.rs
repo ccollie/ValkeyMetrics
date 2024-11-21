@@ -3,6 +3,7 @@ use crate::alerts::notifications::{Alert, AlertState};
 use crate::alerts::rules::{AlertingRule, Group, MetricRule, RecordingRule, Rule, RuleStateEntry, RuleType};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
+use get_size::GetSize;
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::ValkeyValue;
 
@@ -80,6 +81,7 @@ pub(super) fn recording_rule_to_api(group: &Group, rr: &RecordingRule) -> Valkey
         hash.insert("last_error".into(), "".into());
         hash.insert("health".into(), "ok".into());
     }
+    hash.insert("memory_usage".into(), ValkeyValue::Integer(rr.get_size() as i64));
 
     ValkeyValue::Map(hash)
 }
@@ -143,6 +145,8 @@ pub(super) fn alerting_rule_to_api(group: &Group, ar: &AlertingRule, exclude_ale
         hash.insert("last_error".into(), err.to_string().into());
     }
     hash.insert("health".into(), ValkeyValue::BulkString(health));
+    // todo: this is boxed, so maybe add in the size of the Box
+    hash.insert("memory_usage".into(), ValkeyValue::Integer(ar.get_size() as i64));
 
     ValkeyValue::Map(hash)
 }
@@ -191,6 +195,7 @@ pub(super) fn group_to_api(group: &Group, filter: Option<&RulesFilter>) -> Valke
     let rules = filtered_rules_to_value(group, &group.rules, filter);
 
     hash.insert("rules".into(), rules);
+    hash.insert("memory_usage".into(), ValkeyValue::Integer(group.get_size() as i64));
 
     ValkeyValue::Map(hash)
 }

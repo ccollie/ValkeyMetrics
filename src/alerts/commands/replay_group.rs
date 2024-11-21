@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::alerts::group_data_type::VKM_RULE_GROUP;
+use crate::module::group_data_type::VKM_RULE_GROUP;
 use crate::alerts::meta::get_group_manager_for_db;
 use crate::alerts::replay::{replay, ReplayOptions};
 use crate::alerts::rules::{merge_hashes, Group, MetricRule, Rule};

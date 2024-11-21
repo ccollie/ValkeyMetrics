@@ -3,34 +3,11 @@ use crate::query::{InstantQueryResult, RangeQueryResult};
 use crate::series::time_series::TimeSeries;
 use metricsql_runtime::types::{MetricName, METRIC_NAME_LABEL};
 use std::collections::HashMap;
-use std::fmt::Display;
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::{ValkeyString, ValkeyValue};
 
 pub static META_KEY_LABEL: &str = "__meta:key__";
 
-pub enum ResultType {
-    Matrix,
-    Vector,
-    Scalar,
-    String,
-}
-
-impl ResultType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ResultType::Matrix => "matrix",
-            ResultType::Vector => "vector",
-            ResultType::Scalar => "scalar",
-            ResultType::String => "string",
-        }
-    }
-}
-impl Display for ResultType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
 
 pub(crate) fn metric_name_to_valkey_value(
     metric_name: &MetricName,
