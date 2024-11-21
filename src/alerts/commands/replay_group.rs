@@ -60,7 +60,8 @@ struct ParsedOptions {
 pub fn replay_group_function(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let blocked_client = ctx.block_client();
     let mut options = parse_replay_options(ctx, args)?;
-    
+
+    // todo: run on a thread from rayon thread pool
     thread::spawn(move || {
         let thread_ctx = ThreadSafeContext::with_blocked_client(blocked_client);
         

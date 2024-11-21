@@ -1,3 +1,4 @@
+use std::thread;
 use crate::config::{QUERY_DEFAULT_STEP, QUERY_ROUND_DIGITS};
 use crate::error_consts;
 use crate::module::arg_parse::{parse_duration_arg, parse_timestamp_range};
@@ -5,7 +6,15 @@ use crate::module::parse_timestamp_arg;
 use crate::module::result::{to_instant_vector_result, to_matrix_result};
 use crate::query::{run_instant_query, run_range_query, QueryParams};
 use std::time::Duration;
-use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString};
+use valkey_module::{
+    Context,
+    NextArg,
+    ThreadSafeContext,
+    ValkeyError,
+    ValkeyResult,
+    ValkeyString,
+    ValkeyValue
+};
 
 const CMD_ARG_STEP: &str = "STEP";
 const CMD_ARG_ROUNDING: &str = "ROUNDING";
@@ -16,7 +25,7 @@ const CMD_ARG_ROUNDING: &str = "ROUNDING";
 ///     [STEP duration]
 ///     [ROUNDING digits]
 ///
-pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
+pub(crate) fn query_range(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1).peekable();
 
     let time_range = parse_timestamp_range(&mut args)?;
@@ -54,9 +63,25 @@ pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
     query_params.step = step;
     query_params.round_digits = round_digits;
 
-    let result = run_range_query(&query_params)?;
+    // queries take indeterminate time. We should not block the main thread
+    let blocked_client = ctx.block_client();
+    
+    // todo: run on a thread from rayon thread pool
+    thread::spawn(move || {
+        let thread_ctx = ThreadSafeContext::with_blocked_client(blocked_client);
+        match run_range_query(&query_params) {
+            Ok(result) => {
+                let ctx = thread_ctx.lock();
+                ctx.reply(ValkeyResult::from(to_matrix_result(result)));
+            }
+            Err(e) => {
+                let ctx = thread_ctx.lock();
+                ctx.reply(Err(e));
+            }
+        }
+    });
 
-    Ok(to_matrix_result(result))
+    Ok(ValkeyValue::NoReply)
 }
 
 ///
@@ -65,7 +90,7 @@ pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
 ///         [ROUNDING digits]
 ///
 /// Execute an instant query
-pub fn query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
+pub fn query(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1);
 
     let ts_arg = args.next_str()?;
@@ -94,9 +119,23 @@ pub fn query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     query_params.end = start;
     query_params.round_digits = round_digits;
 
-    let result = run_instant_query(&query_params)?;
+    let blocked_client = ctx.block_client();
+    // todo: run on a thread from rayon thread pool
+    thread::spawn(move || {
+        let thread_ctx = ThreadSafeContext::with_blocked_client(blocked_client);
+        match run_instant_query(&query_params) {
+            Ok(result) => {
+                let ctx = thread_ctx.lock();
+                ctx.reply(ValkeyResult::from(to_instant_vector_result(result)));
+            }
+            Err(e) => {
+                let ctx = thread_ctx.lock();
+                ctx.reply(Err(e));
+            }
+        }
+    });
 
-    Ok(to_instant_vector_result(result))
+    Ok(ValkeyValue::NoReply)
 }
 
 fn parse_step(arg: &ValkeyString) -> ValkeyResult<Duration> {
