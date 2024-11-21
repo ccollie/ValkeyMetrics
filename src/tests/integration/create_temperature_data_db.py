@@ -118,11 +118,11 @@ def load_into_redis(redis_conn):
             count = 0
             r = redis_conn.pipeline(transaction=False)
 
-
         # Create series if not already exists
         key = row.key()
         if key not in added_keys:
             added_keys.add(row)
+            count += 1
             r.execute_command('VM.CREATE-SERIES', key, row.metric(), 'DECIMAL_DIGITS', 1)
 
         r.execute_command('VM.ADD', key, row.timestamp, temperature)
