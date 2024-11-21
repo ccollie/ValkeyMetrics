@@ -18,7 +18,6 @@ mod config;
 mod error;
 mod module;
 mod series;
-
 #[cfg(test)]
 mod tests;
 mod iterators;
@@ -39,7 +38,7 @@ pub const MODULE_NAME: &str = "VKMetrics";
 pub const MODULE_TYPE: &str = "vkmetrics";
 
 fn initialize(ctx: &Context, args: &[ValkeyString]) -> Status {
-    logging::log_notice("initialize");
+    logging::log_debug("initialize");
     
     init_runtime();
     
@@ -117,6 +116,8 @@ valkey_module! {
         ["VM.RESET-ROLLUP-CACHE", commands::reset_rollup_cache, "write deny-oom", 0, 0, 0],
     ],
      event_handlers: [
-        [@SET @STRING @GENERIC @EVICTED @EXPIRED @TRIMMED: generic_key_event_handler]
+        [@SET @STRING @GENERIC @EVICTED @EXPIRED : generic_key_event_handler]
     ],
 }
+
+// todo: handle @TRIMMED

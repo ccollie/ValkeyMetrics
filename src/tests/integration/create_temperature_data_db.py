@@ -31,7 +31,7 @@ class TemperatureRecord:
         return 'ny_temps:{}'.format(self.nta_code)
 
     def metric(self):
-        return ('ny_temps\{nta_code="{}",sensor_id={},borough={},install_type={}\}'
+        return ('ny_temps{{nta_code="{}",sensor_id="{}",borough="{}",install_type="{}"}}'
                 .format(self.nta_code, self.sensor_id, self.borough, self.install_type))
 
 # ['Sensor.ID', 'AirTemp', 'Day', 'Hour', 'Install.Type', 'Borough', 'ntacode']
@@ -70,13 +70,17 @@ def load_rows_from_csv():
             csv_reader = csv.reader(csv_file)
             for row in csv_reader:
                 sensor_id = row[SENSOR_ID]
-                air_temp = float(row[AIR_TEMP])
+                if sensor_id == 'Sensor.ID':
+                    continue
+
+                air_temp = row[AIR_TEMP]
                 day = row[DAY]
                 hour = row[HOUR]
-                install_type = row[INSTALL_TYPE]
+                install_type = normalize_string(row[INSTALL_TYPE])
                 borough = row[BOROUGH]
                 nta_code = row[NTA_CODE]
 
+                print(f"Sensor ID: {sensor_id}, Air Temp: {air_temp}, Day: {day}, Hour: {hour}, ")
                 # Create a TemperatureRecord object
                 record = TemperatureRecord(sensor_id, air_temp, day, hour, install_type, borough, nta_code)
                 count += 1
@@ -93,11 +97,15 @@ def create_timestamp(day, hour):
     return calendar.timegm(date_time_obj.timetuple()) * 1000
 
 def load_into_redis(redis_conn):
+    print("Loading data into Redis...")
     r = redis_conn.pipeline(transaction=False)
     count = 0
     added_keys = set()
 
+    print("Loading rows...")
+
     for row in load_rows_from_csv():
+        print("Loading row: ", row)
         if row.timestamp < 0:
             continue
 
@@ -124,8 +132,11 @@ def load_into_redis(redis_conn):
 
 def run():
     with Env().getConnection(1) as r:
-        r.execute_command('CONFIG', 'SET', 'DIR', './rdbs')
+        rdb_dir = r.execute_command('CONFIG', 'GET', 'DIR')
+        print(rdb_dir[1])
+        # r.execute_command('CONFIG', 'SET', 'DIR', './rdbs')
         load_into_redis(r)
+        print("Data loaded into Redis")
         r.save()
         r.ping()
 

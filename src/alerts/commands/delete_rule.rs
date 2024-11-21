@@ -3,18 +3,19 @@ use valkey_module_macros::command;
 use crate::alerts::rules::{Group, MetricRule};
 use crate::alerts::meta::with_group_mut;
 
+// todo: support multiple   
 /// VM.DELETE-RULE groupKey ruleId
 #[command(
     {
         name: "VM.DELETE-RULE",
-        flags: [Write],
+        flags: [Write, Fast],
         arity: 3,
         key_spec: [
             {
-                notes: "Delete a rules",
-                flags: [Delete],
+                notes: "Delete a rule",
+                flags: [ReadWrite],
                 begin_search: Index({ index : 1 }),
-                find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),
+                find_keys: Range({ last_key : 1, steps : 0, limit : 1 }),
             }
         ]
     }

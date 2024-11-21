@@ -72,7 +72,6 @@ pub const DEFAULT_CHUNK_SIZE_BYTES: usize = 4 * 1024;
 pub const DEFAULT_CHUNK_COMPRESSION: ChunkCompression = ChunkCompression::Gorilla;
 pub const DEFAULT_DUPLICATE_POLICY: DuplicatePolicy = DuplicatePolicy::KeepLast;
 pub const DEFAULT_RETENTION_PERIOD:Duration = Duration::ZERO;
-pub const DEFAULT_CHUNK_SIZE_MIN: usize = 0;
 
 static _KEY_PREFIX: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(DEFAULT_KEY_PREFIX.to_string()));
 

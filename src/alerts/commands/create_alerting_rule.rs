@@ -34,9 +34,9 @@ const CMD_ARG_MAX_ENTRIES: &str = "MAX_ENTRIES";
         summary: "Create an Alerting rules to define alert conditions based on PromQL expressions and to send notifications about firing alerts through PUBSUB or streams.",
         key_spec: [
             {
-                flags: [Insert, Access],
+                flags: [ReadWrite],
                 begin_search: Index({ index : 1 }),
-                find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),
+                find_keys: Range({ last_key : 1, steps : 0, limit : 1 }),
             }
         ]
     }

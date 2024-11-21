@@ -54,9 +54,9 @@ pub struct AlterGroupOptions {
         summary: "Updates a rules group",
         key_spec: [
             {
-                flags: [Update, Access],
+                flags: [ReadWrite],
                 begin_search: Index({ index : 1 }),
-                find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),
+                find_keys: Range({ last_key : 1, steps : 0, limit : 1 }),
             }
         ]
     }

@@ -40,9 +40,9 @@ const EVAL_ALIGNMENT: &str = "EVAL_ALIGNMENT";
         summary: "Create a new rules group",
         key_spec: [
             {
-                flags: [Insert, Access],
+                flags: [ReadWrite],
                 begin_search: Index({ index : 1 }),
-                find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),
+                find_keys: Range({ last_key : 1, steps : 0, limit : 1 }),
             }
         ]
     }
