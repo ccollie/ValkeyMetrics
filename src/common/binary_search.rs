@@ -38,13 +38,13 @@ pub fn find_last_ge_index<T: Ord>(arr: &[T], val: &T) -> usize {
 
 /// Finds the start and end indices (inclusive) of a range within a sorted slice.
 ///
-/// # Parameters
+/// ### Parameters
 ///
 /// * `values`: A slice of ordered elements to search within.
 /// * `start`: The lower bound of the range to search for.
 /// * `end`: The upper bound of the range to search for.
 ///
-/// # Returns
+/// ### Returns
 ///
 /// Returns `Option<(usize, usize)>`:
 /// * `Some((start_idx, end_idx))` if valid indices are found within the range.

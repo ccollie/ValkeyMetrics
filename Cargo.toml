@@ -15,9 +15,11 @@ ahash = { version = "0.8", features = ["serde"] }
 blart = "0.3"
 bitstream-io = "2.6"
 cfg-if = "1.0"
+compressed_vec = { git = "https://github.com/velvia/compressed-vec", branch = "main" }
 chrono = { version = "0.4", features = ["serde"] }
 croaring = { version = "2.1" , features = ["alloc"] }
 enquote = "1.1"
+enum_dispatch = "0.3.13"
 get-size = { version = "^0.1", features = ["derive"] }
 gtmpl = "0.7.1"
 gtmpl_derive = "0.5"

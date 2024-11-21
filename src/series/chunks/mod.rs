@@ -3,6 +3,7 @@ mod uncompressed;
 mod gorilla;
 mod pco;
 mod timeseries_chunk;
+mod compressed_vec;
 #[cfg(test)]
 mod timeseries_chunk_tests;
 mod serialization;
