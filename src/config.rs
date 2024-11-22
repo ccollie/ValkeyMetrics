@@ -67,11 +67,13 @@ const SERIES_DEDUPE_INTERVAL_KEY: &str = "series.dedupe_interval";
 const SERIES_DUPLICATE_POLICY_KEY: &str = "series.duplicate_policy";
 const SERIES_ROUND_DIGITS_KEY: &str = "series.round_digits";
 const SERIES_SIGNIFICANT_DIGITS_KEY: &str = "series.significant_digits";
+const SERIES_WORKER_INTERVAL_KEY: &str = "series.worker_interval";
 
 pub const DEFAULT_CHUNK_SIZE_BYTES: usize = 4 * 1024;
 pub const DEFAULT_CHUNK_COMPRESSION: ChunkCompression = ChunkCompression::Gorilla;
 pub const DEFAULT_DUPLICATE_POLICY: DuplicatePolicy = DuplicatePolicy::KeepLast;
 pub const DEFAULT_RETENTION_PERIOD:Duration = Duration::ZERO;
+pub const DEFAULT_SERIES_WORKER_INTERVAL: Duration = Duration::from_secs(60);
 
 static _KEY_PREFIX: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(DEFAULT_KEY_PREFIX.to_string()));
 
@@ -298,6 +300,7 @@ fn load_series_config(args: &[ValkeyString]) -> ValkeyResult<()> {
         config.rounding = Some(RoundingStrategy::DecimalDigits(decimal_digits));
     }
 
+    config.worker_interval = get_duration_config_value(args, SERIES_WORKER_INTERVAL_KEY, Some(DEFAULT_SERIES_WORKER_INTERVAL))?;
     let mut res = _SERIES_SETTINGS.lock()
         .map_err(|_| ValkeyError::String("mutex lock error setting series config".to_string()))?;
 
