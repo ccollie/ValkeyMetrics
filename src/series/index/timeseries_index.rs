@@ -16,6 +16,9 @@ use std::sync::atomic::AtomicU64;
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::{logging, Context, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
+// todo: move to config
+pub const OPTIMIZE_CHANGE_THRESHOLD: usize = 1000;
+
 cfg_if! {
     if #[cfg(feature = "id64")] {
         use xxhash_rust::xxh3::Xxh3 as IdHasher;
@@ -54,6 +57,7 @@ pub(crate) struct IndexInner {
     /// Map from label name and (label name,  label value) to set of timeseries ids.
     pub label_index: ARTBitmap,
     pub label_count: usize,
+    pub changes_since_last_optimize: usize,
 }
 
 impl IndexInner {
@@ -62,6 +66,7 @@ impl IndexInner {
             id_to_key: Default::default(),
             label_index: Default::default(),
             label_count: 0,
+            changes_since_last_optimize: 0,
         }
     }
 
@@ -69,6 +74,7 @@ impl IndexInner {
         self.id_to_key.clear();
         self.label_index.clear();
         self.label_count = 0;
+        self.changes_since_last_optimize = 0;
     }
 
     fn index_time_series(&mut self, ts: &TimeSeries, key: &[u8]) {
@@ -123,7 +129,7 @@ impl IndexInner {
 
     fn add_or_insert(&mut self, label: &str, value: &str, ts_id: TimeseriesId) -> bool {
         let key = IndexKey::for_label_value(label, value);
-        if let Some(bmp) = self.label_index.get_mut(&key) {
+        let result = if let Some(bmp) = self.label_index.get_mut(&key) {
             bmp.add(ts_id);
             false
         } else {
@@ -137,7 +143,9 @@ impl IndexInner {
                 },
                 _ => false
             }
-        }
+        };
+        self.changes_since_last_optimize += 1;
+        result
     }
 
     fn index_series_by_label(&mut self, ts_id: TimeseriesId, label: &str, value: &str) {
@@ -154,6 +162,7 @@ impl IndexInner {
                     self.label_count -= 1;
                 }
             }
+            self.changes_since_last_optimize += 1;
         }
     }
 
@@ -213,6 +222,18 @@ impl IndexInner {
             }
         }
         None
+    }
+
+    /// Optimize the bitmap indexes
+    fn optimize(&mut self, force: bool) {
+        if force || self.changes_since_last_optimize > OPTIMIZE_CHANGE_THRESHOLD {
+            for (_, bmp) in self.label_index.iter_mut() {
+                bmp.run_optimize();
+                let _ = bmp.shrink_to_fit();
+            }
+            self.changes_since_last_optimize = 0;
+        }
+        // todo: rayon ??
     }
 }
 
@@ -561,6 +582,11 @@ impl TimeSeriesIndex {
 
     pub(crate) fn get_inner(&self) -> RwLockReadGuard<IndexInner> {
         self.inner.read().unwrap()
+    }
+
+    pub(crate) fn optimize(&self, force: bool) {
+        let mut inner = self.inner.write().unwrap();
+        inner.optimize(force);
     }
 }
 

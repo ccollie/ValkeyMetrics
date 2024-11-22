@@ -8,6 +8,7 @@ pub mod serialization;
 
 use std::sync::LazyLock;
 use papaya::{Guard, HashMap};
+use rayon::iter::{ParallelBridge, ParallelIterator};
 use valkey_module::{Context};
 pub use timeseries_index::*;
 use crate::common::get_current_db;
@@ -40,7 +41,7 @@ pub fn clear_timeseries_index(ctx: &Context) {
     TIMESERIES_INDEX.pin().remove(&db);
 }
 
-pub fn clear_all_timeseries_index() {
+pub fn clear_all_timeseries_indexes() {
     TIMESERIES_INDEX.pin().clear();
 }
 
@@ -56,4 +57,13 @@ pub fn swap_timeseries_index_dbs(from_db: i32, to_db: i32) {
     if let Some(from) = from {
         map.insert(to_db, from.clone());
     }
+}
+
+pub fn optimize_all_timeseries_indexes() {
+    let guard = TIMESERIES_INDEX.guard();
+    let values: Vec<_> = TIMESERIES_INDEX.values(&guard).collect();
+    values.into_iter().par_bridge().for_each(|index| {
+        index.optimize(false);
+    });
+    guard.flush();
 }

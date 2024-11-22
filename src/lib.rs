@@ -32,6 +32,7 @@ use crate::alerts::{VKM_RULE_GROUP};
 use crate::common::async_runtime::init_runtime;
 use crate::server_events::{generic_key_event_handler, register_server_events};
 use crate::config::load_config;
+use crate::series::{start_series_background_worker, stop_series_background_worker};
 
 pub const VKMETRICS_VERSION: i32 = 1;
 pub const MODULE_NAME: &str = "VKMetrics";
@@ -46,7 +47,9 @@ fn initialize(ctx: &Context, args: &[ValkeyString]) -> Status {
         logging::log_warning("Failed to load configuration");
         return Status::Err;
     }
-    
+
+    start_series_background_worker();
+
     match register_server_events(ctx) {
         Ok(_) => Status::Ok,
         Err(e) => {
@@ -59,6 +62,7 @@ fn initialize(ctx: &Context, args: &[ValkeyString]) -> Status {
 
 fn deinitialize(_ctx: &Context) -> Status {
     logging::log_notice("deinitialize");
+    stop_series_background_worker();
     Status::Ok
 }
 
