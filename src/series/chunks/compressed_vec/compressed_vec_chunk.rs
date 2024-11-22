@@ -8,6 +8,7 @@ use compressed_vec::vector::VectorItemIter;
 use compressed_vec::{VectorF32XorAppender, VectorU64Appender};
 use metricsql_runtime::prelude::Timestamp;
 use std::iter::{Map, Zip};
+use valkey_module::logging;
 
 #[derive(Clone)]
 pub struct CompressedVecChunk {
@@ -42,6 +43,16 @@ impl CompressedVecChunk {
             end_ts: 0,
             last_value: f64::NAN,
         }
+    }
+
+    pub fn clear(&mut self) {
+        // todo: remove unwrap and return a Result
+        let (new_values, new_timestamps) = alloc_vectors(self.init_size).unwrap();
+        self.values = new_values;
+        self.timestamps = new_timestamps;
+        self.start_ts = 0;
+        self.end_ts = 0;
+        self.last_value = f64::NAN;
     }
 
     pub fn iter(&self) -> InnerIterator {
@@ -173,16 +184,6 @@ impl Chunk for CompressedVecChunk {
         self.end_ts = sample.timestamp;
         self.last_value = sample.value;
         append_internal(&mut self.values, &mut self.timestamps, sample)
-    }
-    
-
-    fn clear(&mut self) {
-        self.samples = 0;
-        self.values.reset();
-        self.timestamps.reset();
-        self.start_ts = 0;
-        self.end_ts = 0;
-        self.last_value = f64::NAN;
     }
 
     fn get_range(&self, start: Timestamp, end: Timestamp) -> TsdbResult<Vec<Sample>> {
@@ -325,7 +326,6 @@ impl Chunk for CompressedVecChunk {
         self.last_value = left_chunk.last_value;
         self.values = left_chunk.values;
         self.timestamps = left_chunk.timestamps;
-        
 
         Ok(right_chunk)
     }
