@@ -1,6 +1,8 @@
 import json
 from datetime import datetime
 
+
+
 class PowerConsumptionRecord:
     def __init__(self, timestamp, region, location_type, consumption):
         self.timestamp = datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S.%fZ')

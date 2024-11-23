@@ -2,5 +2,4 @@
 --clear-logs
 --enable-debug-command
 --enable-protected-configs
---module target/debug/libvalkey_metrics.dylib
 #--debug

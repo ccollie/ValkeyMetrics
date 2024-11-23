@@ -47,6 +47,8 @@ pub(crate) fn with_timeseries_mut(ctx: &Context, key: &ValkeyString, f: impl FnO
 
 pub(crate) fn get_timeseries_mut<'a>(ctx: &'a Context, key: &ValkeyString, must_exist: bool) -> ValkeyResult<Option<&'a mut TimeSeries>>  {
     let redis_key = ctx.open_key_writable(key);
+    // Safety: According to docs for `get_value`, it Will panic if RedisModule_ModuleTypeGetValue is missing in redismodule. h
+    // it that happens we have a bigger problem than a panic since we're compiling against an incompatible version of valkey.
     let series = redis_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE)?;
     match series {
         Some(series) => Ok(Some(series)),

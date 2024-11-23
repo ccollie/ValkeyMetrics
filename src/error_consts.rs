@@ -2,6 +2,7 @@ pub const CANNOT_ADD_SAMPLE: &str = "ERR could not add sample";
 pub const CAPACITY_FULL: &str = "ERR capacity full";
 pub const CHUNK_DECOMPRESSION: &str = "ERR cannot decompress chunk";
 pub const DUPLICATE_SAMPLE: &str = "ERR duplicate sample";
+pub const SAMPLE_TOO_CLOSE: &str = "ERR sample too close to previous in value or timestamp";
 pub const DUPLICATE_SERIES: &str = "ERR duplicate series";
 pub const ERROR_FETCHING_SAMPLE: &str = "ERR fetching sample";
 pub const INTERNAL_ERROR: &str = "ERR internal error";

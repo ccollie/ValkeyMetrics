@@ -171,7 +171,7 @@ impl TimeSeries {
                 let millis = dedup_interval.as_millis() as i64;
                 if millis > 0 && (ts - last_ts) < millis {
                     // todo: use policy to derive a value to insert
-                    return Err(ValkeyError::Str(error_consts::DUPLICATE_SAMPLE));
+                    return Err(ValkeyError::Str(error_consts::SAMPLE_TOO_CLOSE));
                 }
             }
 

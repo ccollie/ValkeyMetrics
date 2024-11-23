@@ -14,9 +14,10 @@ use crate::series::index::serialization::series_on_async_load_done;
 use crate::series::index::*;
 use std::os::raw::c_void;
 use std::sync::atomic::AtomicBool;
+use std::sync::Mutex;
 use valkey_module::{logging, raw, Context, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString};
 
-static mut RENAME_FROM_KEY : Option<Vec<u8>> = None;
+static RENAME_FROM_KEY: Mutex<Vec<u8>> = Mutex::new(vec![]);
 static ASYNC_LOADING_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn is_async_loading_in_progress() -> bool {
@@ -71,12 +72,14 @@ pub(crate) fn generic_key_event_handler(ctx: &Context, _event_type: NotifyEvent,
         }
         // SAFETY: This is safe because the key is only used in the closure and this function
         // is not called concurrently
-        "rename_from" => unsafe {
-            RENAME_FROM_KEY.replace(key.to_vec());
+        "rename_from" => {
+            *RENAME_FROM_KEY.lock().unwrap() = key.to_vec();
         }
-        "rename_to" => unsafe {
-            if let Some(old_key) = RENAME_FROM_KEY.take() {
+        "rename_to" => {
+            let mut old_key = RENAME_FROM_KEY.lock().unwrap();
+            if !old_key.is_empty() {
                 handle_key_rename(ctx, &old_key, key);
+                old_key.clear()
             }
         }
         "restore" => {
@@ -98,7 +101,7 @@ unsafe extern "C" fn on_flush_event(
             unsafe { &*(data as *mut raw::RedisModuleFlushInfo) };
 
         if fi.dbnum == -1 {
-            clear_all_timeseries_index();
+            clear_all_timeseries_indexes();
             clear_all_group_managers();
         } else {
             clear_group_manager(&ctx);

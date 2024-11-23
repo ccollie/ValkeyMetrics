@@ -4,11 +4,11 @@ use crate::module::commands::create_series;
 use crate::module::{get_timeseries_mut, VKM_SERIES_TYPE};
 use crate::series::TimeSeriesOptions;
 use valkey_module::key::ValkeyKeyWritable;
-use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 use crate::error_consts;
 
 ///
-/// VKM.ADD key timestamp value
+/// VM.ADD key timestamp value
 ///     [RETENTION duration]
 ///     [DUPLICATE_POLICY policy]
 ///     [DEDUPE_INTERVAL duration]
@@ -17,35 +17,35 @@ use crate::error_consts;
 ///     [SIGNIFICANT_DIGITS significantDigits | DECIMAL_DIGITS decimalDigits]
 ///
 pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
-    let mut args = args.into_iter().skip(1).peekable();
 
-    let key = args.next_arg()?;
-    let timestamp = parse_timestamp(args.next_str()?)?;
-    let value = args.next_f64()?;
+    if args.len() < 4 {
+        return Err(ValkeyError::WrongArity);
+    }
+
+    let key = &args[1];
+    let timestamp_str =  args[2].try_as_str()?;
+    let timestamp = parse_timestamp(timestamp_str)?;
+    let value = args[3].parse_float()?;
 
     if let Some(series) = get_timeseries_mut(ctx, &key, true)? {
         args.done()?;
-        series.add(timestamp, value, None).map(|_| ValkeyValue::Integer(timestamp))?;   
+        let result = series.add(timestamp, value, None).map(|_| ValkeyValue::Integer(timestamp))?;
+        // replicate
+        if timestamp_str == "*" {
+            // "*" could have a completely different value on a replica, so send the current value instead
+            args[2] = Some(ValkeyValue::from(timestamp));
+            ctx.replicate("VM.ADD", args);
+        } else {
+            ctx.replicate_verbatim();
+        }
+        ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.ADD", key);
+        return Ok(result);
     }
+
+    let mut args = args.into_iter().skip(4).peekable();
 
     let mut options = TimeSeriesOptions::default();
     let mut labels_set = false;
-    
-    const TOKENS: [&str; 9] = [
-        CMD_ARG_RETENTION,
-        CMD_ARG_DEDUPE_INTERVAL,
-        CMD_ARG_CHUNK_SIZE,
-        CMD_ARG_DUPLICATE_POLICY,
-        CMD_ARG_METRIC,
-        CMD_ARG_LABELS,
-        CMD_ARG_SIGNIFICANT_DIGITS,
-        CMD_ARG_DECIMAL_DIGITS,
-        CMD_ARG_COMPRESSION
-    ];
-
-    fn is_cmd_token(token: &str) -> bool {
-        TOKENS.iter().any(|t| t.eq_ignore_ascii_case(token))
-    }
     
     while let Ok(arg) = args.next_str() {
         match arg {
@@ -108,5 +108,28 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let redis_key = ValkeyKeyWritable::open(ctx.ctx, &key);
     redis_key.set_value(&VKM_SERIES_TYPE, ts)?;
 
+    if timestamp_str == "*" {
+        // "*" could have a completely different value on a replica, so send the current value instead
+        ctx.replicate("VM.ADD", args);
+    } else {
+        ctx.replicate_verbatim();
+    }
+
     Ok(ValkeyValue::Integer(timestamp))
+}
+
+const TOKENS: [&str; 9] = [
+    CMD_ARG_RETENTION,
+    CMD_ARG_DEDUPE_INTERVAL,
+    CMD_ARG_CHUNK_SIZE,
+    CMD_ARG_DUPLICATE_POLICY,
+    CMD_ARG_METRIC,
+    CMD_ARG_LABELS,
+    CMD_ARG_SIGNIFICANT_DIGITS,
+    CMD_ARG_DECIMAL_DIGITS,
+    CMD_ARG_COMPRESSION
+];
+
+fn is_cmd_token(token: &str) -> bool {
+    TOKENS.iter().any(|t| t.eq_ignore_ascii_case(token))
 }
