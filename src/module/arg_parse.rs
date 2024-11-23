@@ -337,6 +337,8 @@ pub fn parse_key_value_pairs(args: &mut CommandArgIterator, is_cmd_token: fn(&st
             return Err(ValkeyError::String(msg));
         }
 
+        // todo: regex validation
+
         let value = args.next_string()
             .map_err(|_| ValkeyError::Str("ERR invalid label value"))?;
 

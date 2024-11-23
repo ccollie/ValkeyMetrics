@@ -7,7 +7,8 @@ import zipfile
 from datetime import datetime
 
 from RLTest import Env
-from setuptools.command.bdist_egg import NATIVE_EXTENSIONS
+
+from tests.integration import MODULE_PATH, LOG_DIR
 
 PIPELINE_SIZE = 1000
 OUTPUT_DIR = './rdbs'
@@ -80,7 +81,7 @@ def load_rows_from_csv():
                 borough = row[BOROUGH]
                 nta_code = row[NTA_CODE]
 
-                print(f"Sensor ID: {sensor_id}, Air Temp: {air_temp}, Day: {day}, Hour: {hour}, ")
+                # print(f"Sensor ID: {sensor_id}, Air Temp: {air_temp}, Day: {day}, Hour: {hour}, ")
                 # Create a TemperatureRecord object
                 record = TemperatureRecord(sensor_id, air_temp, day, hour, install_type, borough, nta_code)
                 count += 1
@@ -100,12 +101,12 @@ def load_into_redis(redis_conn):
     print("Loading data into Redis...")
     r = redis_conn.pipeline(transaction=False)
     count = 0
-    added_keys = set()
+    added_keys = set([])
 
     print("Loading rows...")
 
     for row in load_rows_from_csv():
-        print("Loading row: ", row)
+        # print("Loading row: ", row)
         if row.timestamp < 0:
             continue
 
@@ -122,8 +123,10 @@ def load_into_redis(redis_conn):
         # Create series if not already exists
         key = row.key()
         if key not in added_keys:
-            added_keys.add(row)
-            r.execute_command('VM.CREATE-SERIES', key, row.metric(), 'DECIMAL_DIGITS', 1)
+            added_keys.add(key)
+            metric = row.metric()
+            redis_conn.execute_command('VM.CREATE-SERIES', key, row.metric(), 'DECIMAL_DIGITS', 1)
+            print(f"Created series: {key}, metric={metric}")
 
         r.execute_command('VM.ADD', key, row.timestamp, temperature)
         count += 1
@@ -131,10 +134,15 @@ def load_into_redis(redis_conn):
     r.execute()
 
 def run():
-    with Env().getConnection(1) as r:
+    print("Module path", MODULE_PATH)
+    env = Env(module=MODULE_PATH, logDir=LOG_DIR, enableDebugCommand=True, enableModuleCommand=True)
+    with env.getConnection() as r:
+        r.ping()
         rdb_dir = r.execute_command('CONFIG', 'GET', 'DIR')
         print(rdb_dir[1])
-        # r.execute_command('CONFIG', 'SET', 'DIR', './rdbs')
+        # r.module_load(MODULE_PATH)
+        modules = r.module_list()
+        print("Modules = ", modules)
         load_into_redis(r)
         print("Data loaded into Redis")
         r.save()

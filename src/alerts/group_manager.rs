@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use valkey_module::{
-    Context, RedisModuleTimerID, ThreadSafeContext,
+    Context, RedisModuleTimerID,
     ValkeyError, ValkeyResult, ValkeyString,
 };
 use xxhash_rust::xxh3::Xxh3;
@@ -443,13 +443,12 @@ fn group_timer_callback(ctx: &Context, meta: GroupTimerMeta) {
 
 fn stop_timer(timer_id: RedisModuleTimerID) {
     if timer_id != 0 {
-        let safe_ctx = ThreadSafeContext::new();
-        let guard = safe_ctx.lock();
-        match guard.stop_timer(timer_id) {
+        let ctx = valkey_module::MODULE_CONTEXT.lock();
+        match ctx.stop_timer(timer_id) {
             Ok(()) => (),
             Err(err) => {
                 let msg = format!("Failed to stop timer: {}", err);
-                guard.log_debug(&msg);
+                ctx.log_debug(&msg);
             }
         }
     }

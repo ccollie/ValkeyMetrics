@@ -1,5 +1,5 @@
 mod delete_range;
-mod create;
+mod create_series;
 mod alter;
 mod metadata;
 pub mod madd;
@@ -23,7 +23,7 @@ mod mget;
 
 pub use alter::*;
 pub use delete_range::*;
-pub use create::*;
+pub use create_series::*;
 pub use collate::*;
 pub use join::*;
 pub use info::*;

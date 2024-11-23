@@ -8,6 +8,14 @@ use std::time::Duration;
 use valkey_module::{ContextGuard, ThreadSafeContext, ValkeyString};
 use crate::common::{get_current_db, set_current_db};
 
+/// max_batch_size defines max number of series to be flushed at once
+const DEFAULT_MAX_BATCH_SIZE: usize  = 100usize;
+/// max_queue_size defines max length of input queue populated by push method.
+/// push will be rejected once queue is full.
+const DEFAULT_MAX_QUEUE_SIZE: usize  = 1000usize;
+/// flush_interval defines time interval for flushing batches
+const DEFAULT_FLUSH_INTERVAL: usize = 3 * 1000;
+
 /// a queue for writing timeseries back to valkey.
 /// todo: have an output list, so that flushing does not block adding new series.
 /// Essentially on flush, we just swap data and output
@@ -32,59 +40,12 @@ impl Default for WriteQueue {
     }
 }
 
-/// `WriteQueueConfig` is config for remote write.
-#[derive(Clone, Default, Debug)]
-pub struct WriteQueueConfig {
-    /// max_batch_size defines max number of series to be flushed at once
-    max_batch_size: usize,
-    /// max_queue_size defines max length of input queue populated by push method.
-    /// push will be rejected once queue is full.
-    max_queue_size: usize,
-    /// flush_interval defines time interval for flushing batches
-    flush_interval: Duration,
-}
-
-const DEFAULT_MAX_BATCH_SIZE: usize  = 100usize;
-const DEFAULT_MAX_QUEUE_SIZE: usize  = 100usize;
-const DEFAULT_FLUSH_INTERVAL: usize = 3 * 1000;
 
 impl WriteQueue {
     pub fn new(db: i32) -> Self {
-       Self {
-            db,
-            data: RwLock::new(Vec::new()),
-            flush_interval: Duration::from_millis(DEFAULT_FLUSH_INTERVAL as u64),
-            max_batch_size: DEFAULT_MAX_BATCH_SIZE,
-            max_queue_size: DEFAULT_MAX_QUEUE_SIZE,
-       } 
-    } 
-    
-    /// new returns asynchronous client for writing timeseries via remotewrite protocol.
-    pub fn with_config(cfg: WriteQueueConfig) -> WriteQueue {
-        let max_batch_size = if cfg.max_batch_size == 0 {
-            DEFAULT_MAX_BATCH_SIZE
-        } else {
-            cfg.max_batch_size
-        };
-        let max_queue_size = if cfg.max_queue_size == 0 {
-            DEFAULT_MAX_QUEUE_SIZE
-        } else {
-            cfg.max_queue_size
-        };
-        let flush_interval = if cfg.flush_interval.is_zero() {
-            Duration::from_millis(DEFAULT_FLUSH_INTERVAL as u64)
-        } else {
-            cfg.flush_interval
-        };
-
-        let storage: Vec<RawTimeSeries> = Vec::with_capacity(cfg.max_queue_size);
-        WriteQueue {
-            db: current_db(),
-            flush_interval,
-            max_batch_size,
-            max_queue_size,
-            data: RwLock::new(storage),
-        }
+       let mut queue = WriteQueue::default();
+        queue.db = db;
+        queue
     }
 
     pub fn len(&self) -> usize {
