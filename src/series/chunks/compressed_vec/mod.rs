@@ -1,4 +1,4 @@
 mod compressed_vec_chunk;
-mod serialization;
+pub mod serialization;
 
-pub use compressed_vec_chunk::CompressedVecChunk;
+pub use compressed_vec_chunk::*;

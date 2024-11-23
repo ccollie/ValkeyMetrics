@@ -6,6 +6,7 @@ use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value
 use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, UncompressedChunk, SPLIT_FACTOR};
 use core::mem::size_of;
 use get_size::GetSize;
+use crate::series::chunks::compressed_vec::CompressedVecChunk;
 
 #[derive(Debug, Clone, PartialEq)]
 #[derive(GetSize)]
@@ -13,6 +14,7 @@ pub enum TimeSeriesChunk {
     Uncompressed(UncompressedChunk),
     Gorilla(GorillaChunk),
     Pco(PcoChunk),
+    CompressedVec(CompressedVecChunk),
 }
 
 impl TimeSeriesChunk {
@@ -31,6 +33,7 @@ impl TimeSeriesChunk {
             ChunkCompression::Pco => {
                 Pco(PcoChunk::with_max_size(chunk_size))
             }
+            ChunkCompression::CompressedVec => CompressedVec(CompressedVecChunk::new(chunk_size)),
         }
     }
 
@@ -40,6 +43,7 @@ impl TimeSeriesChunk {
             Uncompressed(chunk) => chunk.is_full(),
             Gorilla(chunk) => chunk.is_full(),
             Pco(chunk) => chunk.is_full(),
+            CompressedVec(chunk) => chunk.is_full(),
         }
     }
 
@@ -49,6 +53,7 @@ impl TimeSeriesChunk {
             Uncompressed(chunk) => chunk.bytes_per_sample(),
             Gorilla(chunk) => chunk.bytes_per_sample(),
             Pco(chunk) => chunk.bytes_per_sample(),
+            CompressedVec(chunk) => chunk.bytes_per_sample(),
         }
     }
 
@@ -79,6 +84,7 @@ impl TimeSeriesChunk {
             Uncompressed(chunk) => chunk.clear(),
             Gorilla(chunk) => chunk.clear(),
             Pco(chunk) => chunk.clear(),
+            CompressedVec(chunk) => chunk.clear(),
         }
     }
 
@@ -102,7 +108,8 @@ impl TimeSeriesChunk {
         match self {
             Uncompressed(chunk) => Box::new(chunk.iter()),
             Gorilla( chunk) => Box::new(chunk.iter()),
-            Pco(chunk) => Box::new(chunk.iter())
+            Pco(chunk) => Box::new(chunk.iter()),
+            CompressedVec(chunk) => Box::new(chunk.iter()),
         }
     }
 
@@ -116,6 +123,7 @@ impl TimeSeriesChunk {
             Uncompressed(chunk) => chunk.range_iter(start, end),
             Gorilla( chunk) => chunk.range_iter(start, end),
             Pco(chunk) => chunk.range_iter(start, end),
+            CompressedVec(chunk) => chunk.range_iter(start, end),
         }
     }
 
@@ -127,6 +135,7 @@ impl TimeSeriesChunk {
             TimeSeriesChunk::Uncompressed(chunk) => chunk.samples_by_timestamps(timestamps),
             TimeSeriesChunk::Gorilla(chunk) => chunk.samples_by_timestamps(timestamps),
             TimeSeriesChunk::Pco(chunk) => chunk.samples_by_timestamps(timestamps),
+            TimeSeriesChunk::CompressedVec(chunk) => chunk.samples_by_timestamps(timestamps),
         }
     }
 
@@ -183,6 +192,7 @@ impl TimeSeriesChunk {
             Uncompressed(chunk) => chunk.set_data(samples),
             Gorilla(chunk) => chunk.set_data(samples),
             Pco(chunk) => chunk.set_data(samples),
+            CompressedVec(chunk) => chunk.set_data(samples),
         }
     }
 
@@ -251,6 +261,7 @@ impl Chunk for TimeSeriesChunk {
             Uncompressed(uncompressed) => uncompressed.first_timestamp(),
             Gorilla(gorilla) => gorilla.first_timestamp(),
             Pco(compressed) => compressed.first_timestamp(),
+            CompressedVec(compressed) => compressed.first_timestamp(),
         }
     }
 
@@ -260,6 +271,7 @@ impl Chunk for TimeSeriesChunk {
             Uncompressed(chunk) => chunk.last_timestamp(),
             Gorilla(chunk) => chunk.last_timestamp(),
             Pco(chunk) => chunk.last_timestamp(),
+            CompressedVec(chunk) => chunk.last_timestamp(),
         }
     }
 
@@ -269,6 +281,7 @@ impl Chunk for TimeSeriesChunk {
             Uncompressed(chunk) => chunk.len(),
             Gorilla(chunk) => chunk.len(),
             Pco(chunk) => chunk.len(),
+            CompressedVec(chunk) => chunk.len(),
         }
     }
 
@@ -278,6 +291,7 @@ impl Chunk for TimeSeriesChunk {
             Uncompressed(chunk) => chunk.last_value(),
             Gorilla(chunk) => chunk.last_value(),
             Pco(chunk) => chunk.last_value(),
+            CompressedVec(chunk) => chunk.last_value(),
         }
     }
 
@@ -287,6 +301,7 @@ impl Chunk for TimeSeriesChunk {
             Uncompressed(chunk) => chunk.size(),
             Gorilla(chunk) => chunk.size(),
             Pco(chunk) => chunk.size(),
+            CompressedVec(chunk) => chunk.size(),
         }
     }
 
@@ -296,6 +311,7 @@ impl Chunk for TimeSeriesChunk {
             Uncompressed(chunk) => chunk.max_size(),
             Gorilla(chunk) => chunk.max_size(),
             Pco(chunk) => chunk.max_size(),
+            CompressedVec(chunk) => chunk.max_size(),
         }
     }
 
@@ -305,6 +321,7 @@ impl Chunk for TimeSeriesChunk {
             Uncompressed(chunk) => chunk.remove_range(start_ts, end_ts),
             Gorilla(chunk) => chunk.remove_range(start_ts, end_ts),
             Pco(chunk) => chunk.remove_range(start_ts, end_ts),
+            CompressedVec(chunk) => chunk.remove_range(start_ts, end_ts),
         }
     }
 
@@ -314,6 +331,7 @@ impl Chunk for TimeSeriesChunk {
             Uncompressed(chunk) => chunk.add_sample(sample),
             Gorilla(chunk) => chunk.add_sample(sample),
             Pco(chunk) => chunk.add_sample(sample),
+            CompressedVec(chunk) => chunk.add_sample(sample),
         }
     }
 
@@ -323,6 +341,7 @@ impl Chunk for TimeSeriesChunk {
             Uncompressed(chunk) => chunk.get_range(start, end),
             Gorilla(chunk) => chunk.get_range(start, end),
             Pco(chunk) => chunk.get_range(start, end),
+            CompressedVec(chunk) => chunk.get_range(start, end),
         }
     }
 
@@ -336,6 +355,7 @@ impl Chunk for TimeSeriesChunk {
             Uncompressed(chunk) => chunk.upsert_sample(sample, dp_policy),
             Gorilla(chunk) => chunk.upsert_sample(sample, dp_policy),
             Pco(chunk) => chunk.upsert_sample(sample, dp_policy),
+            CompressedVec(chunk) => chunk.upsert_sample(sample, dp_policy),
         }
     }
 
@@ -358,6 +378,9 @@ impl Chunk for TimeSeriesChunk {
             Pco(chunk) => {
                 chunk.merge_samples(samples, dp_policy)
             }
+            CompressedVec(chunk) => {
+                chunk.merge_samples(samples, dp_policy)
+            }
         }
     }
 
@@ -370,6 +393,7 @@ impl Chunk for TimeSeriesChunk {
             Uncompressed(chunk) => Ok(Uncompressed(chunk.split()?)),
             Gorilla(chunk) => Ok(Gorilla(chunk.split()?)),
             Pco(chunk) => Ok(Pco(chunk.split()?)),
+            CompressedVec(chunk) => Ok(CompressedVec(chunk.split()?)),
         }
     }
     

@@ -1,24 +1,53 @@
+use std::fmt::Debug;
 use crate::common::binary_search::get_index_bounds;
 use crate::common::types::Sample;
 use crate::error::{TsdbError, TsdbResult};
 use crate::iterators::SampleIter;
 use crate::series::merge::merge_samples;
 use crate::series::{Chunk, DuplicatePolicy};
-use compressed_vec::vector::VectorItemIter;
+use compressed_vec::vector::{VectorItemIter, VectorStats};
 use compressed_vec::{VectorF32XorAppender, VectorU64Appender};
 use metricsql_runtime::prelude::Timestamp;
 use std::iter::{Map, Zip};
-use valkey_module::logging;
+use get_size::GetSize;
+use regex::Regex;
 
 #[derive(Clone)]
 pub struct CompressedVecChunk {
     pub(super) values: VectorF32XorAppender,
     pub(super) timestamps: VectorU64Appender,
-    init_size: usize,
+    pub(super) init_size: usize,
     pub max_size_bytes: usize,
     pub start_ts: i64,
     pub end_ts: i64,
     pub last_value: f64,
+}
+
+impl Debug for CompressedVecChunk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompressedVecChunk")
+            .field("samples", &self.len())
+            .field("max_size_bytes", &self.max_size_bytes)
+            .field("start_ts", &self.start_ts)
+            .field("end_ts", &self.end_ts)
+            .field("last_value", &self.last_value)
+            .finish()
+    }
+}
+impl GetSize for CompressedVecChunk {
+    fn get_size(&self) -> usize {
+        let value_reader = self.values.reader();
+        let timestamp_reader = self.timestamps.reader();
+        let value_stats = VectorStats::new(&value_reader);
+        let timestamp_stats = VectorStats::new(&timestamp_reader);
+        let (val_bytes, val_bytes_per_elem) = parse_stats(&value_stats)
+            .unwrap_or((0, 0.0));
+        let (ts_bytes, ts_bytes_per_elem) = parse_stats(&timestamp_stats)
+            .unwrap_or((0, 0.0));
+
+        let struct_size = size_of::<Self>();
+        struct_size + ts_bytes + val_bytes
+    }
 }
 
 impl CompressedVecChunk {
@@ -26,13 +55,7 @@ impl CompressedVecChunk {
         max_size_bytes: usize,
     ) -> Self {
         // calculate the size of the chunk
-        let init_size = if max_size_bytes < 512 {
-            512
-        } else if max_size_bytes > 1024 {
-            max_size_bytes.min(1024)
-        } else {
-            max_size_bytes
-        };
+        let init_size = Self::calc_init_size(max_size_bytes);
         let (values, timestamps) = alloc_vectors(init_size).unwrap();
         Self {
             init_size,
@@ -70,8 +93,35 @@ impl CompressedVecChunk {
         self.last_value = sample.value;
         append_internal(&mut self.values, &mut self.timestamps, sample)
     }
+
+    pub(super) fn calc_init_size(max_size: usize) -> usize {
+        // calculate the size of the chunk
+        if max_size < 512 {
+            512
+        } else if max_size > 1024 {
+            max_size.min(1024)
+        } else {
+            max_size
+        }
+    }
 }
 
+
+fn parse_stats(stats: &VectorStats) -> Option<(usize, f32)> {
+    let str = stats.summary_string();
+    parse_stats_summary_string(&str)
+}
+
+pub fn parse_stats_summary_string(summary: &str) -> Option<(usize, f32)> {
+    let re = Regex::new(r"#bytes=(\d+)\s+#elems=\d+\s+bytes-per-elem=([\d.]+)").unwrap();
+    if let Some(captures) = re.captures(summary) {
+        let num_bytes = captures.get(1)?.as_str().parse::<usize>().ok()?;
+        let bytes_per_elem = captures.get(2)?.as_str().parse::<f32>().ok()?;
+        Some((num_bytes, bytes_per_elem))
+    } else {
+        None
+    }
+}
 
 // type to avoid writing the whole type signature or having to box the iterator
 pub type InnerIterator<'a> = Map<Zip<VectorItemIter<'a, u64>, VectorItemIter<'a, f32>>, fn((u64, f32)) -> Sample>;
@@ -94,6 +144,32 @@ impl CompressedVecChunkIterator<'_> {
     }
 }
 
+impl PartialEq for CompressedVecChunk {
+    fn eq(&self, other: &Self) -> bool {
+        let eq = self.start_ts == other.start_ts
+            && self.end_ts == other.end_ts
+            && self.last_value == other.last_value
+            && self.values.num_elements() == other.values.num_elements()
+            && self.timestamps.num_elements() == other.timestamps.num_elements();
+
+        if !eq {
+            return false;
+        }
+        // compare the values
+        let self_values = self.values.reader();
+        let other_values = other.values.reader();
+        if !self_values.iterate().zip(other_values.iterate())
+            .all(|(a, b)| a == b) {
+            return false;
+        }
+        let self_timestamps = self.timestamps.reader();
+        let other_timestamps = other.timestamps.reader();
+
+        self_timestamps.iterate().zip(other_timestamps.iterate())
+            .all(|(a, b)| a == b)
+    }
+}
+
 // Implementing the Chunk trait
 impl Chunk for CompressedVecChunk {
     fn first_timestamp(&self) -> i64 {
@@ -113,7 +189,7 @@ impl Chunk for CompressedVecChunk {
     }
 
     fn size(&self) -> usize {
-        self.values.num_elements() + self.timestamps.size()
+        self.get_size()
     }
 
     fn max_size(&self) -> usize {
