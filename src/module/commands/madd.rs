@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::arg_parse::parse_timestamp;
 use crate::common::get_current_time_millis;
 use crate::common::types::Timestamp;
@@ -57,13 +58,14 @@ pub fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         index += 3;
     }
 
+    let grouped_inputs = group(inputs.into_iter().map(|input| (input.key, input)));
     // in the general case, most series will be using compressed chunks, so rayon should help
     // greatly with latency
 
     let mut results: SmallVec<ValkeyValue, 10> = SmallVec::new();
 
     // todo: do we need a thread-safe context?
-    for input in inputs.par_iter() {
+    for (key, input) in grouped_inputs.par_iter() {
         let value = add_sample_internal(ctx, input);
     }
 
@@ -114,4 +116,22 @@ fn replicate_and_notify(ctx: &Context, parsed_input: &ParsedInput) {
     ];
     ctx.replicate("VM.MADD", args);
     ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.MADD", parsed_input.key);
+}
+
+
+fn group<K, V, I>(iter: I) -> HashMap<K, Vec<V>>
+where
+    K: Eq + std::hash::Hash,
+    I: Iterator<Item = (K, V)>,
+{
+    let mut hash_map = match iter.size_hint() {
+        (_, Some(len)) => HashMap::with_capacity(len),
+        (len, None) => HashMap::with_capacity(len)
+    };
+
+    for (key, value) in iter {
+        hash_map.entry(key).or_insert_with(|| Vec::with_capacity(1)).push(value)
+    }
+
+    hash_map
 }

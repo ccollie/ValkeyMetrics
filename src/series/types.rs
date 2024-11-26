@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
+use metricsql_common::time::Time;
 use valkey_module::{ValkeyError, ValkeyResult, ValkeyString};
 
 #[non_exhaustive]
@@ -51,6 +52,7 @@ impl TryFrom<&str> for ChunkEncoding {
 
 #[derive(Debug, Default, PartialEq, Deserialize, Serialize, Clone, Copy)]
 #[derive(GetSize)]
+/// The policy to use when a duplicate sample is encountered
 pub enum DuplicatePolicy {
     /// ignore any newly reported value and reply with an error
     #[default]
@@ -158,6 +160,33 @@ impl TryFrom<u8> for DuplicatePolicy {
     }
 }
 
+pub enum SampleAddResult {
+    Ok(Timestamp),
+    Duplicate,
+    Ignored(Timestamp),
+    TooOld,
+    Error(&'static str),
+    CapacityFull,
+}
+
+impl SampleAddResult {
+    pub fn is_ok(&self) -> bool {
+        matches!(self, SampleAddResult::Ok(_))
+    }
+}
+
+impl Display for SampleAddResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SampleAddResult::Ok(ts) => write!(f, "Added @ {}", ts),
+            SampleAddResult::Duplicate => write!(f, "{}", error_consts::DUPLICATE_SAMPLE),
+            SampleAddResult::Ignored(ts) => write!(f, "Ignored. Using ts: {}", ts),
+            SampleAddResult::TooOld => write!(f, "{}", error_consts::SAMPLE_TOO_OLD),
+            SampleAddResult::Error(e) => write!(f, "{}", e),
+            SampleAddResult::CapacityFull => write!(f, "Capacity full"),
+        }
+    }
+}
 pub struct MetadataFunctionArgs {
     pub start: Timestamp,
     pub end: Timestamp,

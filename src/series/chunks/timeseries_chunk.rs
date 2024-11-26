@@ -6,6 +6,7 @@ use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value
 use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, UncompressedChunk, SPLIT_FACTOR};
 use core::mem::size_of;
 use get_size::GetSize;
+use crate::config::SPLIT_FACTOR;
 
 #[derive(Debug, Clone, PartialEq)]
 #[derive(GetSize)]
@@ -231,8 +232,12 @@ impl TimeSeriesChunk {
             self.get_heap_size()
     }
 
+    pub fn should_split(&self) -> bool {
+        self.utilization() > SPLIT_FACTOR
+    }
+
     pub(crate) fn upsert(&mut self, sample: Sample, dp_policy: DuplicatePolicy) -> TsdbResult<(usize, Option<TimeSeriesChunk>)> {
-        if self.size() as f64 > self.max_size() as f64 * SPLIT_FACTOR {
+        if self.should_split() {
             let mut new_chunk = self.split()?;
             let size = new_chunk.upsert_sample(sample, dp_policy)?;
             Ok((size, Some(new_chunk)))
