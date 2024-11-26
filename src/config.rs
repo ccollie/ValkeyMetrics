@@ -9,6 +9,8 @@ use std::time::Duration;
 use valkey_module::{Context, ValkeyError};
 use valkey_module::{ValkeyResult, ValkeyString};
 
+pub const SPLIT_FACTOR: f64 = 1.2;
+
 const MILLIS_PER_SEC: u64 = 1000;
 const MILLIS_PER_MIN: u64 = 60 * MILLIS_PER_SEC;
 

@@ -1,4 +1,3 @@
 
 pub(crate) const VEC_BASE_SIZE: usize = 24;
-pub const SPLIT_FACTOR: f64 = 1.2;
 pub const MAX_TIMESTAMP: i64 = 253402300799;

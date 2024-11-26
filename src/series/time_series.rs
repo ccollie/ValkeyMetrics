@@ -1,4 +1,4 @@
-use super::{validate_chunk_size, Chunk, ChunkCompression, TimeSeriesOptions};
+use super::{validate_chunk_size, Chunk, ChunkCompression, SampleAddResult, TimeSeriesOptions, SPLIT_FACTOR};
 use crate::common::rounding::RoundingStrategy;
 use crate::common::types::{IntMap, Label, Sample, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
@@ -17,7 +17,7 @@ use std::mem::size_of;
 use std::time::Duration;
 use std::vec;
 use valkey_module::{ValkeyError, ValkeyResult};
-use crate::config::{DEFAULT_CHUNK_COMPRESSION, DEFAULT_CHUNK_SIZE_BYTES, DEFAULT_DUPLICATE_POLICY, DEFAULT_RETENTION_PERIOD};
+use crate::config::{DEFAULT_CHUNK_COMPRESSION, DEFAULT_CHUNK_SIZE_BYTES, DEFAULT_DUPLICATE_POLICY, DEFAULT_RETENTION_PERIOD, SPLIT_FACTOR};
 
 pub(super) const TIMESTAMP_TYPE_U64: &str = "u64";
 pub(super) const TIMESTAMP_TYPE_U32: &str = "u32";
@@ -49,6 +49,7 @@ pub struct TimeSeries {
 
     pub retention: Duration,
     pub dedupe_interval: Option<Duration>,
+    pub dedupe_value_delta: Option<f64>,
     pub duplicate_policy: DuplicatePolicy,
     pub chunk_compression: ChunkCompression,
     pub rounding: Option<RoundingStrategy>,
@@ -155,9 +156,9 @@ impl TimeSeries {
         ts: Timestamp,
         value: f64,
         dp_override: Option<DuplicatePolicy>,
-    ) -> ValkeyResult<()> {
+    ) -> SampleAddResult {
         if self.is_older_than_retention(ts) {
-            return Err(ValkeyError::Str(error_consts::SAMPLE_TOO_OLD));
+            return SampleAddResult::TooOld;
         }
 
         let sample = Sample {
@@ -165,26 +166,63 @@ impl TimeSeries {
             timestamp: ts
         };
 
+        let last_ts = self.last_timestamp;
+
         if !self.is_empty() {
-            let last_ts = self.last_timestamp;
-            if let Some(dedup_interval) = self.dedupe_interval {
-                let millis = dedup_interval.as_millis() as i64;
-                if millis > 0 && (ts - last_ts) < millis {
-                    // todo: use policy to derive a value to insert
-                    return Err(ValkeyError::Str(error_consts::SAMPLE_TOO_CLOSE));
+            if ts >= last_ts {
+                let res = self.validate_ignores(ts, sample.value, last_ts, self.last_value, dp_override);
+                if !res.is_ok() {
+                    return res;
                 }
             }
-
             if ts <= last_ts {
-                let _ = self.upsert_sample(sample, dp_override)?;
-                return Ok(());
+                return self.upsert_sample(sample, dp_override);
             }
         }
 
         self.add_sample(sample)
     }
 
-    pub(super) fn add_sample(&mut self, sample: Sample) -> ValkeyResult<()> {
+    pub(crate) fn validate_ignores(&self,
+                            timestamp: Timestamp,
+                            value: f64,
+                            last_ts: Timestamp,
+                            last_value: f64,
+                            duplicate_policy: Option<DuplicatePolicy>) -> SampleAddResult {
+
+        let policy = duplicate_policy.unwrap_or(self.duplicate_policy);
+
+        if timestamp >= last_ts && policy == DuplicatePolicy::KeepLast {
+            if let Some(dedup_interval) = self.dedupe_interval {
+                let millis = dedup_interval.as_millis() as i64;
+                if millis > 0 && (timestamp - last_ts) < millis {
+                    return SampleAddResult::Ignored(last_ts);
+                }
+            }
+            if let Some(dedup_value_delta) = self.dedupe_value_delta {
+                if (last_value - value).abs() < dedup_value_delta {
+                    return SampleAddResult::Ignored(last_ts);
+                }
+            }
+        }
+        SampleAddResult::Ok(timestamp)
+    }
+
+    pub(crate) fn validate_sample(&self,
+                           timestamp: Timestamp,
+                           value: f64,
+                           last_ts: Timestamp,
+                           last_value: f64,
+                           on_duplicate: Option<DuplicatePolicy>) -> SampleAddResult {
+
+        if self.is_older_than_retention(timestamp) {
+            return SampleAddResult::TooOld;
+        }
+
+        self.validate_ignores(timestamp, value, last_ts, last_value, on_duplicate)
+    }
+
+    pub(super) fn add_sample(&mut self, sample: Sample) -> SampleAddResult {
 
         let was_empty = self.is_empty();
         let chunk = self.get_last_chunk();
@@ -192,7 +230,7 @@ impl TimeSeries {
             Err(TsdbError::CapacityFull(_)) => {
                 self.add_chunk_with_sample(&sample)?;
             },
-            Err(_e) => return Err(ValkeyError::Str(error_consts::CANNOT_ADD_SAMPLE)),
+            Err(_e) => return SampleAddResult::Error(error_consts::CANNOT_ADD_SAMPLE),
             _ => {},
         }
         if was_empty {
@@ -202,10 +240,10 @@ impl TimeSeries {
         self.last_value = sample.value;
         self.last_timestamp = sample.timestamp;
         self.total_samples += 1;
-        Ok(())
+        SampleAddResult::Ok(sample.timestamp)
     }
 
-    /// Add a new chunk and compact the current chunk if necessary.
+    /// (Possibly) add a new chunk and append the given sample.
     fn add_chunk_with_sample(&mut self, sample: &Sample) -> TsdbResult<()> {
         let min_timestamp = self.get_min_timestamp();
 
@@ -252,36 +290,52 @@ impl TimeSeries {
         self.chunks.last_mut().unwrap()
     }
 
+    fn upsert(&mut self, chunk: &mut TimeSeriesChunk, sample: Sample, dp_policy: DuplicatePolicy) -> TsdbResult<(usize, Option<TimeSeriesChunk>)> {
+        if chunk.size() as f64 > chunk.max_size() as f64 * SPLIT_FACTOR {
+            let mut new_chunk = chunk.split()?;
+            let size = new_chunk.upsert_sample(sample, dp_policy)?;
+            Ok((size, Some(new_chunk)))
+        } else {
+            let size = self.upsert_sample(sample, dp_policy)?;
+            Ok((size, None))
+        }
+    }
+
     pub(super) fn upsert_sample(
         &mut self,
         sample: Sample,
-        dp_override: Option<DuplicatePolicy>,
-    ) -> ValkeyResult<usize> {
-        let dp_policy = dp_override.unwrap_or(self.duplicate_policy);
+        duplicate_policy_override: Option<DuplicatePolicy>,
+    ) -> SampleAddResult {
+        let dp_policy = duplicate_policy_override.unwrap_or(self.duplicate_policy);
 
         let (pos, _) = get_chunk_index(&self.chunks, sample.timestamp);
-        let chunk = self.chunks.get_mut(pos).unwrap(); // todo: get_unchecked
+        let chunk = self.chunks.get_mut(pos).unwrap(); // todo: get_unchecked, since pos is always valid
 
+        if chunk.should_split() {
+            let mut new_chunk = chunk.split()?;
+            let size = new_chunk.upsert_sample(sample, dp_policy)?;
+
+            self.trim()?; // todo: do this in background
+            let insert_at = self.chunks.partition_point(|chunk| chunk.first_timestamp() <= new_chunk.first_timestamp());
+            self.chunks.insert(insert_at, new_chunk);
+            self.total_samples += size;
+            if sample.timestamp == self.last_timestamp {
+                self.last_value = sample.value;
+            }
+            return SampleAddResult::Ok(sample.timestamp)
+        }
+
+        let size = chunk.upsert_sample(sample, dp_policy)?;
+        self.total_samples += size;
+        if sample.timestamp == self.last_timestamp {
+            self.last_value = sample.value;
+        }
+        SampleAddResult::Ok(sample.timestamp)
         match chunk.upsert(sample, dp_policy) {
-            Ok((size, Some(new_chunk))) => {
-                self.trim()?;
-                let insert_at = self.chunks.partition_point(|chunk| chunk.first_timestamp() <= new_chunk.first_timestamp());
-                self.chunks.insert(insert_at, new_chunk);
-                self.total_samples += size;
-                if sample.timestamp == self.last_timestamp {
-                    self.last_value = sample.value;
-                }
-                Ok(size)
+            Err(TsdbError::DuplicateSample(_)) => {
+                SampleAddResult::Duplicate
             },
-            Ok((size, None)) => {
-                self.total_samples += size;
-                if sample.timestamp == self.last_timestamp {
-                    self.last_value = sample.value;
-                }
-                Ok(size)
-            },
-            Err(TsdbError::DuplicateSample(_)) => Err(ValkeyError::Str(error_consts::DUPLICATE_SAMPLE)),
-            Err(_) => Err(ValkeyError::Str(error_consts::CANNOT_ADD_SAMPLE)),
+            Err(_) => SampleAddResult::Error(error_consts::CANNOT_ADD_SAMPLE),
         }
     }
 
@@ -515,7 +569,8 @@ impl Default for TimeSeries {
             first_timestamp: 0,
             last_timestamp: 0,
             last_value: f64::NAN,
-            rounding: None
+            rounding: None,
+            dedupe_value_delta: None,
         }
     }
 }
