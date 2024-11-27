@@ -298,7 +298,7 @@ impl Chunk for GorillaChunk {
             for sample in samples.iter() {
                 self.add_sample(sample)?;
             }
-            return Ok(samples.count)
+            return Ok(samples.len())
         }
 
         struct MergeState {

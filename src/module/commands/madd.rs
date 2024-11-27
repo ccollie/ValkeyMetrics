@@ -1,9 +1,8 @@
 use crate::arg_parse::parse_timestamp;
 use crate::common::get_current_time_millis;
-use crate::common::types::Timestamp;
-use crate::error_consts;
-use crate::module::get_timeseries_mut;
 use crate::common::types::Sample;
+use crate::common::types::Timestamp;
+use crate::module::get_timeseries_mut;
 use smallvec::SmallVec;
 use std::collections::HashMap;
 use valkey_module::{Context, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
@@ -71,25 +70,12 @@ fn add_sample_internal(ctx: &Context, key: &ValkeyString, input: &Vec<ParsedInpu
     if let Ok(Some(series)) = get_timeseries_mut(ctx, key, true) {
         let samples = input.iter()
             .map(|input| Sample { timestamp: input.timestamp, value: input.value} )
-            .collect();
+            .collect::<Vec<Sample>>();
+
         series.merge_samples(&samples, None).expect("TODO: panic message");
     } else {
         // todo: return null entries
     }
-}
-
-fn handle_error(err: &str, latest_ts: Timestamp) -> Option<Timestamp> {
-    if err == error_consts::SAMPLE_TOO_CLOSE || err == error_consts::DUPLICATE_SAMPLE {
-        return Some(latest_ts);
-    }
-    if sample_too_old(err) {
-        return None;
-    }
-    Some(latest_ts)
-}
-
-fn sample_too_old(err: &str) -> bool {
-    err == error_consts::SAMPLE_TOO_OLD
 }
 
 fn replicate_and_notify(ctx: &Context, parsed_input: &ParsedInput) {
