@@ -34,6 +34,9 @@ pub enum TsdbError {
   #[error("Invalid compressed method. {0}")]
   InvalidCompression(String),
 
+  #[error("Error removing range")]
+  RemoveRangeError,
+
   #[error("Invalid number. {0}")]
   InvalidNumber(String),
 

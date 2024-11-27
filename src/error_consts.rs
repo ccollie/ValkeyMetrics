@@ -1,9 +1,11 @@
 pub const CANNOT_ADD_SAMPLE: &str = "ERR could not add sample";
+pub const CHUNK_SPLIT: &str = "ERR could not split chunk";
 pub const CAPACITY_FULL: &str = "ERR capacity full";
 pub const CHUNK_DECOMPRESSION: &str = "ERR cannot decompress chunk";
 pub const DUPLICATE_SAMPLE: &str = "ERR duplicate sample";
 pub const SAMPLE_TOO_CLOSE: &str = "ERR sample too close to previous in value or timestamp";
 pub const DUPLICATE_SERIES: &str = "ERR duplicate series";
+pub const SAMPLE_MERGE_ERROR: &str = "ERR error merging samples";
 pub const ERROR_FETCHING_SAMPLE: &str = "ERR fetching sample";
 pub const INTERNAL_ERROR: &str = "ERR internal error";
 pub const INVALID_ALIGN: &str = "ERR invalid ALIGN argument";

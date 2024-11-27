@@ -19,7 +19,7 @@ impl<'a> SampleMergeIterator<'a>
         }
     }
 
-    fn next_internal(&mut self) -> Option<(Sample, bool)> {
+    pub fn next_internal(&mut self) -> Option<(Sample, bool)> {
         let mut blocked = false;
 
         let sample = match (self.left.peek(), self.right.peek()) {

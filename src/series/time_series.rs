@@ -1,4 +1,4 @@
-use super::{validate_chunk_size, Chunk, ChunkCompression, SampleAddResult, TimeSeriesOptions, SPLIT_FACTOR};
+use super::{validate_chunk_size, Chunk, ChunkCompression, SampleAddResult, TimeSeriesOptions};
 use crate::common::rounding::RoundingStrategy;
 use crate::common::types::{IntMap, Label, Sample, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
@@ -16,8 +16,8 @@ use std::hash::Hash;
 use std::mem::size_of;
 use std::time::Duration;
 use std::vec;
-use valkey_module::{ValkeyError, ValkeyResult};
-use crate::config::{DEFAULT_CHUNK_COMPRESSION, DEFAULT_CHUNK_SIZE_BYTES, DEFAULT_DUPLICATE_POLICY, DEFAULT_RETENTION_PERIOD, SPLIT_FACTOR};
+use valkey_module::{logging, ValkeyError, ValkeyResult};
+use crate::config::{DEFAULT_CHUNK_COMPRESSION, DEFAULT_CHUNK_SIZE_BYTES, DEFAULT_DUPLICATE_POLICY, DEFAULT_RETENTION_PERIOD};
 
 pub(super) const TIMESTAMP_TYPE_U64: &str = "u64";
 pub(super) const TIMESTAMP_TYPE_U32: &str = "u32";
@@ -228,7 +228,11 @@ impl TimeSeries {
         let chunk = self.get_last_chunk();
         match chunk.add_sample(&sample) {
             Err(TsdbError::CapacityFull(_)) => {
-                self.add_chunk_with_sample(&sample)?;
+                match self.add_chunk_with_sample(&sample) {
+                    Ok(_) => {},
+                    Err(TsdbError::DuplicateSample(_)) => return SampleAddResult::Duplicate,
+                    Err(_) => return SampleAddResult::Error(error_consts::CANNOT_ADD_SAMPLE),
+                }
             },
             Err(_e) => return SampleAddResult::Error(error_consts::CANNOT_ADD_SAMPLE),
             _ => {},
@@ -290,18 +294,19 @@ impl TimeSeries {
         self.chunks.last_mut().unwrap()
     }
 
-    fn upsert(&mut self, chunk: &mut TimeSeriesChunk, sample: Sample, dp_policy: DuplicatePolicy) -> TsdbResult<(usize, Option<TimeSeriesChunk>)> {
-        if chunk.size() as f64 > chunk.max_size() as f64 * SPLIT_FACTOR {
-            let mut new_chunk = chunk.split()?;
-            let size = new_chunk.upsert_sample(sample, dp_policy)?;
-            Ok((size, Some(new_chunk)))
-        } else {
-            let size = self.upsert_sample(sample, dp_policy)?;
-            Ok((size, None))
+    fn upsert(chunk: &mut TimeSeriesChunk, sample: Sample, policy: DuplicatePolicy) -> (usize, SampleAddResult) {
+        match chunk.upsert_sample(sample, policy) {
+            Ok(size) => (size, SampleAddResult::Ok(sample.timestamp)),
+            Err(TsdbError::DuplicateSample(_)) => {
+                (0, SampleAddResult::Duplicate)
+            },
+            Err(_) => {
+                (0, SampleAddResult::Error(error_consts::CANNOT_ADD_SAMPLE))
+            },
         }
     }
 
-    pub(super) fn upsert_sample(
+    fn upsert_sample(
         &mut self,
         sample: Sample,
         duplicate_policy_override: Option<DuplicatePolicy>,
@@ -312,10 +317,23 @@ impl TimeSeries {
         let chunk = self.chunks.get_mut(pos).unwrap(); // todo: get_unchecked, since pos is always valid
 
         if chunk.should_split() {
-            let mut new_chunk = chunk.split()?;
-            let size = new_chunk.upsert_sample(sample, dp_policy)?;
+            let mut new_chunk = match chunk.split() {
+                Ok(chunk) => chunk,
+                Err(_) => {
+                    return SampleAddResult::Error(error_consts::CHUNK_SPLIT)
+                },
+            };
 
-            self.trim()?; // todo: do this in background
+            let (size, res) = Self::upsert(&mut new_chunk, sample, dp_policy);
+            if !res.is_ok() {
+                return res;
+            }
+
+            // todo: do this in background so ingestion is not blocked
+            if let Err(e) = self.trim() {
+                #[cfg(not(test))] // so we can run unit tests
+                logging::log_warning(format!("Error trimming time series: {:?}", e));
+            }
             let insert_at = self.chunks.partition_point(|chunk| chunk.first_timestamp() <= new_chunk.first_timestamp());
             self.chunks.insert(insert_at, new_chunk);
             self.total_samples += size;
@@ -325,18 +343,15 @@ impl TimeSeries {
             return SampleAddResult::Ok(sample.timestamp)
         }
 
-        let size = chunk.upsert_sample(sample, dp_policy)?;
+        let (size, res) = Self::upsert(chunk, sample, dp_policy);
+        if !res.is_ok() {
+            return res;
+        }
         self.total_samples += size;
         if sample.timestamp == self.last_timestamp {
             self.last_value = sample.value;
         }
         SampleAddResult::Ok(sample.timestamp)
-        match chunk.upsert(sample, dp_policy) {
-            Err(TsdbError::DuplicateSample(_)) => {
-                SampleAddResult::Duplicate
-            },
-            Err(_) => SampleAddResult::Error(error_consts::CANNOT_ADD_SAMPLE),
-        }
     }
 
     pub fn merge_samples(
@@ -346,15 +361,30 @@ impl TimeSeries {
     ) -> TsdbResult<usize> {
         let dp_policy = dp_policy.unwrap_or(self.duplicate_policy);
 
-        let mut grouping: IntMap<usize, SmallVec<Sample, 4>> = IntMap::new();
+        let mut samples = samples.iter().map(|sample| {
+            Sample {
+                value: self.adjust_value(sample.value),
+                timestamp: sample.timestamp,
+            }
+        }).collect::<Vec<Sample>>();
+        samples.sort();
+
+        let mut grouping: IntMap<usize, SmallVec<Sample, 6>> = IntMap::new();
 
         let earliest_ts = self.get_min_timestamp();
-        for sample in samples.iter().filter(|sample| sample.timestamp >= earliest_ts) {
-            let (chunk_index, _) = find_last_ge_index(&self.chunks, sample.timestamp);
-            grouping.entry(chunk_index).or_default().push(*sample);
+        let mut res: Vec<SampleAddResult> = Vec::with_capacity(samples.len());
+
+        for sample in samples.iter() {
+            if sample.timestamp < earliest_ts {
+                res.push(SampleAddResult::TooOld);
+            } else {
+                let (chunk_index, _) = find_last_ge_index(&self.chunks, sample.timestamp);
+                grouping.entry(chunk_index).or_default().push(*sample);
+            }
         }
 
         let mut size = 0;
+        // todo: parallelize
         for (chunk_index, samples) in grouping {
             let chunk = self.chunks.get_mut(chunk_index).unwrap();
             size += chunk.merge_samples(&samples, Some(dp_policy))?;
@@ -457,7 +487,12 @@ impl TimeSeries {
         // Handle partial chunk
         if let Some(chunk) = self.chunks.first_mut() {
             if chunk.first_timestamp() < min_timestamp {
-                deleted_count += chunk.remove_range(0, min_timestamp)?;
+                match chunk.remove_range(0, min_timestamp) {
+                    Ok(count) => deleted_count += count,
+                    Err(_) => {
+                        return Err(TsdbError::RemoveRangeError);
+                    }
+                }
             }
         }
 
@@ -757,7 +792,7 @@ mod tests {
     #[test]
     fn test_one_entry() {
         let mut ts = TimeSeries::new();
-        ts.add(100, 200.0, None).unwrap();
+        assert!(ts.add(100, 200.0, None).is_ok());
 
         assert_eq!(ts.get_last_chunk().len(), 1);
         let last_block = ts.get_last_chunk();
@@ -777,7 +812,7 @@ mod tests {
         let data = generate_random_samples(0, 1000);
 
         for sample in data.iter() {
-            ts.add(sample.timestamp, sample.value, None).unwrap();
+            assert!(ts.add(sample.timestamp, sample.value, None).is_ok());
         }
 
         assert_eq!(ts.total_samples, 1000);
@@ -796,7 +831,7 @@ mod tests {
     fn test_block_size_entries() {
         let mut ts = TimeSeries::new();
         for i in 0..BLOCK_SIZE_FOR_TIME_SERIES {
-            ts.add(i as i64, i as f64, None).unwrap();
+            assert!(ts.add(i as i64, i as f64, None).is_ok());
         }
 
         // All the entries will go to 'last', as we have pushed exactly BLOCK_SIZE_FOR_TIME_SERIES entries.
