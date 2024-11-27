@@ -31,6 +31,7 @@ pub enum JoinReducer {
     Min,
     NotEq,
     Or,
+    PctChange,
     SgnDiff,
     Unless,
 }
@@ -51,6 +52,7 @@ static BINARY_OPS_MAP: phf::Map<&'static str, JoinReducer> = phf_map! {
     "<=" => JoinReducer::Lte,
     ">=" => JoinReducer::Gte,
 
+    "abs_diff" => JoinReducer::AbsDiff,
     "absdiff" => JoinReducer::AbsDiff,
     "add" => JoinReducer::Add,
     "cmp" => JoinReducer::Cmp,
@@ -65,7 +67,10 @@ static BINARY_OPS_MAP: phf::Map<&'static str, JoinReducer> = phf_map! {
     "lte" => JoinReducer::Lte,
     "div" => JoinReducer::Div,
     "pow" => JoinReducer::Pow,
+    "sgn_diff" => JoinReducer::SgnDiff,
     "sgndiff" => JoinReducer::SgnDiff,
+    "pct_change" => JoinReducer::PctChange,
+    "pctchange" => JoinReducer::PctChange,
 
     // logic set ops
     "and" => JoinReducer::And,
@@ -104,6 +109,7 @@ impl JoinReducer {
             Or => "or",
             Pow => "^",
             SgnDiff => "sgnDiff",
+            PctChange => "pctChange",
             Sub => "-",
             Unless => "unless",
             Avg => "avg",
@@ -145,6 +151,7 @@ impl JoinReducer {
             Or => h(BaseOp::Or),
             SgnDiff => sgn_diff,
             Unless => h(BaseOp::Unless),
+            PctChange => pct_change,
         }
 
     }
@@ -222,6 +229,13 @@ fn abs_diff(x: f64, y: f64) -> f64 {
 
 fn sgn_diff(x: f64, y: f64) -> f64 {
     (x - y).signum()
+}
+
+fn pct_change(x: f64, y: f64) -> f64 {
+    if x == 0.0 {
+        return 0.0;
+    }
+    (y - x) / x
 }
 
 #[cfg(test)]
