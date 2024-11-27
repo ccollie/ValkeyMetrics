@@ -222,8 +222,9 @@ impl Chunk for UncompressedChunk {
         samples: &[Sample],
         dp_policy: Option<DuplicatePolicy>,
     ) -> TsdbResult<usize> {
+        let first = samples[0];
+
         if samples.len() == 1 {
-            let first = samples[0];
             if self.is_empty() {
                 self.add_sample(&first)?;
             } else {
@@ -235,6 +236,11 @@ impl Chunk for UncompressedChunk {
         if self.is_empty() {
             self.samples = samples.to_vec();
             return Ok(self.samples.len())
+        }
+
+        if first.timestamp > self.last_timestamp() {
+            self.samples.extend_from_slice(samples);
+            return Ok(self.samples.len());
         }
 
         let mut dest: Vec<Sample> = Vec::with_capacity(self.samples.len() + samples.len());

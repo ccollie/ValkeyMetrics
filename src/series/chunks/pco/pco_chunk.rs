@@ -418,7 +418,7 @@ impl Chunk for PcoChunk {
         dp_policy: Option<DuplicatePolicy>,
     ) -> TsdbResult<usize> {
 
-        let dp_policy = dp_policy.unwrap_or(DuplicatePolicy::KeepLast);
+        let dp_policy = dp_policy.unwrap_or(DuplicatePolicy::Block);
         if samples.len() == 1 {
             let first = samples[0];
             if self.is_empty() {
@@ -445,6 +445,19 @@ impl Chunk for PcoChunk {
         }
 
         if let Some((mut timestamps, mut values)) = self.decompress()? {
+            let first = samples[0];
+
+            if first.timestamp > self.last_timestamp {
+                timestamps.reserve(samples.count);
+                values.reserve(samples.count);
+                for sample in samples {
+                    timestamps.push(sample.timestamp);
+                    values.push(sample.value);
+                }
+                self.compress(&timestamps, &values)?;
+                return Ok(samples.len());
+            }
+
             let mut start_pos = 0;
             for sample in samples {
                 let ts = sample.timestamp;

@@ -1,12 +1,12 @@
-use std::collections::HashMap;
 use crate::arg_parse::parse_timestamp;
 use crate::common::get_current_time_millis;
 use crate::common::types::Timestamp;
-use crate::module::get_timeseries_mut;
-use rayon::iter::IntoParallelRefIterator;
-use smallvec::SmallVec;
-use valkey_module::{Context, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 use crate::error_consts;
+use crate::module::get_timeseries_mut;
+use crate::common::types::Sample;
+use smallvec::SmallVec;
+use std::collections::HashMap;
+use valkey_module::{Context, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
 struct ParsedInput<'a> {
     key: &'a ValkeyString,
@@ -18,7 +18,6 @@ struct ParsedInput<'a> {
 
 pub fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let arg_count = args.len() - 1;
-    let mut args = args.into_iter().skip(1);
 
     if arg_count < 3 {
         return Err(ValkeyError::WrongArity);
@@ -64,34 +63,19 @@ pub fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
     let mut results: SmallVec<ValkeyValue, 10> = SmallVec::new();
 
-    // todo: do we need a thread-safe context?
-    for (key, input) in grouped_inputs.par_iter() {
-        let value = add_sample_internal(ctx, input);
-    }
-
     // todo!!
     Ok(ValkeyValue::Array(vec![]))
-
 }
 
-fn add_sample_internal(ctx: &Context, input: &ParsedInput) -> Option<Timestamp> {
-    let mut timestamp: Timestamp = input.timestamp;
-    if let Ok(Some(series)) = get_timeseries_mut(ctx, input.key, true) {
-        if let Err(err) = series.add(input.timestamp, input.value, None) {
-            timestamp = series.last_timestamp();
-            return match err {
-                ValkeyError::Str(e) => handle_error(e, timestamp),
-                ValkeyError::String(e) => handle_error(&e, timestamp),
-                _ => None
-            }
-        } else {
-            replicate_and_notify(ctx, input);
-            timestamp = input.timestamp
-        }
+fn add_sample_internal(ctx: &Context, key: &ValkeyString, input: &Vec<ParsedInput>) {
+    if let Ok(Some(series)) = get_timeseries_mut(ctx, key, true) {
+        let samples = input.iter()
+            .map(|input| Sample { timestamp: input.timestamp, value: input.value} )
+            .collect();
+        series.merge_samples(&samples, None).expect("TODO: panic message");
     } else {
-        return None;
+        // todo: return null entries
     }
-    Some(timestamp)
 }
 
 fn handle_error(err: &str, latest_ts: Timestamp) -> Option<Timestamp> {

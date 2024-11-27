@@ -14,13 +14,15 @@ where F: FnMut(&mut STATE, Sample, bool) -> TsdbResult<()>
 {
     let dp_policy = dp_policy.unwrap_or(DuplicatePolicy::KeepLast);
 
-    let merge_iterator = SampleMergeIterator::new(left, right, dp_policy);
+    let mut merge_iterator = SampleMergeIterator::new(left, right, dp_policy);
 
-    for sample in merge_iterator {
-        f(state, sample, false)?;
+    loop {
+        if let Some((sample, blocked)) = merge_iterator.next_internal() {
+            f(state, sample, blocked)?;
+        } else {
+            return Ok(())
+        }
     }
-
-    Ok(())
 }
 
 pub(crate) fn merge_by_capacity(

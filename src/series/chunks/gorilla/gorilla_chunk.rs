@@ -291,6 +291,16 @@ impl Chunk for GorillaChunk {
             };
         }
 
+        // we assume that samples are sorted. Try to optimize by seeing if all samples are past the
+        // current chunk's last timestamp.
+        let first = samples[0];
+        if first.timestamp > self.last_timestamp() {
+            for sample in samples.iter() {
+                self.add_sample(sample)?;
+            }
+            return Ok(samples.count)
+        }
+
         struct MergeState {
             count: usize,
             xor_encoder: XOREncoder,

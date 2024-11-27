@@ -88,6 +88,7 @@ pub fn rdb_load_series(rdb: *mut raw::RedisModuleIO, enc_ver: i32) -> ValkeyResu
         labels,
         retention,
         dedupe_interval,
+        dedupe_value_delta: None,
         duplicate_policy,
         chunk_compression,
         rounding,

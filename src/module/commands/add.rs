@@ -1,8 +1,9 @@
 use metricsql_common::label::Label;
+use metricsql_runtime::types::Timestamp;
 use crate::arg_parse::*;
 use crate::module::commands::create_series;
 use crate::module::{get_timeseries_mut, VKM_SERIES_TYPE};
-use crate::series::TimeSeriesOptions;
+use crate::series::{SampleAddResult, TimeSeriesOptions};
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 use crate::error_consts;
@@ -17,6 +18,7 @@ use crate::error_consts;
 ///     [SIGNIFICANT_DIGITS significantDigits | DECIMAL_DIGITS decimalDigits]
 ///
 pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
+    let mut args = args;
 
     if args.len() < 4 {
         return Err(ValkeyError::WrongArity);
@@ -28,17 +30,11 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let value = args[3].parse_float()?;
 
     if let Some(series) = get_timeseries_mut(ctx, &key, true)? {
-        args.done()?;
+        // args.done()?;
         let result = series.add(timestamp, value, None).map(|_| ValkeyValue::Integer(timestamp))?;
         // replicate
-        if timestamp_str == "*" {
-            // "*" could have a completely different value on a replica, so send the current value instead
-            args[2] = Some(ValkeyValue::from(timestamp));
-            ctx.replicate("VM.ADD", args);
-        } else {
-            ctx.replicate_verbatim();
-        }
-        ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.ADD", key);
+        let ts = if timestamp_str == "*" { Some(timestamp) } else { None };
+        replicate_and_notify(ctx, key, args, ts);
         return Ok(result);
     }
 
@@ -103,19 +99,33 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     }
 
     let mut ts = create_series(&key, options, ctx)?;
-    ts.add(timestamp, value, None)?;
 
-    let redis_key = ValkeyKeyWritable::open(ctx.ctx, &key);
-    redis_key.set_value(&VKM_SERIES_TYPE, ts)?;
+    match ts.add(timestamp, value, None) {
+        SampleAddResult::Ok(ts) | SampleAddResult::Ignored(ts) => {
+            let redis_key = ValkeyKeyWritable::open(ctx.ctx, &key);
+            redis_key.set_value(&VKM_SERIES_TYPE, ts)?;
 
-    if timestamp_str == "*" {
+            replicate_and_notify(ctx, key, args.collect(), Some(timestamp));
+            Ok(ValkeyValue::Integer(ts))
+        }
+        _ => {
+            Ok(ValkeyValue::Null)
+        }
+    }
+}
+
+fn replicate_and_notify(ctx: &Context, key: &ValkeyString, args: Vec<ValkeyString>, timestamp: Option<Timestamp>) {
+    if let Some(ts) = timestamp {
         // "*" could have a completely different value on a replica, so send the current value instead
-        ctx.replicate("VM.ADD", args);
+        let ts_str = ts.to_string();
+        let mut args = args;
+        args.remove(0);
+        args[1] = ctx.create_string(ts_str.as_bytes());
+        ctx.replicate("VM.ADD", args.into());
     } else {
         ctx.replicate_verbatim();
     }
-
-    Ok(ValkeyValue::Integer(timestamp))
+    ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.ADD", key);
 }
 
 const TOKENS: [&str; 9] = [
