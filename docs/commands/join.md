@@ -134,25 +134,27 @@ performs an operation on the value in each returned row.
   |---------------|------------------------------------------------------------------------| 
   | `absdiff`     | abs(`left` - `right`)                                                  |
   | `add` or `+`  | `left` + `right`                                                       |
-  | `and`         | Returns `left` if either value is NAN/NULL, `right` otherwise          |
-  | `avg`         | Arithmetic mean of both mut values                                     |
-  | `default`     | If left is is NaN/NULL, return right, else left                        | 
+  | `and`         | returns `left` if either value is NAN/NULL, `right` otherwise          |
+  | `avg`         | arithmetic mean of both mut values                                     |
+  | `default`     | If left is NaN/NULL, return right, else left                           | 
   | `div` or `/`  | `left` / `right`                                                       |
-  | `eq` or `=`   | Returns 1 if left == right, 0 otherwise                                |
-  | `gt` or `>`   | Returns 1 if left > right, otherwise returns 0                         |
-  | `gte` or `>=` | Returns 1 if left is greater than or equals right, otherwise returns 0 |
-  | `if`          | Returns left if right is not NaN/NULL. Otherwise, NaN is returned.     |
+  | `eq` or `=`   | returns 1 if left == right, 0 otherwise                                |
+  | `gt` or `>`   | returns 1 if left > right, otherwise returns 0                         |
+  | `gte` or `>=` | returns 1 if left is greater than or equals right, otherwise returns 0 |
+  | `if`          | returns left if right is not NaN/NULL. Otherwise, NaN is returned.     |
   | `ifnot`       | returns left if right is NaN. Otherwise, NaN is returned.              |
-  | `lt` or `<`   | Returns 1 if left > right, otherwise returns 0                         |
-  | `lte` or `<=` | Returns 1 if left is less than or equals right, otherwise returns 0    |
-  | `min`         | Minimum value                                                          |
-  | `max`         | Maximum value                                                          | 
+  | `lt` or `<`   | returns 1 if left > right, otherwise returns 0                         |
+  | `lte` or `<=` | returns 1 if left is less than or equals right, otherwise returns 0    |
+  | `max`         | maximum value                                                          |
+  | `min`         | minimum value                                                          |
   | `mul` or `*`  | `left` * `right`                                                       |
-  | `ne` or `!=`  | Returns 1 if `left` equals `right`, otherwise returns 0                |
-  | `pow`         | `left` ^ `right`                                                       |
-  | `sub` or `-`  | `left` - `right`                                                       |
+  | `ne` or `!=`  | returns 1 if `left` equals `right`, otherwise returns 0                |
   | `or`          | return the first non-NaN item. If both are NaN, it returns NaN.        |
-  | `unless`      | Returns Null unless `left` equals `right`                              |
+  | `pow`         | `left` ^ `right`                                                       |
+  | `pct_change`  | rhe percent change (`right` - `left`) / `left`                         |
+  | `sub` or `-`  | `left` - `right`                                                       |
+  | `sgn_diff`    | rhe sign of (`left` - `right`)                                         |
+  | `unless`      | returns Null unless `left` equals `right`                              |
 
 </details>
 
