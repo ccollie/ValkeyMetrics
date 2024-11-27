@@ -447,9 +447,9 @@ impl Chunk for PcoChunk {
         if let Some((mut timestamps, mut values)) = self.decompress()? {
             let first = samples[0];
 
-            if first.timestamp > self.last_timestamp {
-                timestamps.reserve(samples.count);
-                values.reserve(samples.count);
+            if first.timestamp > self.last_timestamp() {
+                timestamps.reserve(samples.len());
+                values.reserve(samples.len());
                 for sample in samples {
                     timestamps.push(sample.timestamp);
                     values.push(sample.value);
