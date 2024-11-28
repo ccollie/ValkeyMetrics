@@ -15,4 +15,5 @@ Cargo.lock
 
 venv/
 tests/**/venv/
+tests/**/__pycache__/
 /dump.rdb
