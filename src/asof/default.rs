@@ -19,7 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 // https://github.com/pola-rs/polars/blob/main/crates/polars-ops/src/frame/join/asof/default.rs
-use crate::common::types::{Sample};
+use crate::common::types::{Sample, SampleLike};
 use super::{
     AsofJoinBackwardState,
     AsofJoinForwardState,
@@ -33,7 +33,7 @@ use super::{
 fn join_asof_impl<'a, T, S, F>(left: &'a [T], right: &'a [T], mut filter: F) -> Vec<(&'a T, &'a T)>
 where
     S: AsofJoinState<'a, T>,
-    F: FnMut(&T, &T) -> bool,
+    F: FnMut(&T, &T) -> bool, T: SampleLike
 {
     let mut out = Vec::with_capacity(left.len());
     let mut state = S::default();
@@ -58,7 +58,7 @@ where
 
 pub fn join_asof_forward<'a, T, F>(left: &'a [T], right: &'a [T], filter: F) -> Vec<(&'a T, &'a T)>
 where
-    T: PartialOrd,
+    T: PartialOrd + SampleLike,
     F: FnMut(&T, &T) -> bool,
 {
     join_asof_impl::<T, AsofJoinForwardState, _>(left, right, filter)
@@ -66,7 +66,7 @@ where
 
 pub fn join_asof_backward<'a, T, F>(left: &'a [T], right: &'a [T], filter: F) -> Vec<(&'a T, &'a T)>
 where
-    T: PartialOrd,
+    T: PartialOrd + SampleLike,
     F: FnMut(&T, &T) -> bool,
 {
     join_asof_impl::<T, AsofJoinBackwardState, _>(left, right, filter)
@@ -74,7 +74,7 @@ where
 
 pub fn join_asof_nearest<'a, T, F>(left: &'a [T], right: &'a [T], filter: F) -> Vec<(&'a T, &'a T)>
 where
-    F: FnMut(&T, &T) -> bool,
+    F: FnMut(&T, &T) -> bool, T: SampleLike
 {
     join_asof_impl::<T, AsofJoinNearestState, _>(left, right, filter)
 }
@@ -90,16 +90,16 @@ pub(crate) fn join_asof_samples<'a>(
         let abs_tolerance = t.abs_diff(0);
         let filter = |l: &Sample, r: &Sample| l.timestamp.abs_diff(r.timestamp) <= abs_tolerance;
         match strategy {
-            AsofStrategy::Forward => join_asof_forward::<Sample, _>(left, right, filter),
-            AsofStrategy::Backward => join_asof_backward::<Sample, _>(left, right, filter),
-            AsofStrategy::Nearest => join_asof_nearest::<Sample, _>(left, right, filter),
+            AsofStrategy::Forward => join_asof_forward(left, right, filter),
+            AsofStrategy::Backward => join_asof_backward(left, right, filter),
+            AsofStrategy::Nearest => join_asof_nearest(left, right, filter),
         }
     } else {
         let filter = |_l: &Sample, _r: &Sample| true;
         match strategy {
-            AsofStrategy::Forward => join_asof_forward::<Sample, _>(left, right, filter),
-            AsofStrategy::Backward => join_asof_backward::<Sample, _>(left, right, filter),
-            AsofStrategy::Nearest => join_asof_nearest::<Sample, _>(left, right, filter),
+            AsofStrategy::Forward => join_asof_forward(left, right, filter),
+            AsofStrategy::Backward => join_asof_backward(left, right, filter),
+            AsofStrategy::Nearest => join_asof_nearest(left, right, filter),
         }
     }
 }
@@ -110,7 +110,7 @@ mod test {
 
     #[test]
     fn test_asof_backward() {
-        let samples_a = vec![
+        let a = vec![
             Sample { timestamp: -1, value: 1. },
             Sample { timestamp: 2, value: 2. },
             Sample { timestamp: 3, value: 3. },
@@ -126,13 +126,13 @@ mod test {
             Sample { timestamp: 3, value: 4. },
         ];
 
-        let tuples = join_asof_samples(&samples_a, &b, AsofStrategy::Backward, None);
-        assert_eq!(tuples.len(), samples_a.len());
+        let tuples = join_asof_samples(&a, &b, AsofStrategy::Backward, None);
+        assert_eq!(tuples.len(), b.len());
         let expected_right = &[1, 3, 3, 3, 3];
-        // for (l, r) in tuples.into_iter() {
-        //     assert_eq!(l, &b[i]);
-        //     assert_eq!(r, samples_b[i].value);
-        // }
+        for (i, (l, r)) in tuples.into_iter().enumerate() {
+            assert_eq!(l, &b[i]);
+            // assert_eq!(r.value, b.value);
+        }
         // assert_eq!(
         //     &[None, Some(1), Some(3), Some(3), Some(3), Some(3)]
         // );
@@ -144,7 +144,7 @@ mod test {
             Sample { timestamp: 4000, value: 4. },
             Sample { timestamp: 5000, value: 5. },
         ];
-        let tuples = join_asof_samples(&samples_a, &samples_b, AsofStrategy::Backward, None);
+        let tuples = join_asof_samples(&a, &samples_b, AsofStrategy::Backward, None);
         // assert_eq!(
         //     &[None, Some(1), Some(1), Some(1), Some(1), Some(2)]
         // );
@@ -197,9 +197,21 @@ mod test {
 
     #[test]
     fn test_asof_forward_tolerance() {
-        let a = [1, 20, 25, 30, 30, 40, 52];
-        let b = [10, 20, 33, 55];
-        let tuples = join_asof_forward::<u32, _>(&a, &b, |l, r| l.abs_diff(r) <= 4u32);
+        let a = vec![
+            Sample { timestamp: 1, value: 1. },
+            Sample { timestamp: 20, value: 2. },
+            Sample { timestamp: 25, value: 3. },
+            Sample { timestamp: 30, value: 4. },
+            Sample { timestamp: 30, value: 5. },
+            Sample { timestamp: 40, value: 6. },
+        ];
+        let b = vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 20, value: 2.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 33, value: 4.0 },
+        ];
+        let tuples = join_asof_forward(&a, &b, |l, r| l.timestamp.abs_diff(r.timestamp) <= 4);
         // assert_eq!(
         //     &[Some(1), None, Some(2), Some(2), None, Some(3)]
         // );

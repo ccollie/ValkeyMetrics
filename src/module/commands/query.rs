@@ -1,4 +1,3 @@
-use crate::common::duration_to_chrono;
 use crate::config::get_global_settings;
 use crate::globals::get_query_context;
 use crate::module::arg_parse::{parse_duration_arg, parse_timestamp_range};
@@ -9,6 +8,7 @@ use metricsql_runtime::execution::query::{
 };
 use metricsql_runtime::prelude::query::QueryParams;
 use metricsql_runtime::{QueryResult, RuntimeResult};
+use std::time::Duration;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString};
 
 const CMD_ARG_STEP: &str = "STEP";
@@ -27,7 +27,7 @@ pub(crate) fn query_range(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
 
     let query = args.next_string()?;
 
-    let mut step_value: Option<chrono::Duration> = None;
+    let mut step_value: Option<Duration> = None;
 
     let config = get_global_settings();
     let mut round_digits: u8 = config.round_digits.unwrap_or(100);
@@ -103,21 +103,20 @@ pub fn query(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     handle_query_result(engine_query(query_context, &query_params))
 }
 
-fn parse_step(arg: &ValkeyString) -> ValkeyResult<chrono::Duration> {
+fn parse_step(arg: &ValkeyString) -> ValkeyResult<Duration> {
     if let Ok(duration) = parse_duration_arg(arg) {
-        Ok(duration_to_chrono(duration))
+        Ok(duration)
     } else {
         Err(ValkeyError::Str("ERR invalid STEP duration"))
     }
 }
 
-fn normalize_step(step: Option<chrono::Duration>) -> ValkeyResult<chrono::Duration> {
+fn normalize_step(step: Option<Duration>) -> ValkeyResult<Duration> {
     let config = get_global_settings();
     if let Some(val) = step {
         Ok(val)
     } else {
-        chrono::Duration::from_std(config.default_step)
-            .map_err(|_| ValkeyError::Str("ERR invalid STEP duration"))
+        Ok(config.default_step)
     }
 }
 

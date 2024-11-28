@@ -1,3 +1,5 @@
+use crate::common::types::SampleLike;
+
 // Copyright (c) 2020 Ritchie Vink
 // Some portions Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
@@ -22,7 +24,7 @@ mod default;
 
 pub type IdxSize = usize;
 
-trait AsofJoinState<'a, T: 'a>: Default {
+trait AsofJoinState<'a, T: SampleLike + 'a>: Default {
     fn next<F: FnMut(IdxSize) -> Option<&'a T>>(
         &mut self,
         left_val: &T,
@@ -36,7 +38,7 @@ struct AsofJoinForwardState {
     scan_offset: IdxSize,
 }
 
-impl<'a, T: PartialOrd + 'a> AsofJoinState<'a, T> for AsofJoinForwardState {
+impl<'a, T: PartialOrd + SampleLike + 'a> AsofJoinState<'a, T> for AsofJoinForwardState {
     #[inline]
     fn next<F: FnMut(IdxSize) -> Option<&'a T>>(
         &mut self,
@@ -46,7 +48,7 @@ impl<'a, T: PartialOrd + 'a> AsofJoinState<'a, T> for AsofJoinForwardState {
     ) -> Option<IdxSize> {
         while self.scan_offset < n_right {
             if let Some(right_val) = right(self.scan_offset) {
-                if right_val >= left_val {
+                if right_val.timestamp() >= left_val.timestamp() {
                     return Some(self.scan_offset);
                 }
             }
@@ -63,7 +65,7 @@ struct AsofJoinBackwardState {
     scan_offset: IdxSize,
 }
 
-impl<'a, T: PartialOrd + 'a> AsofJoinState<'a, T> for AsofJoinBackwardState {
+impl<'a, T: PartialOrd + 'a + SampleLike> AsofJoinState<'a, T> for AsofJoinBackwardState {
     #[inline]
     fn next<F: FnMut(IdxSize) -> Option<&'a T>>(
         &mut self,
@@ -73,7 +75,7 @@ impl<'a, T: PartialOrd + 'a> AsofJoinState<'a, T> for AsofJoinBackwardState {
     ) -> Option<IdxSize> {
         while self.scan_offset < n_right {
             if let Some(right_val) = right(self.scan_offset) {
-                if right_val <= left_val {
+                if right_val.timestamp() <= left_val.timestamp() {
                     self.best_bound = Some(self.scan_offset);
                 } else {
                     break;
@@ -92,7 +94,7 @@ struct AsofJoinNearestState {
     scan_offset: IdxSize,
 }
 
-impl<'a, T: 'a + PartialEq> AsofJoinState<'a, T> for AsofJoinNearestState where &T: PartialOrd<T> {
+impl<'a, T: SampleLike + 'a + PartialEq> AsofJoinState<'a, T> for AsofJoinNearestState {
     #[inline]
     fn next<F: FnMut(IdxSize) -> Option<&'a T>>(
         &mut self,
@@ -104,15 +106,16 @@ impl<'a, T: 'a + PartialEq> AsofJoinState<'a, T> for AsofJoinNearestState where 
         // cheaper than computing differences.
         while self.scan_offset < n_right {
             if let Some(scan_right_val) = right(self.scan_offset) {
-                if scan_right_val <= *left_val {
+                if scan_right_val <= left_val {
                     self.best_bound = Some(self.scan_offset);
                 } else {
                     // Now we must compute a difference to see if scan_right_val
                     // is closer than our current best bound.
                     let scan_is_better = if let Some(best_idx) = self.best_bound {
                         let best_right_val = unsafe { right(best_idx).unwrap_unchecked() };
-                        let best_diff = left_val.abs_diff(best_right_val);
-                        let scan_diff = left_val.abs_diff(scan_right_val);
+                        let left_ts = left_val.timestamp();
+                        let best_diff = left_ts.abs_diff(best_right_val.timestamp());
+                        let scan_diff = left_ts.abs_diff(scan_right_val.timestamp());
 
                         scan_diff <= best_diff
                     } else {
@@ -127,7 +130,7 @@ impl<'a, T: 'a + PartialEq> AsofJoinState<'a, T> for AsofJoinNearestState where 
                         // scan, so keep going on.
                         while self.scan_offset < n_right {
                             if let Some(next_right_val) = right(self.scan_offset) {
-                                if next_right_val == *scan_right_val {
+                                if next_right_val == scan_right_val {
                                     self.best_bound = Some(self.scan_offset);
                                 } else {
                                     break;
