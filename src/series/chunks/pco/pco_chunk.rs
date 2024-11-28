@@ -6,7 +6,7 @@ use crate::series::chunks::pco::pco_utils::{compress_timestamps, compress_values
 use crate::series::chunks::pco::PcoSampleIterator;
 use crate::series::chunks::Chunk;
 use crate::series::utils::get_timestamp_index_bounds;
-use crate::series::{DuplicatePolicy, Sample, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
+use crate::series::{DuplicatePolicy, Sample, SampleAddResult, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64, PooledVecF64, PooledVecI64};
 use serde::{Deserialize, Serialize};
@@ -416,20 +416,14 @@ impl Chunk for PcoChunk {
         &mut self,
         samples: &[Sample],
         dp_policy: Option<DuplicatePolicy>,
-    ) -> TsdbResult<usize> {
+    ) -> TsdbResult<Vec<SampleAddResult>> {
 
+        let first = samples[0];
         let dp_policy = dp_policy.unwrap_or(DuplicatePolicy::Block);
-        if samples.len() == 1 {
-            let first = samples[0];
-            if self.is_empty() {
-                self.add_sample(&first)?;
-            } else {
-                self.upsert_sample(first, dp_policy)?;
-            }
-            return Ok(self.count)
-        }
 
-        if self.is_empty() {
+        let mut result = Vec::with_capacity(samples.len());
+
+        if self.is_empty() || first.timestamp > self.last_timestamp() {
             // we don't do streaming compression, so we have to accumulate all the samples
             // in a new chunk and then swap it with the old one
             let mut timestamps = get_pooled_vec_i64(self.count);
@@ -438,10 +432,11 @@ impl Chunk for PcoChunk {
             for sample in samples {
                 timestamps.push(sample.timestamp);
                 values.push(sample.value);
+                result.push(SampleAddResult::Ok(sample.timestamp));
             }
 
             self.compress(&timestamps, &values)?;
-            return Ok(timestamps.len())
+            return Ok(result)
         }
 
         if let Some((mut timestamps, mut values)) = self.decompress()? {
@@ -453,9 +448,10 @@ impl Chunk for PcoChunk {
                 for sample in samples {
                     timestamps.push(sample.timestamp);
                     values.push(sample.value);
+                    result.push(SampleAddResult::Ok(sample.timestamp));
                 }
                 self.compress(&timestamps, &values)?;
-                return Ok(samples.len());
+                return Ok(result);
             }
 
             let mut start_pos = 0;
@@ -466,17 +462,21 @@ impl Chunk for PcoChunk {
                 if found {
                     if let Ok(val) = dp_policy.duplicate_value(ts, values[pos], sample.value) {
                         values[pos] = val;
+                        result.push(SampleAddResult::Ok(sample.timestamp));
+                    } else {
+                        result.push(SampleAddResult::Duplicate);
                     }
                 } else {
                     timestamps.insert(pos, sample.timestamp);
                     values.insert(pos, sample.value);
+                    result.push(SampleAddResult::Ok(sample.timestamp));
                 }
             }
 
             self.compress(&timestamps, &values)?;
         }
 
-        Ok(self.count)
+        Ok(result)
     }
 
     fn split(&mut self) -> TsdbResult<Self>

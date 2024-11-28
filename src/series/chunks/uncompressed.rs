@@ -4,7 +4,7 @@ use crate::iterators::SampleIter;
 use crate::series::chunks::Chunk;
 use crate::series::merge::merge_samples;
 use crate::series::utils::get_sample_index_bounds;
-use crate::series::{DuplicatePolicy, SAMPLE_SIZE};
+use crate::series::{DuplicatePolicy, SampleAddResult, SAMPLE_SIZE};
 use core::mem::size_of;
 use get_size::GetSize;
 
@@ -221,7 +221,7 @@ impl Chunk for UncompressedChunk {
         &mut self,
         samples: &[Sample],
         dp_policy: Option<DuplicatePolicy>,
-    ) -> TsdbResult<usize> {
+    ) -> TsdbResult<Vec<SampleAddResult>> {
         let first = samples[0];
 
         if samples.len() == 1 {
@@ -230,33 +230,40 @@ impl Chunk for UncompressedChunk {
             } else {
                 self.upsert_sample(first, DuplicatePolicy::KeepLast)?;
             }
-            return Ok(self.len());
+            return Ok(vec![SampleAddResult::Ok(first.timestamp)]);
         }
 
-        if self.is_empty() {
-            self.samples = samples.to_vec();
-            return Ok(self.samples.len())
-        }
-
-        if first.timestamp > self.last_timestamp() {
+        if self.is_empty() || first.timestamp > self.last_timestamp() {
             self.samples.extend_from_slice(samples);
-            return Ok(self.samples.len());
+            let result = samples.iter().map(|sample| SampleAddResult::Ok(sample.timestamp)).collect();
+            return Ok(result)
         }
 
-        let mut dest: Vec<Sample> = Vec::with_capacity(self.samples.len() + samples.len());
+        struct State {
+            dest: Vec<Sample>,
+            res: Vec<SampleAddResult>,
+        }
+
+        let mut state = State {
+            dest: Vec::with_capacity(self.samples.len() + samples.len()),
+            res: Vec::with_capacity(samples.len()),
+        };
 
         let left_iter = SampleIter::Slice(samples.iter());
         let right_iter = SampleIter::Slice(self.samples.iter());
 
-        merge_samples(left_iter, right_iter, dp_policy, &mut dest, |dest, sample, duplicate| {
+        merge_samples(left_iter, right_iter, dp_policy, &mut state, |state, sample, duplicate| {
             if !duplicate {
-                dest.push(sample);
+                state.dest.push(sample);
+                state.res.push(SampleAddResult::Ok(sample.timestamp));
+            } else {
+                state.res.push(SampleAddResult::Duplicate);
             }
             Ok(())
         })?;
 
-        self.samples = dest;
-        Ok(self.samples.len())
+        self.samples = state.dest;
+        Ok(state.res)
     }
 
 

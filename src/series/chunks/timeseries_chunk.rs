@@ -3,7 +3,7 @@ use crate::error::TsdbResult;
 use crate::iterators::SampleIter;
 use crate::series::types::ValueFilter;
 use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value};
-use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, UncompressedChunk};
+use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, SampleAddResult, UncompressedChunk};
 use core::mem::size_of;
 use get_size::GetSize;
 use crate::series::chunks::compressed_vec::CompressedVecChunk;
@@ -219,22 +219,12 @@ impl TimeSeriesChunk {
     /// Samples with timestamps before `retention_threshold` will be ignored, whether
     /// they fall with the given range [start_ts..end_ts].
     /// Returns the number of samples merged.
-    pub fn merge_range(
-        &mut self,
-        other: &mut Self,
-        start_ts: Timestamp,
-        end_ts: Timestamp,
-        retention_threshold: Timestamp,
-        duplicate_policy: Option<DuplicatePolicy>,
-    ) -> TsdbResult<usize> {
-        if self.is_full() || other.is_empty() {
+    pub fn merge_range<'a>(&mut self, sample_iter: SampleIter<'a>, duplicate_policy: Option<DuplicatePolicy>) -> TsdbResult<usize> {
+        if self.is_full() {
             return Ok(0);
         }
-
-        let min_timestamp = retention_threshold.max(start_ts);
-        let samples = other.get_range(min_timestamp, end_ts)?;
+        let samples = sample_iter.collect()?;
         self.merge_samples(&samples, duplicate_policy)
-
     }
 
     pub fn memory_usage(&self) -> usize {
@@ -368,7 +358,7 @@ impl Chunk for TimeSeriesChunk {
         &mut self,
         samples: &[Sample],
         dp_policy: Option<DuplicatePolicy>,
-    ) -> TsdbResult<usize> {
+    ) -> TsdbResult<Vec<SampleAddResult>> {
         use TimeSeriesChunk::*;
 
         debug_assert!(!samples.is_empty());

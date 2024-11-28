@@ -5,10 +5,11 @@ use crate::error::{TsdbError, TsdbResult};
 use crate::iterators::SampleIter;
 use crate::series::chunks::chunk::Chunk;
 use crate::series::merge::merge_samples;
-use crate::series::{DuplicatePolicy, SERIES_SETTINGS};
+use crate::series::{DuplicatePolicy, SampleAddResult, SERIES_SETTINGS};
 use get_size::GetSize;
 use std::cmp::Ordering;
 use std::mem::size_of;
+use crate::error_consts;
 
 /// `GorillaChunk` holds information about location and time range of a block of compressed data.
 #[derive(Debug, Clone, PartialEq)]
@@ -274,41 +275,46 @@ impl Chunk for GorillaChunk {
         Ok(size)
     }
 
-    fn merge_samples(&mut self, samples: &[Sample], dp_policy: Option<DuplicatePolicy>) -> TsdbResult<usize> {
-        let policy = dp_policy.unwrap_or(DuplicatePolicy::KeepLast);
+    fn merge_samples(&mut self, samples: &[Sample], dp_policy: Option<DuplicatePolicy>) -> TsdbResult<Vec<SampleAddResult>> {
 
-        if samples.len() == 1 {
-            let first = samples[0];
-            if self.is_empty() {
-                self.add_sample(&first)?;
-                return Ok(1);
+        fn add_sample(chunk: &mut GorillaChunk, sample: &Sample, res: &mut Vec<SampleAddResult>) -> TsdbResult<()> {
+            match chunk.add_sample(sample) {
+                Ok(_) => {
+                    res.push(SampleAddResult::Ok(sample.timestamp));
+                    Ok(())
+                },
+                err @ Err(TsdbError::CapacityFull(_)) => Err(err.unwrap_err()),
+                Err(_e) => {
+                    // todo: log error
+                    res.push(SampleAddResult::Error(error_consts::CANNOT_ADD_SAMPLE));
+                    Ok(())
+                }
             }
-            return self.upsert_sample(first, policy);
-        } else if self.is_empty() {
-            return match self.set_data(samples) {
-                Ok(_) => Ok(self.len()),
-                Err(e) => Err(e),
-            };
         }
+
+        let mut result = Vec::with_capacity(samples.len());
 
         // we assume that samples are sorted. Try to optimize by seeing if all samples are past the
         // current chunk's last timestamp.
         let first = samples[0];
-        if first.timestamp > self.last_timestamp() {
+        if self.is_empty() || first.timestamp > self.last_timestamp() {
+            // set_data
             for sample in samples.iter() {
-                self.add_sample(sample)?;
+                add_sample(self, sample, &mut result)?;
             }
-            return Ok(samples.len())
+            return Ok(result)
         }
 
         struct MergeState {
             count: usize,
             xor_encoder: XOREncoder,
+            result: Vec<SampleAddResult>,
         }
 
         let mut merge_state = MergeState {
             count: 0,
             xor_encoder: XOREncoder::new(),
+            result: Vec::with_capacity(samples.len()),
         };
 
         let left = SampleIter::Slice(samples.iter());
@@ -318,12 +324,15 @@ impl Chunk for GorillaChunk {
             if !is_duplicate {
                 state.count += 1;
                 push_sample(&mut state.xor_encoder, &sample)?;
+                state.result.push(SampleAddResult::Ok(sample.timestamp));
+            } else {
+                state.result.push(SampleAddResult::Duplicate);
             }
             Ok(())
         })?;
 
         self.xor_encoder = merge_state.xor_encoder;
-        Ok(merge_state.count)
+        Ok(merge_state.result)
     }
 
 

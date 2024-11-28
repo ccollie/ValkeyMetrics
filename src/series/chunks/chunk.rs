@@ -3,7 +3,7 @@ use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
 use crate::series::chunks::timeseries_chunk::TimeSeriesChunk;
 use crate::series::types::ValueFilter;
-use crate::series::{DuplicatePolicy, Sample};
+use crate::series::{DuplicatePolicy, Sample, SampleAddResult};
 use get_size::GetSize;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
@@ -102,7 +102,7 @@ pub trait Chunk: Sized {
         &mut self,
         samples: &[Sample],
         dp_policy: Option<DuplicatePolicy>,
-    ) -> TsdbResult<usize>;
+    ) -> TsdbResult<Vec<SampleAddResult>>;
 
     fn split(&mut self) -> TsdbResult<Self>;
 }

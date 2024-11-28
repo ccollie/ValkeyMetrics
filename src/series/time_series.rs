@@ -237,6 +237,7 @@ impl TimeSeries {
             Err(_e) => return SampleAddResult::Error(error_consts::CANNOT_ADD_SAMPLE),
             _ => {},
         }
+
         if was_empty {
             self.first_timestamp = sample.timestamp;
         }
@@ -358,7 +359,7 @@ impl TimeSeries {
         &mut self,
         samples: &[Sample],
         dp_policy: Option<DuplicatePolicy>,
-    ) -> TsdbResult<usize> {
+    ) -> TsdbResult<Vec<SampleAddResult>> {
         let dp_policy = dp_policy.unwrap_or(self.duplicate_policy);
 
         let mut samples = samples.iter().map(|sample| {
@@ -369,28 +370,40 @@ impl TimeSeries {
         }).collect::<Vec<Sample>>();
         samples.sort();
 
-        let mut grouping: IntMap<usize, SmallVec<Sample, 6>> = IntMap::new();
+        #[derive(Default)]
+        struct GroupingState {
+            samples: SmallVec<Sample, 6>,
+            indexes: SmallVec<usize, 6>,
+        }
+
+        let mut grouping: IntMap<usize, GroupingState> = IntMap::new();
 
         let earliest_ts = self.get_min_timestamp();
         let mut res: Vec<SampleAddResult> = Vec::with_capacity(samples.len());
 
-        for sample in samples.iter() {
+        for (index, sample) in samples.iter().enumerate() {
             if sample.timestamp < earliest_ts {
                 res.push(SampleAddResult::TooOld);
             } else {
                 let (chunk_index, _) = find_last_ge_index(&self.chunks, sample.timestamp);
-                grouping.entry(chunk_index).or_default().push(*sample);
+                let entry = grouping.entry(chunk_index).or_default();
+                entry.samples.push(*sample);
+                entry.indexes.push(index);
+                // push temporary result
+                res.push(SampleAddResult::Ok(sample.timestamp));
             }
         }
 
-        let mut size = 0;
         // todo: parallelize
-        for (chunk_index, samples) in grouping {
+        for (chunk_index, group) in grouping {
             let chunk = self.chunks.get_mut(chunk_index).unwrap();
-            size += chunk.merge_samples(&samples, Some(dp_policy))?;
+            let results = chunk.merge_samples(&group.samples, Some(dp_policy))?;
+            for (i, result) in group.indexes.iter().zip(results) {
+                res[*i] = result;
+            }
         }
 
-        Ok(size)
+        Ok(res)
     }
 
 
