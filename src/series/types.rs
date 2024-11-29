@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
-use valkey_module::{ValkeyError, ValkeyResult, ValkeyString};
+use valkey_module::{ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
 #[derive(Debug, Default, PartialEq, Deserialize, Serialize, Clone, Copy)]
 #[derive(GetSize)]
@@ -123,6 +123,7 @@ impl TryFrom<u8> for DuplicatePolicy {
     }
 }
 
+#[derive(Copy, Clone)]
 pub enum SampleAddResult {
     Ok(Timestamp),
     Duplicate,
@@ -130,6 +131,7 @@ pub enum SampleAddResult {
     TooOld,
     Error(&'static str),
     CapacityFull,
+    InvalidKey
 }
 
 impl SampleAddResult {
@@ -147,9 +149,20 @@ impl Display for SampleAddResult {
             SampleAddResult::TooOld => write!(f, "{}", error_consts::SAMPLE_TOO_OLD),
             SampleAddResult::Error(e) => write!(f, "{}", e),
             SampleAddResult::CapacityFull => write!(f, "Capacity full"),
+            SampleAddResult::InvalidKey => write!(f, "Invalid key"),
         }
     }
 }
+
+impl From<SampleAddResult> for ValkeyValue {
+    fn from(res: SampleAddResult) -> Self {
+        match res {
+            SampleAddResult::Ok(ts) | SampleAddResult::Ignored(ts) => ValkeyValue::Integer(ts),
+            _ => ValkeyValue::Null,
+        }
+    }
+}
+
 pub struct MetadataFunctionArgs {
     pub start: Timestamp,
     pub end: Timestamp,

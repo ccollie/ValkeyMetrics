@@ -187,34 +187,22 @@ impl TimeSeriesChunk {
         }
     }
 
-    pub fn merge(
-        &mut self,
-        other: &mut Self,
-        retention_threshold: Timestamp,
-        duplicate_policy: Option<DuplicatePolicy>,
-    ) -> TsdbResult<usize> {
-        let min_timestamp = retention_threshold.max(other.first_timestamp());
-        self.merge_range(
-            other,
-            min_timestamp,
-            other.last_timestamp(),
-            retention_threshold,
-            duplicate_policy,
-        )
-    }
-
-    /// Merge a range of samples from another chunk into this chunk.
+    /// Merge a range of samples into this chunk.
     /// If the chunk is full or the other chunk is empty, returns 0.
     /// Duplicate values are handled according to `duplicate_policy`.
     /// Samples with timestamps before `retention_threshold` will be ignored, whether
     /// they fall with the given range [start_ts..end_ts].
     /// Returns the number of samples merged.
-    pub fn merge_range<'a>(&mut self, sample_iter: SampleIter<'a>, duplicate_policy: Option<DuplicatePolicy>) -> TsdbResult<usize> {
+    pub fn merge_range(&mut self,
+                       sample_iter: impl Iterator<Item=Sample>,
+                       duplicate_policy: Option<DuplicatePolicy>) -> TsdbResult<usize> {
         if self.is_full() {
             return Ok(0);
         }
-        let samples = sample_iter.collect()?;
-        self.merge_samples(&samples, duplicate_policy)
+        let samples = sample_iter.collect::<Vec<Sample>>();
+        // todo: handle error
+        let res = self.merge_samples(&samples, duplicate_policy)?;
+        Ok(res.iter().filter(|s| s.is_ok()).count())
     }
 
     pub fn memory_usage(&self) -> usize {

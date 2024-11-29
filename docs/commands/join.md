@@ -15,12 +15,12 @@ Join 2 time series on sample timestamps. Performs an INNER join by default.
 
 <details open><summary><code>leftKey</code></summary>
 
-is key name for the time series being joined.
+is the key for the time series being joined.
 </details>
 
 <details open><summary><code>rightKey</code></summary> 
 
-is key name for time series.
+is key name for right time series.
 </details>
 
 Both keys must have been created before `VM.JOIN` is called.
@@ -33,7 +33,7 @@ Both keys must have been created before `VM.JOIN` is called.
 
 <details open><summary><code>toTimestamp</code></summary>
 
-`toTimestamp` is the last timestamp of the requested range, or a relative delta from `fromTimestamp`
+`toTimestamp` is the last timestamp of the requested range (inclusive), or a relative delta from `fromTimestamp`
  
 </details>
 
@@ -43,8 +43,8 @@ Both keys must have been created before `VM.JOIN` is called.
 
 <details open><summary><code>LEFT [EXCLUSIVE]</code></summary>
 
-A `LEFT` join outputs the matching samples between both tables. In case, no samples match from the left series, it shows 
-those items with null mut values.
+A `LEFT` join outputs matching samples between both tables. In there are no matching right timestamps, it returns 
+those items with null values.
 
 A `LEFT EXCLUSIVE` join returns samples for which no corresponding timestamp exists in the `right` series.
 
@@ -52,8 +52,8 @@ A `LEFT EXCLUSIVE` join returns samples for which no corresponding timestamp exi
 
 <details open><summary><code>RIGHT [EXCLUSIVE]</code></summary>
 
-A `RIGHT` join outputs all samples in the right series. In case, no samples match from the left  series, it shows
-those items with null mut values.
+A `RIGHT` join outputs all samples in the right series. In case no samples match from the left series, it shows
+those items with null values.
 
 `RIGHT EXCLUSIVE` join returns samples for which no corresponding timestamp exists in the `left` series.
 
@@ -151,7 +151,7 @@ performs an operation on the value in each returned row.
   | `ne` or `!=`  | returns 1 if `left` equals `right`, otherwise returns 0                |
   | `or`          | return the first non-NaN item. If both are NaN, it returns NaN.        |
   | `pow`         | `left` ^ `right`                                                       |
-  | `pct_change`  | rhe percent change (`right` - `left`) / `left`                         |
+  | `pct_change`  | the percent change (`right` - `left`) / `left`                         |
   | `sub` or `-`  | `left` - `right`                                                       |
   | `sgn_diff`    | rhe sign of (`left` - `right`)                                         |
   | `unless`      | returns Null unless `left` equals `right`                              |
