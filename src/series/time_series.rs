@@ -2,9 +2,9 @@ use super::{validate_chunk_size, Chunk, ChunkCompression, SampleAddResult, TimeS
 use crate::common::rounding::RoundingStrategy;
 use crate::common::types::{IntMap, Label, Sample, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
+use crate::config::{DEFAULT_CHUNK_COMPRESSION, DEFAULT_CHUNK_SIZE_BYTES, DEFAULT_DUPLICATE_POLICY, DEFAULT_RETENTION_PERIOD};
 use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
-use crate::series::merge::merge_by_capacity;
 use crate::series::types::ValueFilter;
 use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value, format_prometheus_metric_name};
 use crate::series::DuplicatePolicy;
@@ -17,7 +17,6 @@ use std::mem::size_of;
 use std::time::Duration;
 use std::vec;
 use valkey_module::{logging, ValkeyError, ValkeyResult};
-use crate::config::{DEFAULT_CHUNK_COMPRESSION, DEFAULT_CHUNK_SIZE_BYTES, DEFAULT_DUPLICATE_POLICY, DEFAULT_RETENTION_PERIOD};
 
 pub(super) const TIMESTAMP_TYPE_U64: &str = "u64";
 pub(super) const TIMESTAMP_TYPE_U32: &str = "u32";
@@ -250,27 +249,6 @@ impl TimeSeries {
 
     /// (Possibly) add a new chunk and append the given sample.
     fn add_chunk_with_sample(&mut self, sample: &Sample) -> TsdbResult<()> {
-        let min_timestamp = self.get_min_timestamp();
-
-        // arrrgh! rust treats vecs as a single unit wrt borrowing, but the following iterator trick
-        // seems to work
-        let mut iter = self.chunks.iter_mut().rev();
-        let last_chunk = iter.next().unwrap();
-
-        // check if previous chunk has capacity, and if so merge into it
-        if let Some(prev_chunk) = iter.next() {
-            if let Some(deleted_count) = merge_by_capacity(
-                prev_chunk,
-                last_chunk,
-                min_timestamp,
-                None,
-            )? {
-                self.total_samples -= deleted_count;
-                last_chunk.add_sample(sample)?;
-                return Ok(());
-            }
-        }
-
         let mut chunk = self.create_chunk();
         chunk.add_sample(sample)?;
         self.chunks.push(chunk);
@@ -398,6 +376,8 @@ impl TimeSeries {
         for (chunk_index, group) in grouping {
             let chunk = self.chunks.get_mut(chunk_index).unwrap();
             let results = chunk.merge_samples(&group.samples, Some(dp_policy))?;
+            // todo: if we get a capacityFull error, we should split the chunk and try again with the
+            // samples that failed to insert
             for (i, result) in group.indexes.iter().zip(results) {
                 res[*i] = result;
             }

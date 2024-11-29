@@ -42,7 +42,8 @@ pub(crate) fn merge_by_capacity(
     // if there is enough capacity in the previous block, merge the last block into it
     if remaining_capacity >= count {
         // copy all from last_chunk
-        let res = dest.merge(src, first_ts, duplicate_policy)?;
+        let iter = src.iter();
+        let res = dest.merge_range(iter, duplicate_policy)?;
         // reuse last block
         src.clear();
         return Ok(Some(res));
@@ -55,7 +56,8 @@ pub(crate) fn merge_by_capacity(
             duplicate_policy,
         )?;
         src.set_data(right)?;
-        return Ok(Some(res));
+        let count = res.iter().filter(|s| s.is_ok()).count();
+        return Ok(Some(count));
     }
     Ok(None)
 }

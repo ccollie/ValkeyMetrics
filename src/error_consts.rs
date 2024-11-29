@@ -1,6 +1,6 @@
 pub const CANNOT_ADD_SAMPLE: &str = "ERR could not add sample";
 pub const CHUNK_SPLIT: &str = "ERR could not split chunk";
-pub const CAPACITY_FULL: &str = "ERR capacity full";
+pub const CAPACITY_FULL: &str = "ERR chunk at full capacity";
 pub const CHUNK_DECOMPRESSION: &str = "ERR cannot decompress chunk";
 pub const DUPLICATE_SAMPLE: &str = "ERR duplicate sample";
 pub const SAMPLE_TOO_CLOSE: &str = "ERR sample too close to previous in value or timestamp";

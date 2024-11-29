@@ -204,34 +204,34 @@ fn cmp(x: f64, y: f64) -> f64 {
     if y.is_nan() {
         return 1.0;
     }
-    match x.partial_cmp(&y).unwrap_or(Ordering::Equal) {
+    match x.total_cmp(&y) {
         Ordering::Less => -1.0,
         Ordering::Equal => 0.0,
         Ordering::Greater => 1.0,
     }
 }
 
-fn min(x: f64, y: f64) -> f64 {
+const fn min(x: f64, y: f64) -> f64 {
     x.min(y)
 }
 
-fn max(x: f64, y: f64) -> f64 {
+const fn max(x: f64, y: f64) -> f64 {
     x.max(y)
 }
 
-fn avg(x: f64, y: f64) -> f64 {
+const fn avg(x: f64, y: f64) -> f64 {
     (x + y) / 2.0
 }
 
-fn abs_diff(x: f64, y: f64) -> f64 {
+const fn abs_diff(x: f64, y: f64) -> f64 {
     (x - y).abs()
 }
 
-fn sgn_diff(x: f64, y: f64) -> f64 {
+const fn sgn_diff(x: f64, y: f64) -> f64 {
     (x - y).signum()
 }
 
-fn pct_change(x: f64, y: f64) -> f64 {
+const fn pct_change(x: f64, y: f64) -> f64 {
     if x == 0.0 {
         return 0.0;
     }

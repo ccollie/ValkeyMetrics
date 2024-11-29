@@ -2,18 +2,25 @@ use crate::arg_parse::parse_timestamp;
 use crate::common::get_current_time_millis;
 use crate::common::types::Sample;
 use crate::common::types::Timestamp;
+use crate::error::TsdbResult;
 use crate::module::get_timeseries_mut;
-use smallvec::SmallVec;
+use crate::series::SampleAddResult;
+use nom::AsBytes;
 use std::collections::HashMap;
 use valkey_module::{Context, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
 struct ParsedInput<'a> {
     key: &'a ValkeyString,
+    key_buf: &'a [u8],
     raw_timestamp: &'a ValkeyString,
     raw_value: &'a ValkeyString,
     timestamp: Timestamp,
     value: f64,
+    index: usize,
 }
+
+use rayon::prelude::*;
+// Add this import
 
 pub fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let arg_count = args.len() - 1;
@@ -47,61 +54,86 @@ pub fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
         inputs.push(ParsedInput {
             key,
+            key_buf: key.as_bytes(),
             raw_timestamp,
             raw_value,
             timestamp,
             value,
+            index: inputs.len(),
         });
 
         index += 3;
     }
 
-    let grouped_inputs = group(inputs.into_iter().map(|input| (input.key, input)));
-    // in the general case, most series will be using compressed chunks, so rayon should help
-    // greatly with latency
+    // todo! Parallelize this !!!
 
-    let mut results: SmallVec<ValkeyValue, 10> = SmallVec::new();
+    let mut temp = group(inputs.into_iter().map(|input| (input.key_buf, input)))
+        .into_iter()
+        .fold(vec![], |mut acc, inputs| {
+            // todo: remove unwrap
+            let key = inputs[0].key;
+            let mut arr = add_sample_internal(ctx, key, &inputs).unwrap();
+            acc.append(&mut arr);
+            acc
+        });
+
+    temp.sort_by(|x, y| x.0.cmp(&y.0));
+    let result = temp.into_iter().map(|(_, res)| ValkeyValue::from(res))
+        .collect::<Vec<_>>();
 
     // todo!!
-    Ok(ValkeyValue::Array(vec![]))
+    Ok(ValkeyValue::Array(result.into()))
 }
 
-fn add_sample_internal(ctx: &Context, key: &ValkeyString, input: &Vec<ParsedInput>) {
+fn add_sample_internal(ctx: &Context, key: &ValkeyString, input: &Vec<ParsedInput>) -> TsdbResult<Vec<(usize, SampleAddResult)>>  {
     if let Ok(Some(series)) = get_timeseries_mut(ctx, key, true) {
         let samples = input.iter()
-            .map(|input| Sample { timestamp: input.timestamp, value: input.value} )
+            .map(|input| Sample { timestamp: input.timestamp, value: input.value } )
             .collect::<Vec<Sample>>();
 
-        series.merge_samples(&samples, None).expect("TODO: panic message");
+        let add_results = series.merge_samples(&samples, None)?;
+        let mut results = Vec::with_capacity(input.len());
+        let mut replication_args = Vec::with_capacity(input.len());
+        for (res, input) in add_results.iter().zip(input.iter()) {
+            if res.is_ok() {
+                replication_args.push(input.key);
+                replication_args.push(input.raw_timestamp);
+                replication_args.push(input.raw_value);
+            }
+            results.push((input.index, *res));
+        }
+        if !replication_args.is_empty() {
+            ctx.replicate("VM.MADD", &*replication_args);
+            let mut idx = 0;
+            while idx < replication_args.len() {
+                ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.ADD", &replication_args[idx]);
+                idx += 3;
+            }
+        }
+
+        Ok(results)
+
     } else {
-        // todo: return null entries
+        Ok(
+            input.iter().map(|input| (input.index, SampleAddResult::InvalidKey)).collect()
+        )
     }
 }
 
-fn replicate_and_notify(ctx: &Context, parsed_input: &ParsedInput) {
-    let args = &[
-        parsed_input.key,
-        parsed_input.raw_timestamp,
-        parsed_input.raw_value,
-    ];
-    ctx.replicate("VM.MADD", args);
-    ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.MADD", parsed_input.key);
-}
 
-
-fn group<K, V, I>(iter: I) -> HashMap<K, Vec<V>>
+fn group<K, V, I>(iter: I) -> Vec<Vec<V>>
 where
     K: Eq + std::hash::Hash,
     I: Iterator<Item = (K, V)>,
 {
     let mut hash_map = match iter.size_hint() {
         (_, Some(len)) => HashMap::with_capacity(len),
-        (len, None) => HashMap::with_capacity(len)
+        (len, None) => HashMap::with_capacity(len),
     };
 
     for (key, value) in iter {
-        hash_map.entry(key).or_insert_with(|| Vec::with_capacity(1)).push(value)
+        hash_map.entry(key).or_insert_with(|| Vec::with_capacity(1)).push(value);
     }
 
-    hash_map
+    hash_map.into_iter().map(|(_, v)| v).collect()
 }
