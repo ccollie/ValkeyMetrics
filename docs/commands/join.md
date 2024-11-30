@@ -1,6 +1,6 @@
 ```
 VM.JOIN leftKey rightKey fromTimestamp toTimestamp
-    [[INNER] | [FULL] | [LEFT [EXCLUSIVE]] | [RIGHT [EXCLUSIVE]] | [ASOF [PRIOR | NEXT] tolerance]]
+    [[INNER] | [FULL] | [LEFT [EXCLUSIVE]] | [RIGHT [EXCLUSIVE]] | [ASOF [PRIOR | NEXT | NEAREST] [tolerance]]]
     [FILTER_BY_TS ts...]
     [FILTER_BY_VALUE min max]
     [COUNT count]
@@ -61,7 +61,7 @@ those items with null mut values.
 
 <details open><summary><code>INNER</code></summary>
 
-specifies an INNER join. A row is generated for samples with matching timestamps in the selected range.
+specifies an `INNER` join. A row is generated for samples with matching timestamps in the selected range.
 
 </details>
 
@@ -81,16 +81,17 @@ perfectly aligned timestamps. ASOF joins solve the problem of finding the value 
 
 #### How It Works
 For each sample in the left table, the join finds the closest matching value from the right table.
-- Specify `PRIOR` to match the using closest prior timestamp from the `right` series
-- Specify `NEXT` (default) to match the using closest timestamp from the `right` series
+- `PRIOR` selects the last row in the right series whose timeseries is less than or equal to the left’s timestamp.
+- `NEXT` (default) selects the first row in the right series whose timestamp is greater than or equal to the left’s timestamp.
+- `NEAREST` selects the last row in the right series whose timestamp is nearest to the left’s timestamp.
 
 `tolerance` sets a limit on how far apart the timestamps can be while still considering them a match. 
 The tolerance can be specified as:
  - An integer representing milliseconds
  - A duration specified as a string, e.g. 2m
 
-If not specified, there is no tolerance limit (equivalent to an infinite tolerance)
-When set, JOIN ASOF will only match keys within the specified tolerance range. Any potential matches outside this range will be treated as no match12.
+If not specified, there is no tolerance limit (equivalent to an infinite tolerance). When set, JOIN ASOF will only match 
+keys within the specified tolerance range. Any potential matches outside this range will be treated as no match.
 
 The tolerance works in conjunction with the 'direction' parameter. 
  - For example, with direction= `PRIOR` (the default), it looks for the nearest timestamp within the tolerance range that is less 
@@ -135,7 +136,7 @@ performs an operation on the value in each returned row.
   | `absdiff`     | abs(`left` - `right`)                                                  |
   | `add` or `+`  | `left` + `right`                                                       |
   | `and`         | Returns `left` if either value is NAN/NULL, `right` otherwise          |
-  | `avg`         | Arithmetic mean of both mut values                                         |
+  | `avg`         | Arithmetic mean of both mut values                                     |
   | `default`     | If left is is NaN/NULL, return right, else left                        | 
   | `div` or `/`  | `left` / `right`                                                       |
   | `eq` or `=`   | Returns 1 if left == right, 0 otherwise                                |
