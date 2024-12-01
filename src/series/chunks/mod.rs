@@ -6,6 +6,8 @@ mod timeseries_chunk;
 #[cfg(test)]
 mod timeseries_chunk_tests;
 mod serialization;
+pub mod utils;
+mod stream;
 
 pub use chunk::*;
 pub use gorilla::{

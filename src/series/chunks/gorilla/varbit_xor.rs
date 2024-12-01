@@ -39,9 +39,10 @@ pub fn write_varbit_xor<W: BitWrite>(
         && new_leading >= previous_leading_bits_count
         && new_trailing >= previous_trailing_bits_count
     {
+        let significant_digits = 64 - previous_leading_bits_count - previous_trailing_bits_count;
         bit_writer.write_bit(false)?;
         bit_writer.write(
-            64_u32 - (previous_leading_bits_count as u32) - previous_trailing_bits_count as u32,
+            significant_digits as u32,
             delta >> previous_trailing_bits_count,
         )?;
         return Ok((previous_leading_bits_count, previous_trailing_bits_count));

@@ -2,7 +2,7 @@ use crate::common::types::{Sample, Timestamp};
 use crate::error::TsdbResult;
 use crate::iterators::SampleIter;
 use crate::series::types::ValueFilter;
-use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value};
+use crate::series::chunks::utils::{filter_samples_by_date_range, filter_samples_by_value};
 use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, SampleAddResult, UncompressedChunk};
 use core::mem::size_of;
 use get_size::GetSize;

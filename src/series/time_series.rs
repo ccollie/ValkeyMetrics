@@ -6,7 +6,7 @@ use crate::config::{DEFAULT_CHUNK_COMPRESSION, DEFAULT_CHUNK_SIZE_BYTES, DEFAULT
 use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
 use crate::series::types::ValueFilter;
-use crate::series::utils::{filter_samples_by_date_range, filter_samples_by_value, format_prometheus_metric_name};
+use super::chunks::utils::{filter_samples_by_date_range, filter_samples_by_value, format_prometheus_metric_name};
 use crate::series::DuplicatePolicy;
 use crate::series::TimeSeriesChunk;
 use ahash::HashMapExt;

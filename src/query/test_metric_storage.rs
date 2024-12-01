@@ -25,9 +25,19 @@ impl TestMetricStorage {
         }
     }
 
+    fn add_internal(&mut self, key: KeyType, ts: Timestamp, val: f64) -> ValkeyResult<()> {
+        self.with_mutable_series(&key, |series| {
+            let res = series.add(ts, val, None);
+            if !res.is_ok() {
+                return Err(ValkeyError::String("Error adding sample".to_string()));
+            }
+            Ok(())
+        })
+    }
+
     fn add_by_key(&mut self, key: &str, ts: Timestamp, val: f64) -> ValkeyResult<()> {
         let key = string_to_key(key);
-        self.with_mutable_series(&key, |series| series.add(ts, val, None))
+        self.add_internal(key, ts, val)
     }
 
     pub fn add(&mut self, metric: &str, ts: Timestamp, value: f64) -> ValkeyResult<()> {
@@ -36,7 +46,7 @@ impl TestMetricStorage {
             Err(_) => return Err(ValkeyError::String("Invalid metric name".to_string())),
         };
         let key = mn.to_string().into_bytes().into_boxed_slice();
-        self.with_mutable_series(&key, |series| series.add(ts, value, None))
+        self.add_internal(key, ts, value)
     }
 
     pub fn add_sample(&mut self, mn: &MetricName, sample: &Sample) -> ValkeyResult<()> {
@@ -48,9 +58,7 @@ impl TestMetricStorage {
                 string_to_key(mn_str.as_str())
             }
         };
-        self.with_mutable_series(&key, |series| {
-            series.add(sample.timestamp, sample.value, None)
-        })
+        self.add_internal(key, sample.timestamp, sample.value)
     }
 
     fn get_key_from_metric_name(&self, mn: &MetricName) -> Option<KeyType> {

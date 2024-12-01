@@ -5,7 +5,7 @@ use crate::error::{TsdbError, TsdbResult};
 use crate::module::{with_timeseries, VKM_SERIES_TYPE};
 use crate::series::index::filters::{get_ids_by_matchers_optimized, process_equals_match, process_iterator};
 use crate::series::time_series::{TimeSeries, TimeseriesId};
-use crate::series::utils::format_prometheus_metric_name;
+use crate::series::chunks::utils::format_prometheus_metric_name;
 use cfg_if::cfg_if;
 use rand::Rng;
 use std::collections::BTreeSet;
