@@ -14,7 +14,7 @@ pub enum TimeSeriesChunk {
     Uncompressed(UncompressedChunk),
     Gorilla(GorillaChunk),
     Pco(PcoChunk),
-    CompressedVec(CompressedVecChunk),
+    CompressedVec(CompressedVecChunk), // todo: Box<CompressedVecChunk>
 }
 
 impl TimeSeriesChunk {

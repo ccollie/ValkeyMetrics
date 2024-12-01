@@ -9,6 +9,7 @@ use compressed_vec::vector::{VectorItemIter, VectorStats};
 use compressed_vec::{VectorF32XorAppender, VectorU64Appender};
 use metricsql_runtime::prelude::Timestamp;
 use std::iter::{Map, Zip};
+use std::sync::LazyLock;
 use get_size::GetSize;
 use regex::Regex;
 
@@ -98,10 +99,8 @@ impl CompressedVecChunk {
         // calculate the size of the chunk
         if max_size < 512 {
             512
-        } else if max_size > 1024 {
-            max_size.min(1024)
         } else {
-            max_size
+            max_size.min(1024)
         }
     }
 }
@@ -112,9 +111,12 @@ fn parse_stats(stats: &VectorStats) -> Option<(usize, f32)> {
     parse_stats_summary_string(&str)
 }
 
+const STATS_REGEX: LazyLock<Regex> = LazyLock::new(||
+    Regex::new(r"#bytes=(\d+)\s+#elems=\d+\s+bytes-per-elem=([\d.]+)").unwrap()
+);
+
 pub fn parse_stats_summary_string(summary: &str) -> Option<(usize, f32)> {
-    let re = Regex::new(r"#bytes=(\d+)\s+#elems=\d+\s+bytes-per-elem=([\d.]+)").unwrap();
-    if let Some(captures) = re.captures(summary) {
+    if let Some(captures) = STATS_REGEX.captures(summary) {
         let num_bytes = captures.get(1)?.as_str().parse::<usize>().ok()?;
         let bytes_per_elem = captures.get(2)?.as_str().parse::<f32>().ok()?;
         Some((num_bytes, bytes_per_elem))
@@ -211,28 +213,22 @@ impl Chunk for CompressedVecChunk {
         let (mut new_values, mut new_timestamps) = alloc_vectors(self.init_size)?;
         let mut last_ts = self.end_ts;
         let mut first_ts = -1;
-        let mut last_value = self.last_value;
+        let mut last_value = f64::NAN;
         
         let mut iter = self.iter();
 
-        for sample in iter.by_ref().take_while(|s| s.timestamp < start_ts) {
+        // skip previous samples
+        for sample in iter.by_ref() {
+            if sample.timestamp < start_ts {
+                continue;
+            }
+            if sample >= end_ts {
+                break;
+            }
             append_internal(&mut new_values, &mut new_timestamps, &sample)?;
             if first_ts < 0 {
                 first_ts = sample.timestamp;
             }
-            self.last_value = sample.value;
-            last_ts = sample.timestamp;
-            last_value = sample.value;
-        }
-        
-        let mut tail = iter.skip_while(|s| s.timestamp <= end_ts);
-        
-        for sample in tail {
-            append_internal(&mut new_values, &mut new_timestamps, &sample)?;
-            if first_ts < 0 {
-                first_ts = sample.timestamp;
-            }
-            self.last_value = sample.value;
             last_ts = sample.timestamp;
             last_value = sample.value;
         }
@@ -240,15 +236,9 @@ impl Chunk for CompressedVecChunk {
         self.values = new_values;
         self.timestamps = new_timestamps;
         
-        if self.start_ts > first_ts {
-            self.start_ts = last_ts;
-            /// get first value after the removed range
-        }
-        
-        if self.end_ts < last_ts {
-            self.end_ts = 0;
-            self.last_value = f64::NAN;
-        }
+        self.start_ts = first_ts.min(0);
+        self.end_ts = last_ts;
+        self.last_value = last_value;
 
         Ok(old_sample_count - self.len())
     }
