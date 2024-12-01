@@ -209,6 +209,32 @@ impl IndexInner {
         }
         // todo: rayon ??
     }
+
+    fn process_label_values<T, CONTEXT, F, PRED>(
+        &self,
+        label: &str,
+        ctx: &mut CONTEXT,
+        predicate: PRED,
+        f: F
+    ) -> Option<T>
+    where F: Fn(&mut CONTEXT, &str, &IdBitmap) -> ControlFlow<Option<T>>,
+          PRED: Fn(&str) -> bool
+    {
+        let prefix = get_key_for_label_prefix(label);
+        let start_pos = prefix.len();
+        for (key, map) in self.label_index.prefix(prefix.as_bytes()) {
+            let value = key.sub_string(start_pos);
+            if predicate(value) {
+                match f(ctx, value, map) {
+                    ControlFlow::Break(v) => {
+                        return v;
+                    },
+                    Continue(_) => continue,
+                }
+            }
+        }
+        None
+    }
 }
 
 /// Index for quick access to timeseries by label, label value or metric name.
