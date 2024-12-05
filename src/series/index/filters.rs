@@ -1,7 +1,10 @@
+use ahash::AHashSet;
 use crate::series::index::index_key::format_key_for_label_prefix;
 use crate::series::index::timeseries_index::SetOperation;
 use super::{ARTBitmap, IdBitmap};
 use blart::AsBytes;
+use metricsql_common::hash::FastHashSet;
+use metricsql_parser::label::Matcher;
 use crate::common::types::{LabelFilterOp, Matchers, StringMatchHandler, TagFilter};
 use metricsql_runtime::{create_label_filter_matchers, LabelFilterVec};
 
@@ -178,5 +181,15 @@ fn exec_filter_list(label_index: &ARTBitmap, filters: &[TagFilter], dest: &mut I
         if dest.is_empty() {
             return;
         }
+    }
+}
+
+fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<String>) -> bool {
+    if !label_must_be_set.has(&m.label) {
+        return true;
+    }
+    match m.op {
+        LabelFilterOp::NotEqual | LabelFilterOp::RegexNotEqual => m.is_match(""),
+        _ => false,
     }
 }
