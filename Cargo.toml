@@ -15,6 +15,7 @@ ahash = { version = "0.8", features = ["serde"] }
 blart = "0.3"
 bitstream-io = "2.6"
 cfg-if = "1.0"
+chili = { git = "https://github.com/dragostis/chili", branch = "main" }
 chrono = { version = "0.4", features = ["serde"] }
 croaring = { version = "2.1" , features = ["alloc"] }
 enquote = "1.1"
