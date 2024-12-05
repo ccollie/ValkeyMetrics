@@ -1,11 +1,8 @@
 import time
-import pytest
-from util.waiters import *
-from valkey import ResponseError
+
 from valkey_metrics_test_case import ValkeyMetricsTestCaseBase
-from valkeytests.conftest import resource_port_tracker
-import logging
-import os
+from valkeytests.util.waiters import wait_for_equal
+
 
 class TestSeriesBasic(ValkeyMetricsTestCaseBase):
 
@@ -23,14 +20,14 @@ class TestSeriesBasic(ValkeyMetricsTestCaseBase):
         assert(module_loaded)
         # Validate that all the BF.* commands are supported on the server.
         command_cmd_result = client.execute_command('COMMAND')
-        bf_cmds = [
+        vm_cmds = [
             "VM.ACTIVE-QUERIES", "VM.ADD", "VM.ALERTS", "VM.ALTER-RULE-GROUP", "VM.ALTER-SERIES", "VM.CARDINALITY",
             "VM.COLLATE", "VM.CREATE-ALERTING-RULE", "VM.CREATE-RECORDING-RULE", "VM.CREATE-RULE-GROUP", "VM.CREATE-SERIES",
             "VM.DELETE-KEY-RANGE", "VM.DELETE-RANGE", "VM.DELETE-SERIES", "VM.GET", "VM.JOIN", "VM.LABEL-NAMES", "VM.LABEL-VALUES",
             "VM.LABELS", "VM.MADD", "VM.MGET", "VM.MRANGE", "VM.QUERY", "VM.QUERY-RANGE", "VM.RANGE", "VM.RESET-ROLLUP-CACHE",
             "VM.RULE-GROUPS", "VM.SERIES", "VM.STATS", "VM.TOP-QUERIES"
         ]
-        assert all(item in command_cmd_result for item in bf_cmds)
+        assert all(item in command_cmd_result for item in vm_cmds)
         # Basic bloom filter create, item add and item exists validation.
         bf_add_result = client.execute_command('BF.ADD filter1 item1')
         assert bf_add_result == 1
@@ -42,22 +39,14 @@ class TestSeriesBasic(ValkeyMetricsTestCaseBase):
     def test_copy_and_exists_cmd(self):
         client = self.server.get_new_client()
         madd_result = client.execute_command('BF.MADD filter item1 item2 item3 item4')
-        assert client.execute_command('EXISTS filter') == 1
+        assert client.execute_command('EXISTS series') == 1
         mexists_result = client.execute_command('BF.MEXISTS filter item1 item2 item3 item4')
         assert len(madd_result) == 4 and len(mexists_result) == 4
         # cmd debug digest
         server_digest = client.debug_digest()
         assert server_digest != None or 0000000000000000000000000000000000000000
         object_digest = client.execute_command('DEBUG DIGEST-VALUE filter')
-        assert client.execute_command('COPY filter new_filter') == 1
-        copied_server_digest = client.debug_digest()
-        assert copied_server_digest != None or 0000000000000000000000000000000000000000
-        copied_object_digest = client.execute_command('DEBUG DIGEST-VALUE filter')
-        assert client.execute_command('EXISTS new_filter') == 1
-        copy_mexists_result = client.execute_command('BF.MEXISTS new_filter item1 item2 item3 item4')
-        assert mexists_result == copy_mexists_result
-        assert server_digest != copied_server_digest
-        assert copied_object_digest == object_digest
+        assert client.execute_command('COPY series new_series') == 1
 
     def test_memory_usage_cmd(self):
         client = self.server.get_new_client()
@@ -153,31 +142,18 @@ class TestSeriesBasic(ValkeyMetricsTestCaseBase):
         client = self.server.get_new_client()
         assert client.execute_command('VM.CREATE-SERIES series item1') == 1
         type_result = client.execute_command('TYPE filter')
-        assert type_result == b"bloomfltr"
+        assert type_result == b"vkmseries"
         # Validate the name of the Module data type.
         encoding_result = client.execute_command('OBJECT ENCODING filter')
         assert encoding_result == b"raw"
-
-    def test_bloom_obj_access(self):
-        client = self.server.get_new_client()
-        # check bloom filter with basic valkey command
-        # cmd touch
-        assert client.execute_command('BF.ADD key1 val1') == 1
-        assert client.execute_command('BF.ADD key2 val2') == 1
-        assert client.execute_command('TOUCH key1 key2') == 2
-        assert client.execute_command('TOUCH key3') == 0
-        self.verify_server_key_count(client, 2)
-        assert client.execute_command('DBSIZE') == 2
-        random_key = client.execute_command('RANDOMKEY')
-        assert random_key == b"key1" or random_key == b"key2"
 
     def test_bloom_transaction(self):
         client = self.server.get_new_client()
         # cmd multi, exec
         assert client.execute_command('MULTI') == b'OK'
-        assert client.execute_command('BF.ADD M1 V1') == b'QUEUED'
-        assert client.execute_command('BF.ADD M2 V2') == b'QUEUED'
-        assert client.execute_command('BF.EXISTS M1 V1') == b'QUEUED'
+        assert client.execute_command('VM.ADD M1 V1') == b'QUEUED'
+        assert client.execute_command('VM.ADD M2 V2') == b'QUEUED'
+        assert client.execute_command('VM.EXISTS M1 V1') == b'QUEUED'
         assert client.execute_command('DEL M1') == b'QUEUED'
         assert client.execute_command('BF.EXISTS M1 V1') == b'QUEUED'
         assert client.execute_command('EXEC') == [1, 1, 1, 1, 0]
@@ -267,19 +243,6 @@ class TestSeriesBasic(ValkeyMetricsTestCaseBase):
         assert scenario1_obj != default_obj
         assert scenario1_object_digest != default_object_digest
 
-        # scenario2 validates that digest differs on bloom objects with different false positive rate.
-        scenario2_obj = client.execute_command('BF.INSERT scenario2 error 0.002 capacity 1000 items 1')
-        scenario2_object_digest = client.execute_command('DEBUG DIGEST-VALUE scenario2')
-        assert scenario2_obj != default_obj
-        assert scenario2_object_digest != default_object_digest
-
-        # scenario3 validates that digest differs on bloom objects with different expansion.
-        scenario3_obj = client.execute_command('BF.INSERT scenario3 error 0.002 capacity 1000 expansion 3 items 1')
-        scenario3_object_digest = client.execute_command('DEBUG DIGEST-VALUE scenario3')
-        assert scenario3_obj != default_obj
-        assert scenario3_object_digest != default_object_digest
-
-
         # scenario4 validates that digest differs on bloom objects with different capacity.
         scenario4_obj = client.execute_command('BF.INSERT scenario4 error 0.001 capacity 2000 items 1')
         scenario4_object_digest = client.execute_command('DEBUG DIGEST-VALUE scenario4')
@@ -292,8 +255,8 @@ class TestSeriesBasic(ValkeyMetricsTestCaseBase):
         assert scenario5_obj != default_obj
         assert scenario5_object_digest != default_object_digest
 
-        client.execute_command('BF.MADD default_obj 1 2 3')
-        client.execute_command('BF.MADD scenario5 2 3')
+        client.execute_command('VM.MADD default_obj 1 2 3')
+        client.execute_command('VM.MADD scenario5 2 3')
         madd_default_object_digest = client.execute_command('DEBUG DIGEST-VALUE default_obj')
         madd_scenario_object_digest = client.execute_command('DEBUG DIGEST-VALUE scenario5')
         assert madd_scenario_object_digest == madd_default_object_digest

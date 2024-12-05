@@ -34,6 +34,15 @@ class ValkeyMetricsTestCaseBase(ValkeyTestCase):
         else:
             assert client.execute_command(f'BF.EXISTS {key} {value}') == 0, f"Item {key} {value} exists"
 
+    def verify_timeseries_existence(self, client, key, should_exist=True):
+        type_result = client.execute_command(f'TYPE {key}')
+        if should_exist:
+            assert type_result != b"none", f"Timeseries {key} doesn't exist"
+            assert type_result == b"vkmseries", f"{key} is not a valid timeseries"
+        else:
+            assert type_result == b"none", f"{key} should not exist"
+
+
     def verify_server_key_count(self, client, expected_num_keys):
         actual_num_keys = client.info_obj().num_keys()
         assert_num_key_error_msg = f"Actual key number {actual_num_keys} is different from expected key number {expected_num_keys}"

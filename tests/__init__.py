@@ -3,7 +3,6 @@ from sys import platform
 
 from test_query_range import RDB_PATH
 
-
 def get_platform():
     return platform.lower()
 

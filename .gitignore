@@ -14,7 +14,11 @@ Cargo.lock
 *.pdb
 
 venv/
+tests/.build
 tests/**/venv/
 tests/**/__pycache__/
 tests/.build/**
 /dump.rdb
+__pycache__
+test-data
+.attach_pid*
