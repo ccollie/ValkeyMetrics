@@ -9,7 +9,6 @@ mod posting_query_tests;
 mod postings;
 
 use crate::common::get_current_db;
-use crate::module::VKM_SERIES_TYPE;
 use crate::series::TimeSeries;
 use papaya::{Guard, HashMap};
 use rayon::iter::{ParallelBridge, ParallelIterator};
@@ -19,6 +18,7 @@ pub use timeseries_index::*;
 pub use postings::*;
 pub use metricsql_parser::label::{Matcher, Matchers};
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
+use crate::module::VKM_SERIES_TYPE;
 
 /// Map from db to TimeseriesIndex
 pub type TimeSeriesIndexMap = HashMap<i32, TimeSeriesIndex>;
