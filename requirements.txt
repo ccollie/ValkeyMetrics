@@ -1,2 +1,4 @@
+valkey
 RLTest==0.7.10
+pytest
 redis
