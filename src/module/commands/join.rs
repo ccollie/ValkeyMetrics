@@ -89,12 +89,12 @@ fn parse_asof(args: &mut CommandArgIterator) -> ValkeyResult<JoinType> {
     if let Some(next_arg) = args.peek() {
         if let Ok(arg_str) = next_arg.try_as_str() {
             // see if we have a duration expression
-            // durations in all cases start with an ascii digit, e.g 1000 or 10ms
+            // durations in all cases start with an ascii digit, e.g. 1000 or 40ms
             let ch = arg_str.chars().next().unwrap();
             if ch.is_ascii_digit() {
                 let tolerance_ms = parse_duration_ms(arg_str)?;
                 if tolerance_ms < 0 {
-                    return Err(ValkeyError::Str("ERR: negative tolerance not valid"));
+                    return Err(ValkeyError::Str("ERR: negative ASOF tolerance not valid"));
                 }
                 tolerance = Duration::from_millis(tolerance_ms as u64);
                 let _ = args.next_arg()?;
@@ -190,9 +190,10 @@ fn parse_join_args(args: &mut CommandArgIterator, options: &mut JoinOptions) -> 
 }
 
 fn process_join(left_series: &TimeSeries, right_series: &TimeSeries, options: &JoinOptions) -> ValkeyValue {
-    // todo: rayon::join
-    let left_samples = fetch_samples(left_series, options);
-    let right_samples = fetch_samples(right_series, options);
+    let (left_samples, right_samples) = chili::Scope::global().join(
+        |_| fetch_samples(left_series, options),
+        |_| fetch_samples(right_series, options)
+    );
     join_internal(&left_samples, &right_samples, options)
 }
 
