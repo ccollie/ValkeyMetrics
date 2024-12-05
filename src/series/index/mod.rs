@@ -6,12 +6,16 @@ mod filters;
 mod index_key;
 pub mod serialization;
 
-use std::sync::LazyLock;
+use crate::common::get_current_db;
+use crate::module::VKM_SERIES_TYPE;
+use crate::series::TimeSeries;
+use metricsql_parser::label::Matchers;
 use papaya::{Guard, HashMap};
 use rayon::iter::{ParallelBridge, ParallelIterator};
-use valkey_module::{Context};
+use smallvec::SmallVec;
+use std::sync::LazyLock;
 pub use timeseries_index::*;
-use crate::common::get_current_db;
+use valkey_module::{Context, ValkeyString};
 
 /// Map from db to TimeseriesIndex
 pub type TimeSeriesIndexMap = HashMap<i32, TimeSeriesIndex>;
@@ -31,6 +35,40 @@ where
     let guard = TIMESERIES_INDEX.guard();
     let index = get_timeseries_index_for_db(db, &guard);
     let res = f(index);
+    drop(guard);
+    res
+}
+
+pub fn with_matched_series<F, R>(ctx: &Context, matchers: &[Matchers], f: F) -> R
+where
+    F: FnOnce(&[&TimeSeries]) -> R,
+{
+    let db = get_current_db(ctx);
+    let guard = TIMESERIES_INDEX.guard();
+    let index = get_timeseries_index_for_db(db, &guard);
+
+    let keys = index.series_keys_by_matchers(ctx, matchers);
+
+    if keys.is_empty() {
+        return f(&[]);
+    }
+
+    // needed to keep valkey keys alive below
+    let db_keys = keys
+        .iter()
+        .map(|key| ctx.open_key(key))
+        .collect::<Vec<_>>();
+
+    let mut time_series: SmallVec<&TimeSeries, 10> = SmallVec::new();
+
+    for key in db_keys.iter() {
+        if let Ok(Some(series)) = key.get_value::<TimeSeries>(&VKM_SERIES_TYPE) {
+            time_series.push(series);
+        }
+    }
+
+    let res = f(time_series.as_slice());
+
     drop(guard);
     res
 }
