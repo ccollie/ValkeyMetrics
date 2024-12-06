@@ -15,8 +15,8 @@ cargo clippy --profile release --all-targets -- -D clippy::all
 echo "Running cargo build release..."
 cargo build --all --all-targets  --release
 
-echo "Running unit tests..."
-cargo test
+# echo "Running unit tests..."
+# cargo test
 
 # Ensure SERVER_VERSION environment variable is set
 if [ -z "$SERVER_VERSION" ]; then

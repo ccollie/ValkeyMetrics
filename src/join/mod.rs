@@ -8,6 +8,7 @@ use std::time::Duration;
 pub mod asof;
 mod join_asof_iter;
 mod join_full_iter;
+mod join_handler;
 mod join_inner_iter;
 mod join_iter;
 mod join_left_exclusive_iter;
@@ -18,6 +19,7 @@ mod join_right_iter;
 
 use crate::join::asof::AsOfJoinStrategy;
 use crate::series::TimestampRange;
+pub use join_handler::*;
 pub use join_iter::*;
 use join_reducer::JoinReducer;
 
