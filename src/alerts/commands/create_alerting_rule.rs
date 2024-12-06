@@ -9,7 +9,7 @@ use crate::module::arg_parse::{
     CMD_ARG_LABELS,
 };
 use metricsql_parser::parser::is_valid_identifier;
-use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
+use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
 use valkey_module_macros::command;
 
 const CMD_ARG_ALERT_FOR: &str = "FOR"; // todo: rename to THRESHOLD
@@ -50,7 +50,9 @@ pub fn create_alerting_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRes
             .add_rule(to_add)
             .map_err(|_e| ValkeyError::Str(error_consts::ALERTS_DUPLICATE_RULE))?;
 
-        // todo: Replicate
+        ctx.replicate_verbatim();
+        ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.CREATE-ALERTING-RULE", &group_key);
+
         VALKEY_OK
     })
 }

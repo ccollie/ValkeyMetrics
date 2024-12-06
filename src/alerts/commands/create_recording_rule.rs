@@ -7,7 +7,7 @@ use crate::module::arg_parse::{
     CMD_ARG_LABELS,
 };
 use metricsql_parser::parser::is_valid_identifier;
-use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
+use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
 use valkey_module_macros::command;
 
 const CMD_ARG_MAX_ENTRIES: &str = "MAX_ENTRIES";
@@ -41,6 +41,9 @@ pub fn create_recording_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRe
         group
             .add_rule(to_add)
             .map_err(|_e| ValkeyError::Str(error_consts::ALERTS_DUPLICATE_RULE))?;
+
+        ctx.replicate_verbatim();
+        ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.CREATE-RECORDING-RULE", &group_key);
 
         VALKEY_OK
     })

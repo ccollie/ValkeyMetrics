@@ -45,6 +45,9 @@ pub fn create_group_function(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRe
 
     create_group(ctx, &parsed_key, options)?;
 
+    ctx.replicate_verbatim();
+    ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.CREATE-RULE-GROUP", &parsed_key);
+
     VALKEY_OK
 }
 
