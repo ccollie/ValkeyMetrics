@@ -1,7 +1,6 @@
+use super::{Bit, Write};
+use num_traits::{PrimInt};
 use std::boxed::Box;
-
-use super::Bit;
-use super::Write;
 
 /// BufferedWriter
 ///
@@ -36,6 +35,22 @@ impl BufferedWriter {
 
     fn last_index(&self) -> usize {
         self.buf.len() - 1
+    }
+
+    /// Writes an unsigned value to the stream using the given
+    /// const number of bits.
+    ///
+    /// # Errors
+    ///
+    /// Passes along any I/O error from the underlying stream.
+    /// Returns an error if the value is too large
+    /// to fit the given number of bits.
+    /// A compile-time error occurs if the given number of bits
+    /// is larger than the output type.
+    pub fn write_out<const BITS: u32, U>(&mut self, value: U) where
+        U: PrimInt,
+    {
+        self.write_bits(value.to_u64().expect("Cannot convert int to u64"), BITS) // ?????
     }
 }
 
@@ -75,31 +90,37 @@ impl Write for BufferedWriter {
         self.buf[i + 1] |= b;
     }
 
-    fn write_bits(&mut self, mut bits: u64, mut num: u32) {
+    #[inline]
+    fn write_bytes(&mut self, buf: &[u8]) {
+        buf.iter().for_each(|b| self.write_byte(*b))
+    }
+
+    fn write_bits(&mut self, val: u64, bits: u32) {
         // we should never write more than 64 bits for a u64
-        if num > 64 {
-            num = 64;
+        let mut num_bits = bits;
+        if num_bits > 64 {
+            num_bits = 64;
         }
 
-        bits = bits.wrapping_shl(64 - num);
-        while num >= 8 {
-            let byte = bits.wrapping_shr(56);
+        let mut val = val.wrapping_shl(64 - num_bits);
+        while num_bits >= 8 {
+            let byte = val.wrapping_shr(56);
             self.write_byte(byte as u8);
 
-            bits = bits.wrapping_shl(8);
-            num -= 8;
+            val = val.wrapping_shl(8);
+            num_bits -= 8;
         }
 
-        while num > 0 {
-            let byte = bits.wrapping_shr(63);
+        while num_bits > 0 {
+            let byte = val.wrapping_shr(63);
             if byte == 1 {
                 self.write_bit(Bit::One);
             } else {
                 self.write_bit(Bit::Zero);
             }
 
-            bits = bits.wrapping_shl(1);
-            num -= 1;
+            val = val.wrapping_shl(1);
+            num_bits -= 1;
         }
     }
 

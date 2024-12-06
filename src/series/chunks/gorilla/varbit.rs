@@ -8,6 +8,7 @@ use nom::{
     bits::complete::{bool, take},
     IResult,
 };
+use crate::series::chunks::stream::{BufferedReader, BufferedWriter, Error, Read, Write};
 
 /// writes an i64 using varbit encoding with a bit bucketing
 /// optimized for the dod's observed in histogram buckets, plus a few additional
@@ -90,6 +91,19 @@ pub fn read_varbit_int_bucket(input: NomBitInput) -> IResult<NomBitInput, u8> {
     Ok((remaining_input, 8))
 }
 
+pub fn read_varbit_int_bucket_ex(reader: &mut BufferedReader) -> Result<u8, Error> {
+    for i in 0..8 {
+        let bit = reader.read_bit()?;
+        // If we read a 0, it's a sign that we reached the end of the bucket category.
+        if !bit.is_set() {
+            return Ok(i);
+        }
+    }
+
+    // If we read 8 bits already, there is no final 0.
+    Ok(8)
+}
+
 #[inline]
 pub fn varbit_bucket_to_num_bits(bucket: u8) -> u8 {
     match bucket {
@@ -122,6 +136,23 @@ pub fn read_varbit_int(input: NomBitInput) -> IResult<NomBitInput, i64> {
     }
 
     Ok((remaining_input, value))
+}
+
+pub fn read_varbit_int_ex(reader: &mut BufferedReader) -> Result<i64, Error> {
+    let bucket= read_varbit_int_bucket_ex(reader)?;
+    let num_bits = varbit_bucket_to_num_bits(bucket);
+
+    // Shortcut for the 0 use case as nothing more has to be read.
+    if bucket == 0 {
+        return Ok(0);
+    }
+
+    let mut value = reader.read_bits(num_bits as u32)?;
+    if num_bits != 64 && value > (1 << (num_bits - 1)) {
+        value -= 1 << num_bits;
+    }
+
+    Ok(value as i64)
 }
 
 /// Reads a Prometheus varbit-encoded unsigned integer from the input.

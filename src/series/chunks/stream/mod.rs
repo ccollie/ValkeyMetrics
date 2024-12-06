@@ -16,6 +16,13 @@ impl Bit {
             Bit::One => 1,
         }
     }
+
+    pub fn is_set(&self) -> bool {
+        match self {
+            Bit::Zero => false,
+            Bit::One => true,
+        }
+    }
 }
 
 /// Error
@@ -68,6 +75,8 @@ pub trait Write {
 
     // Write a single byte to the underlying stream.
     fn write_byte(&mut self, byte: u8);
+    #[inline]
+    fn write_bytes(&mut self, buf: &[u8]);
 
     // Write the bottom `num` bits of `bits` to the underlying stream.
     fn write_bits(&mut self, bits: u64, num: u32);

@@ -35,7 +35,7 @@ pub fn create_recording_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRe
     let mut args = args.into_iter().skip(1).peekable();
     let group_key = args.next_arg()?;
 
-    with_group_mut(ctx, &group_key, move |group| {
+    with_group_mut(ctx, &group_key.clone(), move |group| {
         let rule = parse_rule_config(args)?;
         let to_add = MetricRule::RecordingRule(rule);
         group

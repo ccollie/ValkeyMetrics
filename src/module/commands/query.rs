@@ -59,7 +59,7 @@ pub(crate) fn query_range(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResul
     // queries take indeterminate time. We should not block the main thread
     let blocked_client = ctx.block_client();
 
-    // todo: run on a thread from rayon thread pool
+    // todo: run on a thread from rayon thread pool to limit parallelism
     thread::spawn(move || {
         let thread_ctx = ThreadSafeContext::with_blocked_client(blocked_client);
         match run_range_query(&query_params) {
@@ -78,7 +78,7 @@ pub(crate) fn query_range(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResul
 }
 
 ///
-/// VKM.QUERY timestamp query
+/// VM.QUERY timestamp query
 ///         [TIMEOUT duration]
 ///         [ROUNDING digits]
 ///

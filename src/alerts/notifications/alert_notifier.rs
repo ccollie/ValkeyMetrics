@@ -36,7 +36,6 @@ impl Notifier for AlertNotifier {
             AlertNotifier::Null(notifier) => notifier.send(ctx, alerts, notifier_headers),
         }
     }
-
     fn addr(&self) -> String {
         match self {
             AlertNotifier::Stream(notifier) => notifier.addr(),

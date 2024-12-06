@@ -1,6 +1,6 @@
 use crate::alerts::meta::with_group_mut;
 use crate::alerts::rules::{Group, MetricRule};
-use valkey_module::{replicate_verbatim, Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
+use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
 use valkey_module_macros::command;
 
 // todo: support multiple
@@ -28,7 +28,7 @@ pub fn delete_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let group_key = args.next_arg()?;
     let rule_id = args.next_u64()?;
 
-    with_group_mut(ctx, &group_key, move |group| {
+    with_group_mut(ctx, &group_key.clone(), move |group| {
         if !handle_delete(ctx, group, rule_id, false) {
             return Err(ValkeyError::Str("Err rules does not exist"));
         }
@@ -36,7 +36,7 @@ pub fn delete_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         ctx.replicate_verbatim();
         // TODO: Is this correct ? Rules are not represented in the keyspace, so we use a composite
         let key = format!("{}:{}", group_key, rule_id);
-        let event_key = ctx.create_string(&key);
+        let event_key = ctx.create_string(&*key);
         ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.DELETE-RULE", &event_key);
 
         VALKEY_OK

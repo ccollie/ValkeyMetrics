@@ -35,6 +35,7 @@ metricsql_runtime = { git = "https://github.com/ccollie/metricsql", branch = "de
 metricsql_parser = { git = "https://github.com/ccollie/metricsql", branch = "dev" }
 joinkit = "0.2.0"
 nom = "7.1"
+num-traits = "0.2.19"
 papaya = "0.1"
 pco = "0.4"
 phf = "0.11"

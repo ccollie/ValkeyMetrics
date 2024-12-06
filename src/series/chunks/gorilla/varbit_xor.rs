@@ -50,13 +50,13 @@ pub fn write_varbit_xor<W: BitWrite>(
 
     bit_writer.write_bit(true)?;
     bit_writer.write(5, new_leading)?;
-    let sigbits = (64_u64 - new_leading as u64) - new_trailing as u64;
-    // Overflow 64 to 0 is fine because if 0 sigbits, we would have written a "same number"
+    let sig_bits = (64_u64 - new_leading as u64) - new_trailing as u64;
+    // Overflow 64 to 0 is fine because if 0 sig_bits, we would have written a "same number"
     // bit a bit earlier.
     // The reason is that only 6 bits are available, and the maximum value is 63.
-    let encoded_sigbits = if sigbits > 63 { 0 } else { sigbits };
+    let encoded_sigbits = if sig_bits > 63 { 0 } else { sig_bits };
     bit_writer.write(6, encoded_sigbits)?;
-    bit_writer.write(sigbits as u32, delta >> new_trailing)?;
+    bit_writer.write(sig_bits as u32, delta >> new_trailing)?;
 
     Ok((new_leading, new_trailing))
 }

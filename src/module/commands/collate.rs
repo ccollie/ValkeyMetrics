@@ -27,10 +27,10 @@ struct CollateOptions {
 }
 
 /// VM.COLLATE fromTimestamp toTimestamp FILTER filter...
-/// [COUNT count]
-/// [WITHLABELS]
-/// [SELECTED_LABELS label...]
-/// [AGGREGATION aggregator]
+///   [COUNT count]
+///   [WITHLABELS]
+///   [SELECTED_LABELS label...]
+///   [AGGREGATION aggregator]
 pub fn collate(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1).peekable();
 
