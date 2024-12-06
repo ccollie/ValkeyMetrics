@@ -2,7 +2,9 @@
 mod tests {
     use crate::common::types::{Label, Sample, Timestamp};
     use crate::series::test_utils::generate_random_samples;
-    use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, SampleAddResult, TimeSeries, TimeSeriesChunk};
+    use crate::series::{
+        Chunk, ChunkCompression, DuplicatePolicy, SampleAddResult, TimeSeries, TimeSeriesChunk,
+    };
     use metricsql_runtime::prelude::TimestampTrait;
     use std::time::Duration;
 
@@ -45,7 +47,6 @@ mod tests {
         (chunk.first_timestamp(), chunk.last_timestamp())
     }
 
-
     #[test]
     fn test_add_sample_older_than_retention() {
         let mut ts = create_test_timeseries();
@@ -68,7 +69,10 @@ mod tests {
 
         // Add a sample exactly at the retention boundary
         let retention_boundary = current_time + 3600 * 1000; // Convert to milliseconds
-        let result = ts.add_sample(Sample { timestamp: retention_boundary, value: 42.0 });
+        let result = ts.add_sample(Sample {
+            timestamp: retention_boundary,
+            value: 42.0,
+        });
 
         assert!(result.is_ok());
         assert_eq!(ts.last_timestamp, retention_boundary);
@@ -108,13 +112,7 @@ mod tests {
     #[test]
     fn test_add_multiple_samples() {
         let mut ts = create_test_timeseries();
-        let samples = vec![
-            (100, 1.0),
-            (200, 2.0),
-            (300, 3.0),
-            (400, 4.0),
-            (500, 5.0),
-        ];
+        let samples = vec![(100, 1.0), (200, 2.0), (300, 3.0), (400, 4.0), (500, 5.0)];
 
         for (timestamp, value) in samples {
             ts.add_sample(Sample { timestamp, value });
@@ -135,41 +133,64 @@ mod tests {
         ts.duplicate_policy = DuplicatePolicy::KeepLast;
 
         // Add first sample
-        ts.add_sample(Sample { timestamp, value: 1.0 });
+        ts.add_sample(Sample {
+            timestamp,
+            value: 1.0,
+        });
         assert_eq!(ts.total_samples, 1);
         assert_eq!(ts.last_value, 1.0);
 
         // Add second sample with same timestamp but different value
-        ts.add_sample(Sample { timestamp, value: 2.0 });
+        ts.add_sample(Sample {
+            timestamp,
+            value: 2.0,
+        });
         assert_eq!(ts.total_samples, 1);
         assert_eq!(ts.last_value, 2.0);
 
         // Verify that only the last sample is stored
         let samples = ts.get_range(timestamp, timestamp);
         assert_eq!(samples.len(), 1);
-        assert_eq!(samples[0], Sample { timestamp, value: 2.0 });
+        assert_eq!(
+            samples[0],
+            Sample {
+                timestamp,
+                value: 2.0
+            }
+        );
 
         // Test with KeepFirst policy
         ts = create_test_timeseries();
         ts.duplicate_policy = DuplicatePolicy::KeepFirst;
 
         // Add first sample
-        let res = ts.add_sample(Sample { timestamp, value: 1.0 });
+        let res = ts.add_sample(Sample {
+            timestamp,
+            value: 1.0,
+        });
         assert!(matches!(res, SampleAddResult::Ok(ts) if ts == timestamp));
         assert_eq!(ts.total_samples, 1);
         assert_eq!(ts.last_value, 1.0);
 
         // Add second sample with same timestamp but different value
-        let res = ts.add_sample(Sample { timestamp, value: 2.0 });
+        let res = ts.add_sample(Sample {
+            timestamp,
+            value: 2.0,
+        });
         assert_eq!(ts.total_samples, 1);
         assert_eq!(ts.last_value, 1.0);
 
         // Verify that only the first sample is stored
         let samples = ts.get_range(timestamp, timestamp);
         assert_eq!(samples.len(), 1);
-        assert_eq!(samples[0], Sample { timestamp, value: 1.0 });
+        assert_eq!(
+            samples[0],
+            Sample {
+                timestamp,
+                value: 1.0
+            }
+        );
     }
-
 
     #[test]
     fn test_add_sample_new_chunk() {
@@ -177,12 +198,18 @@ mod tests {
         ts.chunk_size_bytes = 8; // Set a small chunk size to force new chunk creation
 
         // Add first sample
-        ts.add_sample(Sample { timestamp: 1000, value: 1.0 });
+        ts.add_sample(Sample {
+            timestamp: 1000,
+            value: 1.0,
+        });
         assert_eq!(ts.chunks.len(), 1);
         assert_eq!(ts.total_samples, 1);
 
         // Add second sample, which should create a new chunk
-        ts.add_sample(Sample { timestamp: 2000, value: 2.0 });
+        ts.add_sample(Sample {
+            timestamp: 2000,
+            value: 2.0,
+        });
         assert_eq!(ts.chunks.len(), 2);
         assert_eq!(ts.total_samples, 2);
         assert_eq!(ts.first_timestamp, 1000);
@@ -208,7 +235,6 @@ mod tests {
         assert_eq!(ts.last_timestamp, new_timestamp);
         assert_eq!(ts.last_value, new_value);
     }
-    ///
 
     #[test]
     fn test_add_sample_at_dedupe_interval_boundary() {
@@ -288,7 +314,11 @@ mod tests {
             timestamp: duplicate_timestamp,
             value: sample_value,
         };
-        let res = ts.add(duplicate_timestamp, sample_value, Some(DuplicatePolicy::KeepFirst));
+        let res = ts.add(
+            duplicate_timestamp,
+            sample_value,
+            Some(DuplicatePolicy::KeepFirst),
+        );
         assert!(matches!(res, SampleAddResult::Ignored(stamp) if stamp == duplicate_timestamp));
         assert_eq!(ts.last_value, 0.0);
     }
@@ -299,11 +329,26 @@ mod tests {
         ts.duplicate_policy = DuplicatePolicy::KeepLast;
 
         let samples = vec![
-            Sample { timestamp: 1, value: 10.0 },
-            Sample { timestamp: 2, value: 20.0 },
-            Sample { timestamp: 2, value: 25.0 },
-            Sample { timestamp: 3, value: 30.0 },
-            Sample { timestamp: 3, value: 35.0 },
+            Sample {
+                timestamp: 1,
+                value: 10.0,
+            },
+            Sample {
+                timestamp: 2,
+                value: 20.0,
+            },
+            Sample {
+                timestamp: 2,
+                value: 25.0,
+            },
+            Sample {
+                timestamp: 3,
+                value: 30.0,
+            },
+            Sample {
+                timestamp: 3,
+                value: 35.0,
+            },
         ];
 
         for sample in samples {
@@ -314,8 +359,14 @@ mod tests {
         assert_eq!(ts.last_value, 35.0);
 
         let expected_samples = vec![
-            Sample { timestamp: 2, value: 25.0 },
-            Sample { timestamp: 3, value: 35.0 },
+            Sample {
+                timestamp: 2,
+                value: 25.0,
+            },
+            Sample {
+                timestamp: 3,
+                value: 35.0,
+            },
         ];
 
         assert_eq!(ts.get_range(1, 3), expected_samples);
@@ -354,7 +405,7 @@ mod tests {
 
         for (i, sample) in samples.iter().enumerate() {
             if i > 0 {
-                assert!(sample.timestamp > samples[i-1].timestamp);
+                assert!(sample.timestamp > samples[i - 1].timestamp);
             }
         }
     }
@@ -362,7 +413,7 @@ mod tests {
     #[test]
     fn test_range_iter_between_samples() {
         let mut ts = create_test_timeseries();
-        add_chunk_data(&mut ts, 1);  // Add one chunk of data
+        add_chunk_data(&mut ts, 1); // Add one chunk of data
 
         let chunk = &ts.chunks[0];
         let samples = chunk.get_range(-1, i64::MAX).unwrap();
@@ -397,8 +448,14 @@ mod tests {
         let samples: Vec<_> = ts.range_iter(start, end).collect();
 
         assert!(!samples.is_empty(), "Expected non-empty samples");
-        assert!(samples.first().unwrap().timestamp >= start, "First sample timestamp should be >= start");
-        assert!(samples.last().unwrap().timestamp <= end, "Last sample timestamp should be <= end");
+        assert!(
+            samples.first().unwrap().timestamp >= start,
+            "First sample timestamp should be >= start"
+        );
+        assert!(
+            samples.last().unwrap().timestamp <= end,
+            "Last sample timestamp should be <= end"
+        );
     }
 
     #[test]
@@ -406,14 +463,11 @@ mod tests {
         let mut ts = create_test_timeseries();
         add_chunk_data(&mut ts, 3);
 
-        let mut all_samples: Vec<Sample> =
-            ts.chunks
-                .iter()
-                .fold(Vec::new(), |mut acc, chunk| {
-                    let samples = chunk.get_range(0, i64::MAX).unwrap();
-                    acc.extend(samples);
-                    acc
-                });
+        let mut all_samples: Vec<Sample> = ts.chunks.iter().fold(Vec::new(), |mut acc, chunk| {
+            let samples = chunk.get_range(0, i64::MAX).unwrap();
+            acc.extend(samples);
+            acc
+        });
 
         all_samples.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
@@ -431,7 +485,6 @@ mod tests {
         }
 
         assert_eq!(all_samples, samples);
-
 
         // Test start and end both starting in the middle of two chunks
         // |------|--------|--------|------|
@@ -537,10 +590,25 @@ mod tests {
 
         ts.trim().unwrap();
 
-        assert_eq!(ts.chunks.len(), initial_chunks - 1, "First chunk should be removed");
-        assert!(ts.total_samples < initial_samples, "Total samples should decrease");
-        assert_eq!(ts.first_timestamp, last_timestamp_chunk1 + 1, "First timestamp should be updated");
-        assert_eq!(ts.chunks[0].first_timestamp(), last_timestamp_chunk1 + 1, "New first chunk should start after previous chunk's last timestamp");
+        assert_eq!(
+            ts.chunks.len(),
+            initial_chunks - 1,
+            "First chunk should be removed"
+        );
+        assert!(
+            ts.total_samples < initial_samples,
+            "Total samples should decrease"
+        );
+        assert_eq!(
+            ts.first_timestamp,
+            last_timestamp_chunk1 + 1,
+            "First timestamp should be updated"
+        );
+        assert_eq!(
+            ts.chunks[0].first_timestamp(),
+            last_timestamp_chunk1 + 1,
+            "New first chunk should start after previous chunk's last timestamp"
+        );
     }
 
     #[test]
@@ -581,11 +649,26 @@ mod tests {
 
         // Add a single chunk with samples
         let samples = vec![
-            Sample { timestamp: 10, value: 1.0 },
-            Sample { timestamp: 20, value: 2.0 },
-            Sample { timestamp: 30, value: 3.0 },
-            Sample { timestamp: 40, value: 4.0 },
-            Sample { timestamp: 50, value: 5.0 },
+            Sample {
+                timestamp: 10,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 30,
+                value: 3.0,
+            },
+            Sample {
+                timestamp: 40,
+                value: 4.0,
+            },
+            Sample {
+                timestamp: 50,
+                value: 5.0,
+            },
         ];
         let mut chunk = TimeSeriesChunk::new(ChunkCompression::Uncompressed, 1024);
         chunk.set_data(&samples).unwrap();
@@ -607,9 +690,27 @@ mod tests {
 
         let remaining_samples = ts.get_range(0, 1000);
         assert_eq!(remaining_samples.len(), 3);
-        assert_eq!(remaining_samples[0], Sample { timestamp: 30, value: 3.0 });
-        assert_eq!(remaining_samples[1], Sample { timestamp: 40, value: 4.0 });
-        assert_eq!(remaining_samples[2], Sample { timestamp: 50, value: 5.0 });
+        assert_eq!(
+            remaining_samples[0],
+            Sample {
+                timestamp: 30,
+                value: 3.0
+            }
+        );
+        assert_eq!(
+            remaining_samples[1],
+            Sample {
+                timestamp: 40,
+                value: 4.0
+            }
+        );
+        assert_eq!(
+            remaining_samples[2],
+            Sample {
+                timestamp: 50,
+                value: 5.0
+            }
+        );
     }
 
     #[test]
@@ -625,10 +726,22 @@ mod tests {
 
         ts.trim().unwrap();
 
-        assert!(ts.first_timestamp > original_first_timestamp, "first_timestamp should be updated after trimming");
-        assert_eq!(ts.last_timestamp, original_last_timestamp, "last_timestamp should remain unchanged after trimming");
-        assert!(ts.chunks.len() < 3, "Some chunks should be removed after trimming");
-        assert!(!ts.chunks.is_empty(), "TimeSeries should not be empty after trimming");
+        assert!(
+            ts.first_timestamp > original_first_timestamp,
+            "first_timestamp should be updated after trimming"
+        );
+        assert_eq!(
+            ts.last_timestamp, original_last_timestamp,
+            "last_timestamp should remain unchanged after trimming"
+        );
+        assert!(
+            ts.chunks.len() < 3,
+            "Some chunks should be removed after trimming"
+        );
+        assert!(
+            !ts.chunks.is_empty(),
+            "TimeSeries should not be empty after trimming"
+        );
     }
 
     #[test]
@@ -658,7 +771,7 @@ mod tests {
     #[test]
     fn test_trim_updates_total_samples() {
         let mut ts = create_test_timeseries();
-        add_chunk_data(&mut ts, 3);  // Add 3 chunks of data
+        add_chunk_data(&mut ts, 3); // Add 3 chunks of data
         let initial_samples = ts.total_samples;
 
         // Set retention to remove half of the data
@@ -666,15 +779,24 @@ mod tests {
 
         ts.trim().unwrap();
 
-        assert!(ts.total_samples < initial_samples, "Total samples should decrease after trimming");
-        assert_eq!(ts.total_samples, ts.chunks.iter().map(|c| c.len()).sum::<usize>(),
-                   "Total samples should match the sum of samples in remaining chunks");
+        assert!(
+            ts.total_samples < initial_samples,
+            "Total samples should decrease after trimming"
+        );
+        assert_eq!(
+            ts.total_samples,
+            ts.chunks.iter().map(|c| c.len()).sum::<usize>(),
+            "Total samples should match the sum of samples in remaining chunks"
+        );
     }
 
     #[test]
     fn test_label_value_case_insensitive() {
         let mut ts = create_test_timeseries();
-        ts.labels = vec![Label { name: "Status".to_string(), value: "200".to_string() }];
+        ts.labels = vec![Label {
+            name: "Status".to_string(),
+            value: "200".to_string(),
+        }];
 
         assert_eq!(ts.label_value("status"), Some(&"200".to_string()));
         assert_eq!(ts.label_value("Status"), Some(&"200".to_string()));
@@ -684,9 +806,18 @@ mod tests {
     #[test]
     fn test_remove_range_start_before_first_timestamp() {
         let mut ts = TimeSeries::default();
-        ts.add_sample(Sample { timestamp: 100, value: 1.0 });
-        ts.add_sample(Sample { timestamp: 200, value: 2.0 });
-        ts.add_sample(Sample { timestamp: 300, value: 3.0 });
+        ts.add_sample(Sample {
+            timestamp: 100,
+            value: 1.0,
+        });
+        ts.add_sample(Sample {
+            timestamp: 200,
+            value: 2.0,
+        });
+        ts.add_sample(Sample {
+            timestamp: 300,
+            value: 3.0,
+        });
 
         assert_eq!(ts.total_samples, 3);
         assert_eq!(ts.first_timestamp, 100);
@@ -702,9 +833,18 @@ mod tests {
     #[test]
     fn test_remove_range_end_after_last_timestamp() {
         let mut ts = TimeSeries::default();
-        ts.add_sample(Sample { timestamp: 100, value: 1.0 });
-        ts.add_sample(Sample { timestamp: 200, value: 2.0 });
-        ts.add_sample(Sample { timestamp: 300, value: 3.0 });
+        ts.add_sample(Sample {
+            timestamp: 100,
+            value: 1.0,
+        });
+        ts.add_sample(Sample {
+            timestamp: 200,
+            value: 2.0,
+        });
+        ts.add_sample(Sample {
+            timestamp: 300,
+            value: 3.0,
+        });
 
         assert_eq!(ts.total_samples, 3);
         assert_eq!(ts.first_timestamp, 100);
@@ -721,9 +861,18 @@ mod tests {
     fn test_remove_range_same_chunk() {
         // Arrange
         let mut ts = TimeSeries::default();
-        ts.add_sample(Sample { timestamp: 1000, value: 1.0 });
-        ts.add_sample(Sample { timestamp: 2000, value: 2.0 });
-        ts.add_sample(Sample { timestamp: 3000, value: 3.0 });
+        ts.add_sample(Sample {
+            timestamp: 1000,
+            value: 1.0,
+        });
+        ts.add_sample(Sample {
+            timestamp: 2000,
+            value: 2.0,
+        });
+        ts.add_sample(Sample {
+            timestamp: 3000,
+            value: 3.0,
+        });
 
         // Act
         let result = ts.remove_range(1500, 2500);
@@ -742,12 +891,30 @@ mod tests {
         let mut ts = TimeSeries::default();
 
         // Add samples to chunks
-        ts.add_sample(Sample { timestamp: 100, value: 1.0 });
-        ts.add_sample(Sample { timestamp: 200, value: 2.0 });
-        ts.add_sample(Sample { timestamp: 300, value: 3.0 });
-        ts.add_sample(Sample { timestamp: 400, value: 4.0 });
-        ts.add_sample(Sample { timestamp: 500, value: 5.0 });
-        ts.add_sample(Sample { timestamp: 600, value: 6.0 });
+        ts.add_sample(Sample {
+            timestamp: 100,
+            value: 1.0,
+        });
+        ts.add_sample(Sample {
+            timestamp: 200,
+            value: 2.0,
+        });
+        ts.add_sample(Sample {
+            timestamp: 300,
+            value: 3.0,
+        });
+        ts.add_sample(Sample {
+            timestamp: 400,
+            value: 4.0,
+        });
+        ts.add_sample(Sample {
+            timestamp: 500,
+            value: 5.0,
+        });
+        ts.add_sample(Sample {
+            timestamp: 600,
+            value: 6.0,
+        });
 
         // Remove range spanning multiple chunks
         ts.remove_range(250, 450).unwrap();
@@ -763,7 +930,6 @@ mod tests {
         assert_eq!(ts.first_timestamp, 100);
         assert_eq!(ts.last_timestamp, 600);
     }
-
 
     #[test]
     fn test_remove_range_chunk_boundaries() {
@@ -785,13 +951,21 @@ mod tests {
         assert_eq!(ts.chunks[1].last_timestamp(), 300);
     }
 
-
     #[test]
     fn test_remove_range_entire_series() {
         let mut ts = TimeSeries::default();
-        ts.add_sample(Sample { timestamp: 1000, value: 1.0 });
-        ts.add_sample(Sample { timestamp: 2000, value: 2.0 });
-        ts.add_sample(Sample { timestamp: 3000, value: 3.0 });
+        ts.add_sample(Sample {
+            timestamp: 1000,
+            value: 1.0,
+        });
+        ts.add_sample(Sample {
+            timestamp: 2000,
+            value: 2.0,
+        });
+        ts.add_sample(Sample {
+            timestamp: 3000,
+            value: 3.0,
+        });
 
         let start_ts = 1000;
         let end_ts = 3000;
@@ -819,11 +993,9 @@ mod tests {
         ts.remove_range(second_start, second_end).unwrap();
 
         assert_eq!(ts.chunks.len(), 2);
-        let first_samples = ts.chunks.get(0).unwrap()
-            .iter().collect::<Vec<_>>();
+        let first_samples = ts.chunks.first().unwrap().iter().collect::<Vec<_>>();
 
-        let third_samples = ts.chunks.get(1).unwrap()
-            .iter().collect::<Vec<_>>();
+        let third_samples = ts.chunks.get(1).unwrap().iter().collect::<Vec<_>>();
 
         // Assert
         let actual: Vec<_> = ts.iter().collect();
@@ -832,5 +1004,4 @@ mod tests {
         assert_eq!(&first_samples, left);
         assert_eq!(&third_samples, right);
     }
-
 }

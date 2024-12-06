@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use crate::alerts::datasource::{AlertDatasource, WriteQueue};
 use crate::alerts::rules::{Group, Rule};
 use crate::alerts::types::RawTimeSeries;
 use crate::alerts::{AlertsError, AlertsResult};
 use metricsql_common::humanize::humanize_duration;
 use metricsql_runtime::types::{Timestamp, TimestampTrait};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -237,14 +237,11 @@ impl Iterator for RangeIterator {
         }
         let start = (self.start as u64 + (self.step_ms * self.iter as u64)) as Timestamp;
         let end = (start + self.step_ms as i64).min(self.end);
-        
+
         self.start_cursor = end;
         self.iter += 1;
-        
-        Some(Range {
-            start,
-            end,
-        })
+
+        Some(Range { start, end })
     }
 }
 
@@ -264,7 +261,10 @@ mod tests {
             Range { start: 20, end: 40 },
             Range { start: 40, end: 60 },
             Range { start: 60, end: 80 },
-            Range { start: 80, end: 100 },
+            Range {
+                start: 80,
+                end: 100,
+            },
         ];
 
         for expected in expected_ranges {
@@ -285,7 +285,10 @@ mod tests {
             Range { start: 0, end: 25 },
             Range { start: 25, end: 50 },
             Range { start: 50, end: 75 },
-            Range { start: 75, end: 100 },
+            Range {
+                start: 75,
+                end: 100,
+            },
         ];
 
         for expected in expected_ranges {
@@ -312,9 +315,7 @@ mod tests {
         let step = Duration::from_millis(100);
         let mut iter = RangeIterator::new(start, end, step);
 
-        let expected_ranges = vec![
-            Range { start: 0, end: 50 },
-        ];
+        let expected_ranges = vec![Range { start: 0, end: 50 }];
 
         for expected in expected_ranges {
             assert_eq!(iter.next(), Some(expected));
@@ -339,7 +340,10 @@ mod tests {
             Range { start: 20, end: 40 },
             Range { start: 40, end: 60 },
             Range { start: 60, end: 80 },
-            Range { start: 80, end: 100 },
+            Range {
+                start: 80,
+                end: 100,
+            },
         ];
 
         for expected in expected_ranges {

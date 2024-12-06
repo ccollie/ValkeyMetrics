@@ -10,13 +10,17 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use std::sync::Arc;
-use valkey_module::ValkeyResult;
 use crate::common::types::Timestamp;
 use crate::query::test_metric_storage::TestMetricStorage;
 use metricsql_runtime::prelude::Context as QueryContext;
+use std::sync::Arc;
+use valkey_module::ValkeyResult;
 
-pub(super) fn setup_range_query_test_data(stor: &mut TestMetricStorage, interval: i64, num_intervals: usize) -> ValkeyResult<()> {
+pub(super) fn setup_range_query_test_data(
+    stor: &mut TestMetricStorage,
+    interval: i64,
+    num_intervals: usize,
+) -> ValkeyResult<()> {
     let mut metrics = Vec::new();
     // Generating test series: a_X and b_X where X can take values of one, ten, or hundred,
     // representing the number of series each metric name contains.
@@ -75,7 +79,6 @@ pub(super) fn create_context(storage: TestMetricStorage) -> QueryContext {
     ctx.with_metric_storage(provider)
 }
 
-
 pub(super) struct BenchCase {
     pub(crate) expr: String,
     pub(crate) steps: usize,
@@ -84,53 +87,160 @@ pub(super) struct BenchCase {
 pub(super) fn range_query_cases() -> Vec<BenchCase> {
     let mut cases = vec![
         // Plain retrieval.
-        BenchCase { expr: "a_X".to_string(), steps: 0 },
+        BenchCase {
+            expr: "a_X".to_string(),
+            steps: 0,
+        },
         // Simple rate.
-        BenchCase { expr: "rate(a_X[1m])".to_string(), steps: 0 },
-        BenchCase { expr: "rate(a_X[1m])".to_string(), steps: 10000 },
-        BenchCase { expr: "rate(sparse[1m])".to_string(), steps: 10000 },
+        BenchCase {
+            expr: "rate(a_X[1m])".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "rate(a_X[1m])".to_string(),
+            steps: 10000,
+        },
+        BenchCase {
+            expr: "rate(sparse[1m])".to_string(),
+            steps: 10000,
+        },
         // Holt-Winters and long ranges.
-        BenchCase { expr: "holt_winters(a_X[1d], 0.3, 0.3)".to_string(), steps: 0 },
-        BenchCase { expr: "changes(a_X[1d])".to_string(), steps: 0 },
-        BenchCase { expr: "rate(a_X[1d])".to_string(), steps: 0 },
-        BenchCase { expr: "absent_over_time(a_X[1d])".to_string(), steps: 0 },
+        BenchCase {
+            expr: "holt_winters(a_X[1d], 0.3, 0.3)".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "changes(a_X[1d])".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "rate(a_X[1d])".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "absent_over_time(a_X[1d])".to_string(),
+            steps: 0,
+        },
         // Unary operators.
-        BenchCase { expr: "-a_X".to_string(), steps: 0 },
+        BenchCase {
+            expr: "-a_X".to_string(),
+            steps: 0,
+        },
         // Binary operators.
-        BenchCase { expr: "a_X - b_X".to_string(), steps: 0 },
-        BenchCase { expr: "a_X - b_X".to_string(), steps: 10000 },
-        BenchCase { expr: "a_X and b_X{l=~'.*[0-4]$'}".to_string(), steps: 0 },
-        BenchCase { expr: "a_X or b_X{l=~'.*[0-4]$'}".to_string(), steps: 0 },
-        BenchCase { expr: "a_X unless b_X{l=~'.*[0-4]$'}".to_string(), steps: 0 },
-        BenchCase { expr: "a_X and b_X{l='notfound'}".to_string(), steps: 0 },
+        BenchCase {
+            expr: "a_X - b_X".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "a_X - b_X".to_string(),
+            steps: 10000,
+        },
+        BenchCase {
+            expr: "a_X and b_X{l=~'.*[0-4]$'}".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "a_X or b_X{l=~'.*[0-4]$'}".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "a_X unless b_X{l=~'.*[0-4]$'}".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "a_X and b_X{l='notfound'}".to_string(),
+            steps: 0,
+        },
         // Simple functions.
-        BenchCase { expr: "abs(a_X)".to_string(), steps: 0 },
-        BenchCase { expr: "label_replace(a_X, 'l2', '$1', 'l', '(.*)')".to_string(), steps: 0 },
-        BenchCase { expr: "label_join(a_X, 'l2', '-', 'l', 'l')".to_string(), steps: 0 },
+        BenchCase {
+            expr: "abs(a_X)".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "label_replace(a_X, 'l2', '$1', 'l', '(.*)')".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "label_join(a_X, 'l2', '-', 'l', 'l')".to_string(),
+            steps: 0,
+        },
         // Simple aggregations.
-        BenchCase { expr: "sum(a_X)".to_string(), steps: 0 },
-        BenchCase { expr: "avg(a_X)".to_string(), steps: 0 },
-        BenchCase { expr: "sum without (l)(h_X)".to_string(), steps: 0 },
-        BenchCase { expr: "sum without (le)(h_X)".to_string(), steps: 0 },
-        BenchCase { expr: "sum by (l)(h_X)".to_string(), steps: 0 },
-        BenchCase { expr: "sum by (le)(h_X)".to_string(), steps: 0 },
-        BenchCase { expr: "count_values('value', h_X)".to_string(), steps: 100 },
-        BenchCase { expr: "topk(1, a_X)".to_string(), steps: 0 },
-        BenchCase { expr: "topk(5, a_X)".to_string(), steps: 0 },
-        BenchCase { expr: "limitk(1, a_X)".to_string(), steps: 0 },
-        BenchCase { expr: "limitk(5, a_X)".to_string(), steps: 0 },
+        BenchCase {
+            expr: "sum(a_X)".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "avg(a_X)".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "sum without (l)(h_X)".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "sum without (le)(h_X)".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "sum by (l)(h_X)".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "sum by (le)(h_X)".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "count_values('value', h_X)".to_string(),
+            steps: 100,
+        },
+        BenchCase {
+            expr: "topk(1, a_X)".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "topk(5, a_X)".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "limitk(1, a_X)".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "limitk(5, a_X)".to_string(),
+            steps: 0,
+        },
         // Combinations.
-        BenchCase { expr: "rate(a_X[1m]) + rate(b_X[1m])".to_string(), steps: 0 },
-        BenchCase { expr: "sum without (l)(rate(a_X[1m]))".to_string(), steps: 0 },
-        BenchCase { expr: "sum without (l)(rate(a_X[1m])) / sum without (l)(rate(b_X[1m]))".to_string(), steps: 0 },
-
+        BenchCase {
+            expr: "rate(a_X[1m]) + rate(b_X[1m])".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "sum without (l)(rate(a_X[1m]))".to_string(),
+            steps: 0,
+        },
+        BenchCase {
+            expr: "sum without (l)(rate(a_X[1m])) / sum without (l)(rate(b_X[1m]))".to_string(),
+            steps: 0,
+        },
         // Many-to-one join.
-        BenchCase { expr: "a_X + on(l) group_right a_one".to_string(), steps: 0 },
+        BenchCase {
+            expr: "a_X + on(l) group_right a_one".to_string(),
+            steps: 0,
+        },
         // Label compared to blank string.
-        BenchCase { expr: "count({__name__!=\"\"})".to_string(), steps: 1 },
-        BenchCase { expr: "count({__name__!=\"\",l=\"\"})".to_string(), steps: 1 },
+        BenchCase {
+            expr: "count({__name__!=\"\"})".to_string(),
+            steps: 1,
+        },
+        BenchCase {
+            expr: "count({__name__!=\"\",l=\"\"})".to_string(),
+            steps: 1,
+        },
         // Functions which have special handling inside eval()
-        BenchCase { expr: "timestamp(a_X)".to_string(), steps: 0 },
+        BenchCase {
+            expr: "timestamp(a_X)".to_string(),
+            steps: 0,
+        },
     ];
 
     // X in an expr will be replaced by different metric sizes.
@@ -139,9 +249,18 @@ pub(super) fn range_query_cases() -> Vec<BenchCase> {
         if !c.expr.contains("X") {
             tmp.push(c);
         } else {
-            tmp.push(BenchCase { expr: c.expr.replace("X", "one"), steps: c.steps });
-            tmp.push(BenchCase { expr: c.expr.replace("X", "ten"), steps: c.steps });
-            tmp.push(BenchCase { expr: c.expr.replace("X", "hundred"), steps: c.steps });
+            tmp.push(BenchCase {
+                expr: c.expr.replace("X", "one"),
+                steps: c.steps,
+            });
+            tmp.push(BenchCase {
+                expr: c.expr.replace("X", "ten"),
+                steps: c.steps,
+            });
+            tmp.push(BenchCase {
+                expr: c.expr.replace("X", "hundred"),
+                steps: c.steps,
+            });
         }
     }
     cases = tmp;
@@ -152,9 +271,18 @@ pub(super) fn range_query_cases() -> Vec<BenchCase> {
         if c.steps != 0 {
             tmp.push(c);
         } else {
-            tmp.push(BenchCase { expr: c.expr.clone(), steps: 1 });
-            tmp.push(BenchCase { expr: c.expr.clone(), steps: 100 });
-            tmp.push(BenchCase { expr: c.expr.clone(), steps: 1000 });
+            tmp.push(BenchCase {
+                expr: c.expr.clone(),
+                steps: 1,
+            });
+            tmp.push(BenchCase {
+                expr: c.expr.clone(),
+                steps: 100,
+            });
+            tmp.push(BenchCase {
+                expr: c.expr.clone(),
+                steps: 1000,
+            });
         }
     }
     tmp

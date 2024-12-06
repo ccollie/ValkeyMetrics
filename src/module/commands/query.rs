@@ -1,24 +1,17 @@
-use std::thread;
 use crate::config::{QUERY_DEFAULT_STEP, QUERY_ROUND_DIGITS};
 use crate::error_consts;
 use crate::module::arg_parse::{parse_duration_arg, parse_timestamp_range};
 use crate::module::parse_timestamp_arg;
 use crate::module::result::{to_instant_vector_result, to_matrix_result};
 use crate::query::{run_instant_query, run_range_query, QueryParams};
+use std::thread;
 use std::time::Duration;
 use valkey_module::{
-    Context,
-    NextArg,
-    ThreadSafeContext,
-    ValkeyError,
-    ValkeyResult,
-    ValkeyString,
-    ValkeyValue
+    Context, NextArg, ThreadSafeContext, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue,
 };
 
 const CMD_ARG_STEP: &str = "STEP";
 const CMD_ARG_ROUNDING: &str = "ROUNDING";
-
 
 ///
 /// VM.QUERY-RANGE fromTimestamp toTimestamp query
@@ -33,7 +26,7 @@ pub(crate) fn query_range(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResul
     let query = args.next_string()?;
 
     let mut step_value: Option<Duration> = None;
-    
+
     let mut round_digits: u8 = QUERY_ROUND_DIGITS.unwrap_or(100);
 
     while let Ok(arg) = args.next_str() {
@@ -65,7 +58,7 @@ pub(crate) fn query_range(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResul
 
     // queries take indeterminate time. We should not block the main thread
     let blocked_client = ctx.block_client();
-    
+
     // todo: run on a thread from rayon thread pool
     thread::spawn(move || {
         let thread_ctx = ThreadSafeContext::with_blocked_client(blocked_client);
@@ -97,7 +90,7 @@ pub fn query(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let time_value = parse_timestamp_arg(ts_arg, "timestamp")?;
 
     let query = args.next_string()?;
-    
+
     let mut round_digits: u8 = QUERY_ROUND_DIGITS.unwrap_or(100);
 
     while let Ok(arg) = args.next_str() {
@@ -139,8 +132,7 @@ pub fn query(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 }
 
 fn parse_step(arg: &ValkeyString) -> ValkeyResult<Duration> {
-    parse_duration_arg(arg)
-        .map_err(|_| ValkeyError::Str(error_consts::INVALID_STEP_DURATION))
+    parse_duration_arg(arg).map_err(|_| ValkeyError::Str(error_consts::INVALID_STEP_DURATION))
 }
 
 fn normalize_step(step: Option<Duration>) -> Duration {

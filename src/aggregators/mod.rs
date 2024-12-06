@@ -112,7 +112,7 @@ impl AggOp for AggMax {
 pub struct AggRange {
     min: Value,
     max: Value,
-    init: bool
+    init: bool,
 }
 impl AggOp for AggRange {
     fn save(&self) -> (&str, String) {
@@ -372,7 +372,6 @@ impl AggOp for AggStdS {
     }
 }
 
-
 #[derive(Clone, Debug)]
 pub enum Aggregator {
     First(AggFirst),
@@ -441,7 +440,7 @@ impl Aggregator {
             Aggregator::StdP(_) => "std.p",
             Aggregator::VarS(_) => "var.s",
             Aggregator::VarP(_) => "var.p",
-            Aggregator::Range(_) =>"range"
+            Aggregator::Range(_) => "range",
         }
     }
 
@@ -468,7 +467,7 @@ impl AggOp for Aggregator {
             Aggregator::StdP(agg) => agg.save(),
             Aggregator::VarS(agg) => agg.save(),
             Aggregator::VarP(agg) => agg.save(),
-            Aggregator::Range(agg) => agg.save()
+            Aggregator::Range(agg) => agg.save(),
         }
     }
 
@@ -485,7 +484,7 @@ impl AggOp for Aggregator {
             Aggregator::StdP(agg) => agg.load(buf),
             Aggregator::VarS(agg) => agg.load(buf),
             Aggregator::VarP(agg) => agg.load(buf),
-            Aggregator::Range(agg) => agg.load(buf)
+            Aggregator::Range(agg) => agg.load(buf),
         }
     }
 
@@ -502,7 +501,7 @@ impl AggOp for Aggregator {
             Aggregator::StdP(agg) => agg.update(value),
             Aggregator::VarS(agg) => agg.update(value),
             Aggregator::VarP(agg) => agg.update(value),
-            Aggregator::Range(agg) => agg.update(value)
+            Aggregator::Range(agg) => agg.update(value),
         }
     }
 
@@ -519,7 +518,7 @@ impl AggOp for Aggregator {
             Aggregator::StdP(agg) => agg.reset(),
             Aggregator::VarS(agg) => agg.reset(),
             Aggregator::VarP(agg) => agg.reset(),
-            Aggregator::Range(agg) => agg.reset()
+            Aggregator::Range(agg) => agg.reset(),
         }
     }
 
@@ -536,7 +535,7 @@ impl AggOp for Aggregator {
             Aggregator::StdP(agg) => agg.current(),
             Aggregator::VarS(agg) => agg.current(),
             Aggregator::VarP(agg) => agg.current(),
-            Aggregator::Range(agg) => agg.current()
+            Aggregator::Range(agg) => agg.current(),
         }
     }
 

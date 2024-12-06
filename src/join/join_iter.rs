@@ -1,3 +1,4 @@
+use super::{JoinType, JoinValue};
 use crate::common::types::Sample;
 use crate::join::join_asof_iter::JoinAsOfIter;
 use crate::join::join_full_iter::JoinFullIter;
@@ -6,8 +7,6 @@ use crate::join::join_left_exclusive_iter::JoinLeftExclusiveIter;
 use crate::join::join_left_iter::JoinLeftIter;
 use crate::join::join_right_exclusive_iter::JoinRightExclusiveIter;
 use crate::join::join_right_iter::JoinRightIter;
-use super::{JoinType, JoinValue};
-
 
 pub enum JoinIterator<'a> {
     Left(JoinLeftIter<'a>),
@@ -25,15 +24,19 @@ impl<'a> JoinIterator<'a> {
             JoinType::AsOf(dir, tolerance) => {
                 Self::AsOf(JoinAsOfIter::new(left, right, dir, tolerance))
             }
-            JoinType::Left(exclusive) => if exclusive {
-                Self::LeftExclusive(JoinLeftExclusiveIter::new(left, right))
-            } else {
-                Self::Left(JoinLeftIter::new(left, right))
+            JoinType::Left(exclusive) => {
+                if exclusive {
+                    Self::LeftExclusive(JoinLeftExclusiveIter::new(left, right))
+                } else {
+                    Self::Left(JoinLeftIter::new(left, right))
+                }
             }
-            JoinType::Right(exclusive) => if exclusive {
-                Self::RightExclusive(JoinRightExclusiveIter::new(left, right))
-            } else {
-                Self::Right(JoinRightIter::new(left, right))
+            JoinType::Right(exclusive) => {
+                if exclusive {
+                    Self::RightExclusive(JoinRightExclusiveIter::new(left, right))
+                } else {
+                    Self::Right(JoinRightIter::new(left, right))
+                }
             }
             JoinType::Inner => Self::Inner(JoinInnerIter::new(left, right)),
             JoinType::Full => Self::Full(JoinFullIter::new(left, right)),

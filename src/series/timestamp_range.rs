@@ -19,7 +19,7 @@ pub enum TimestampValue {
     /// A specific timestamp
     Value(Timestamp),
     /// A timestamp with a given delta from the current timestamp
-    Relative(i64)
+    Relative(i64),
 }
 
 impl TimestampValue {
@@ -50,9 +50,9 @@ impl TryFrom<&str> for TimestampValue {
     type Error = ValkeyError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        use TimestampValue::*;
         use crate::error_consts;
         use crate::module::arg_parse::{parse_duration_ms, parse_timestamp};
+        use TimestampValue::*;
         match value {
             "-" => Ok(Earliest),
             "+" => Ok(Latest),
@@ -66,7 +66,7 @@ impl TryFrom<&str> for TimestampValue {
                         } else {
                             parse_duration_ms(value)?
                         };
-                        return Ok(Relative(delta))
+                        return Ok(Relative(delta));
                     }
                 }
                 let ts = parse_timestamp(value)
@@ -127,15 +127,15 @@ impl Display for TimestampValue {
             Latest => write!(f, "+"),
             Value(ts) => write!(f, "{}", ts),
             Now => write!(f, "*"),
-            Relative(delta) => write!(f, "{}", humanize_duration_ms(*delta))
+            Relative(delta) => write!(f, "{}", humanize_duration_ms(*delta)),
         }
     }
 }
 
 impl PartialOrd for TimestampValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        use TimestampValue::*;
         use crate::common::current_time_millis;
+        use TimestampValue::*;
 
         match (self, other) {
             (Now, Now) => Some(Ordering::Equal),
@@ -151,19 +151,13 @@ impl PartialOrd for TimestampValue {
                 let now = current_time_millis();
                 v.partial_cmp(&now)
             }
-            (Relative(y), Now) => {
-                y.partial_cmp(&0i64)
-            },
-            (Now, Relative(y)) => {
-                0i64.partial_cmp(y)
-            },
-            (Value(_), Relative(y)) => {
-                0i64.partial_cmp(y)
-            },
+            (Relative(y), Now) => y.partial_cmp(&0i64),
+            (Now, Relative(y)) => 0i64.partial_cmp(y),
+            (Value(_), Relative(y)) => 0i64.partial_cmp(y),
             (Relative(delta), Value(y)) => {
                 let relative = current_time_millis() + *delta;
                 relative.partial_cmp(y)
-            },
+            }
             (Earliest, _) => Some(Ordering::Less),
             (_, Earliest) => Some(Ordering::Greater),
             (Latest, _) => Some(Ordering::Greater),
@@ -187,7 +181,11 @@ impl TimestampRange {
         Ok(TimestampRange { start, end })
     }
 
-    pub fn get_series_range(&self, series: &TimeSeries, check_retention: bool) -> (Timestamp, Timestamp) {
+    pub fn get_series_range(
+        &self,
+        series: &TimeSeries,
+        check_retention: bool,
+    ) -> (Timestamp, Timestamp) {
         use TimestampValue::*;
 
         // In case a retention is set shouldn't return chunks older than the retention
@@ -277,21 +275,33 @@ mod tests {
     fn test_timestamp_range_value_try_from_earliest() {
         let input = "-";
         let result = TimestampValue::try_from(input);
-        assert!(matches!(result, Ok(TimestampValue::Earliest)), "Expected Ok(Earliest), got {:?}", result);
+        assert!(
+            matches!(result, Ok(TimestampValue::Earliest)),
+            "Expected Ok(Earliest), got {:?}",
+            result
+        );
     }
 
     #[test]
     fn test_timestamp_range_value_try_from_latest() {
         let input = "+";
         let result = TimestampValue::try_from(input);
-        assert!(matches!(result, Ok(TimestampValue::Latest)), "Expected Ok(Latest), got {:?}", result);
+        assert!(
+            matches!(result, Ok(TimestampValue::Latest)),
+            "Expected Ok(Latest), got {:?}",
+            result
+        );
     }
 
     #[test]
     fn test_timestamp_range_value_try_from_now() {
         let input = "*";
         let result = TimestampValue::try_from(input);
-        assert!(matches!(result, Ok(TimestampValue::Now)), "Expected Ok(Now), got {:?}", result);
+        assert!(
+            matches!(result, Ok(TimestampValue::Now)),
+            "Expected Ok(Now), got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -299,23 +309,37 @@ mod tests {
         let input = "12345678";
         let result = TimestampValue::try_from(input);
         let expected = 12345678;
-        assert!(matches!(result, Ok(TimestampValue::Value(expected))), "Expected Ok(Value({})), got {:?}", expected, result);
+        assert!(
+            matches!(result, Ok(TimestampValue::Value(expected))),
+            "Expected Ok(Value({})), got {:?}",
+            expected,
+            result
+        );
     }
 
     fn test_timestamp_range_value_try_from_negative_number() {
         let input = "-12345678";
         let result = TimestampValue::try_from(input);
         let expected = -12345678;
-        assert!(matches!(result, Ok(TimestampValue::Value(expected))), "Expected Ok(Value({})), got {:?}", expected, result);
+        assert!(
+            matches!(result, Ok(TimestampValue::Value(expected))),
+            "Expected Ok(Value({})), got {:?}",
+            expected,
+            result
+        );
     }
-
 
     #[test]
     fn test_timestamp_range_value_try_from_positive_duration() {
         let input = "+5s";
         let result = TimestampValue::try_from(input);
         let expected_delta = 5000;
-        assert!(matches!(result, Ok(TimestampValue::Relative(expected_delta))), "Expected Ok(Relative({})), got {:?}", expected_delta, result);
+        assert!(
+            matches!(result, Ok(TimestampValue::Relative(expected_delta))),
+            "Expected Ok(Relative({})), got {:?}",
+            expected_delta,
+            result
+        );
     }
 
     #[test]
@@ -323,7 +347,12 @@ mod tests {
         let input = "-5s";
         let result = TimestampValue::try_from(input);
         let expected_delta = -5000;
-        assert!(matches!(result, Ok(TimestampValue::Relative(expected_delta))), "Expected Ok(Relative(-{})), got {:?}", expected_delta, result);
+        assert!(
+            matches!(result, Ok(TimestampValue::Relative(expected_delta))),
+            "Expected Ok(Relative(-{})), got {:?}",
+            expected_delta,
+            result
+        );
     }
 
     #[test]
@@ -338,7 +367,11 @@ mod tests {
         let now = TimestampValue::Now;
         let current_time = current_time_millis();
         let result = now.as_timestamp();
-        assert!((current_time..=current_time + 1).contains(&result), "Expected current time, got {}", result);
+        assert!(
+            (current_time..=current_time + 1).contains(&result),
+            "Expected current time, got {}",
+            result
+        );
     }
 
     #[test]
@@ -346,7 +379,11 @@ mod tests {
         let specific_timestamp = 1627849200000; // Example specific timestamp
         let value = TimestampValue::Value(specific_timestamp);
         let result = value.as_timestamp();
-        assert_eq!(result, specific_timestamp, "Expected {}, got {}", specific_timestamp, result);
+        assert_eq!(
+            result, specific_timestamp,
+            "Expected {}, got {}",
+            specific_timestamp, result
+        );
     }
 
     #[test]
@@ -358,7 +395,11 @@ mod tests {
         };
         let earliest = TimestampValue::Earliest;
         let result = earliest.as_series_timestamp(&series);
-        assert_eq!(result, series.first_timestamp, "Expected {}, got {}", series.first_timestamp, result);
+        assert_eq!(
+            result, series.first_timestamp,
+            "Expected {}, got {}",
+            series.first_timestamp, result
+        );
     }
 
     #[test]
@@ -370,7 +411,11 @@ mod tests {
         };
         let latest = TimestampValue::Latest;
         let result = latest.as_series_timestamp(&series);
-        assert_eq!(result, series.last_timestamp, "Expected {}, got {}", series.last_timestamp, result);
+        assert_eq!(
+            result, series.last_timestamp,
+            "Expected {}, got {}",
+            series.last_timestamp, result
+        );
     }
 
     #[test]
@@ -384,7 +429,13 @@ mod tests {
         let relative = TimestampValue::Relative(positive_delta);
         let current_time = current_time_millis();
         let result = relative.as_series_timestamp(&series);
-        assert_eq!(result, current_time.wrapping_add(positive_delta), "Expected {}, got {}", current_time.wrapping_add(positive_delta), result);
+        assert_eq!(
+            result,
+            current_time.wrapping_add(positive_delta),
+            "Expected {}, got {}",
+            current_time.wrapping_add(positive_delta),
+            result
+        );
     }
 
     #[test]
@@ -398,7 +449,13 @@ mod tests {
         let relative = TimestampValue::Relative(negative_delta);
         let current_time = current_time_millis();
         let result = relative.as_series_timestamp(&series);
-        assert_eq!(result, current_time.wrapping_add(negative_delta), "Expected {}, got {}", current_time.wrapping_add(negative_delta), result);
+        assert_eq!(
+            result,
+            current_time.wrapping_add(negative_delta),
+            "Expected {}, got {}",
+            current_time.wrapping_add(negative_delta),
+            result
+        );
     }
 
     #[test]
@@ -412,7 +469,13 @@ mod tests {
         let relative = TimestampValue::Relative(large_delta);
         let current_time = current_time_millis();
         let result = relative.as_series_timestamp(&series);
-        assert_eq!(result, current_time.wrapping_add(large_delta), "Expected {}, got {}", current_time.wrapping_add(large_delta), result);
+        assert_eq!(
+            result,
+            current_time.wrapping_add(large_delta),
+            "Expected {}, got {}",
+            current_time.wrapping_add(large_delta),
+            result
+        );
     }
 
     #[test]
@@ -426,7 +489,13 @@ mod tests {
         let relative = TimestampValue::Relative(large_negative_delta);
         let current_time = current_time_millis();
         let result = relative.as_series_timestamp(&series);
-        assert_eq!(result, current_time.wrapping_add(large_negative_delta), "Expected {}, got {}", current_time.wrapping_add(large_negative_delta), result);
+        assert_eq!(
+            result,
+            current_time.wrapping_add(large_negative_delta),
+            "Expected {}, got {}",
+            current_time.wrapping_add(large_negative_delta),
+            result
+        );
     }
 
     #[test]
@@ -451,7 +520,11 @@ mod tests {
         let now = TimestampValue::Now;
         let current_time = current_time_millis();
         let result = now.as_series_timestamp(&series);
-        assert!((current_time..=current_time + 1).contains(&result), "Expected current time, got {}", result);
+        assert!(
+            (current_time..=current_time + 1).contains(&result),
+            "Expected current time, got {}",
+            result
+        );
     }
 
     #[test]
@@ -460,7 +533,12 @@ mod tests {
         let relative1 = TimestampValue::Relative(delta);
         let relative2 = TimestampValue::Relative(delta);
         let result = relative1.partial_cmp(&relative2);
-        assert_eq!(result, Some(Ordering::Equal), "Expected Ordering::Equal, got {:?}", result);
+        assert_eq!(
+            result,
+            Some(Ordering::Equal),
+            "Expected Ordering::Equal, got {:?}",
+            result
+        );
 
         assert!(TimestampValue::Relative(1000) < TimestampValue::Relative(2000));
         assert!(TimestampValue::Relative(1000) <= TimestampValue::Relative(2000));
@@ -471,8 +549,8 @@ mod tests {
 
     #[test]
     fn test_partial_cmp_earliest_with_other_values() {
-        use std::cmp::Ordering;
         use crate::series::timestamp_range::TimestampValue;
+        use std::cmp::Ordering;
 
         let earliest = TimestampValue::Earliest;
         let latest = TimestampValue::Latest;
@@ -480,16 +558,32 @@ mod tests {
         let value = TimestampValue::Value(1000);
         let relative = TimestampValue::Relative(5000);
 
-        assert_eq!(earliest.partial_cmp(&latest), Some(Ordering::Less), "Expected Earliest < Latest");
-        assert_eq!(earliest.partial_cmp(&now), Some(Ordering::Less), "Expected Earliest < Now");
-        assert_eq!(earliest.partial_cmp(&value), Some(Ordering::Less), "Expected Earliest < Value");
-        assert_eq!(earliest.partial_cmp(&relative), Some(Ordering::Less), "Expected Earliest < Relative");
+        assert_eq!(
+            earliest.partial_cmp(&latest),
+            Some(Ordering::Less),
+            "Expected Earliest < Latest"
+        );
+        assert_eq!(
+            earliest.partial_cmp(&now),
+            Some(Ordering::Less),
+            "Expected Earliest < Now"
+        );
+        assert_eq!(
+            earliest.partial_cmp(&value),
+            Some(Ordering::Less),
+            "Expected Earliest < Value"
+        );
+        assert_eq!(
+            earliest.partial_cmp(&relative),
+            Some(Ordering::Less),
+            "Expected Earliest < Relative"
+        );
     }
 
     #[test]
     fn test_partial_cmp_greater_than_earliest() {
-        use std::cmp::Ordering;
         use crate::series::timestamp_range::TimestampValue;
+        use std::cmp::Ordering;
 
         let earliest = TimestampValue::Earliest;
 
@@ -502,14 +596,20 @@ mod tests {
 
         for value in values {
             let result = value.partial_cmp(&earliest);
-            assert_eq!(result, Some(Ordering::Greater), "Expected {:?} to be greater than Earliest, got {:?}", value, result);
+            assert_eq!(
+                result,
+                Some(Ordering::Greater),
+                "Expected {:?} to be greater than Earliest, got {:?}",
+                value,
+                result
+            );
         }
     }
 
     #[test]
     fn test_partial_cmp_latest_greater_than_others() {
-        use std::cmp::Ordering;
         use crate::series::timestamp_range::TimestampValue;
+        use std::cmp::Ordering;
 
         let latest = TimestampValue::Latest;
 
@@ -521,28 +621,49 @@ mod tests {
         ];
 
         for value in values {
-            assert_eq!(latest.partial_cmp(&value), Some(Ordering::Greater), "Expected Latest to be greater than {:?}.", value);
+            assert_eq!(
+                latest.partial_cmp(&value),
+                Some(Ordering::Greater),
+                "Expected Latest to be greater than {:?}.",
+                value
+            );
         }
     }
 
     #[test]
     fn test_partial_cmp_with_latest() {
-        use std::cmp::Ordering;
         use crate::series::timestamp_range::TimestampValue;
+        use std::cmp::Ordering;
 
         let latest = TimestampValue::Latest;
 
         let earliest = TimestampValue::Earliest;
-        assert_eq!(earliest.partial_cmp(&latest), Some(Ordering::Less), "Expected Earliest to be less than Latest");
+        assert_eq!(
+            earliest.partial_cmp(&latest),
+            Some(Ordering::Less),
+            "Expected Earliest to be less than Latest"
+        );
 
         let now = TimestampValue::Now;
-        assert_eq!(now.partial_cmp(&latest), Some(Ordering::Less), "Expected Now to be less than Latest");
+        assert_eq!(
+            now.partial_cmp(&latest),
+            Some(Ordering::Less),
+            "Expected Now to be less than Latest"
+        );
 
         let value = TimestampValue::Value(1000);
-        assert_eq!(value.partial_cmp(&latest), Some(Ordering::Less), "Expected Value to be less than Latest");
+        assert_eq!(
+            value.partial_cmp(&latest),
+            Some(Ordering::Less),
+            "Expected Value to be less than Latest"
+        );
 
         let relative = TimestampValue::Relative(5000);
-        assert_eq!(relative.partial_cmp(&latest), Some(Ordering::Less), "Expected Relative to be less than Latest");
+        assert_eq!(
+            relative.partial_cmp(&latest),
+            Some(Ordering::Less),
+            "Expected Relative to be less than Latest"
+        );
     }
 
     #[test]
@@ -550,7 +671,12 @@ mod tests {
         let timestamp1 = TimestampValue::Value(1627849200000);
         let timestamp2 = TimestampValue::Value(1627849200000);
         let result = timestamp1.partial_cmp(&timestamp2);
-        assert_eq!(result, Some(Ordering::Equal), "Expected Ordering::Equal, got {:?}", result);
+        assert_eq!(
+            result,
+            Some(Ordering::Equal),
+            "Expected Ordering::Equal, got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -561,7 +687,12 @@ mod tests {
 
         let result = now.partial_cmp(&relative_negative);
 
-        assert_eq!(result, Some(Ordering::Greater), "Expected Now to be greater than Relative(-1000), got {:?}", result);
+        assert_eq!(
+            result,
+            Some(Ordering::Greater),
+            "Expected Now to be greater than Relative(-1000), got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -570,7 +701,12 @@ mod tests {
         let now_value = TimestampValue::Now;
 
         let result = relative_value.partial_cmp(&now_value);
-        assert_eq!(result, Some(Ordering::Greater), "Expected Relative to be greater than Now, got {:?}", result);
+        assert_eq!(
+            result,
+            Some(Ordering::Greater),
+            "Expected Relative to be greater than Now, got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -579,7 +715,12 @@ mod tests {
         let current_time = current_time_millis();
         let value = TimestampValue::Value(current_time);
         let result = now.partial_cmp(&value);
-        assert_eq!(result, Some(Ordering::Equal), "Expected Ordering::Equal, got {:?}", result);
+        assert_eq!(
+            result,
+            Some(Ordering::Equal),
+            "Expected Ordering::Equal, got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -590,7 +731,12 @@ mod tests {
 
         let result = value.partial_cmp(&now);
 
-        assert_eq!(result, Some(Ordering::Greater), "Expected Value to be greater than Now, got {:?}", result);
+        assert_eq!(
+            result,
+            Some(Ordering::Greater),
+            "Expected Value to be greater than Now, got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -599,7 +745,11 @@ mod tests {
         let end = TimestampValue::Value(1000);
         let result = TimestampRange::new(start, end);
 
-        assert!(matches!(result, Err(ValkeyError::Str(err)) if err == "ERR invalid timestamp range: start > end"), "Expected Err with message 'ERR invalid timestamp range: start > end', got {:?}", result);
+        assert!(
+            matches!(result, Err(ValkeyError::Str(err)) if err == "ERR invalid timestamp range: start > end"),
+            "Expected Err with message 'ERR invalid timestamp range: start > end', got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -608,7 +758,11 @@ mod tests {
         let end = TimestampValue::Value(-2000);
         let result = TimestampRange::new(start, end);
 
-        assert!(matches!(result, Err(ValkeyError::Str(err)) if err == "ERR invalid timestamp range: start > end"), "Expected Err with message 'ERR invalid timestamp range: start > end', got {:?}", result);
+        assert!(
+            matches!(result, Err(ValkeyError::Str(err)) if err == "ERR invalid timestamp range: start > end"),
+            "Expected Err with message 'ERR invalid timestamp range: start > end', got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -617,10 +771,12 @@ mod tests {
         let end = TimestampValue::Value(2000);
         let result = TimestampRange::new(start, end);
 
-        assert!(matches!(result, Ok(range) if range.start == start && range.end == end),
-                "Expected Ok with start and end values, got {:?}", result);
+        assert!(
+            matches!(result, Ok(range) if range.start == start && range.end == end),
+            "Expected Ok with start and end values, got {:?}",
+            result
+        );
     }
-
 
     #[test]
     fn test_get_series_range_earliest_no_retention_check() {
@@ -634,8 +790,16 @@ mod tests {
             end: TimestampValue::Latest,
         };
         let (start, end) = timestamp_range.get_series_range(&series, false);
-        assert_eq!(start, series.first_timestamp, "Expected start to be the earliest timestamp, got {}", start);
-        assert_eq!(end, series.last_timestamp, "Expected end to be the latest timestamp, got {}", end);
+        assert_eq!(
+            start, series.first_timestamp,
+            "Expected start to be the earliest timestamp, got {}",
+            start
+        );
+        assert_eq!(
+            end, series.last_timestamp,
+            "Expected end to be the latest timestamp, got {}",
+            end
+        );
     }
 
     #[test]
@@ -653,9 +817,16 @@ mod tests {
 
         let (start_timestamp, end_timestamp) = range.get_series_range(&series, true);
 
-        let expected_earliest_retention = series.last_timestamp - series.retention.as_millis() as i64;
-        assert_eq!(start_timestamp, expected_earliest_retention, "Expected start timestamp to be adjusted to retention limit");
-        assert_eq!(end_timestamp, series.last_timestamp, "Expected end timestamp to be the last timestamp of the series");
+        let expected_earliest_retention =
+            series.last_timestamp - series.retention.as_millis() as i64;
+        assert_eq!(
+            start_timestamp, expected_earliest_retention,
+            "Expected start timestamp to be adjusted to retention limit"
+        );
+        assert_eq!(
+            end_timestamp, series.last_timestamp,
+            "Expected end timestamp to be the last timestamp of the series"
+        );
     }
 
     #[test]
@@ -671,8 +842,16 @@ mod tests {
         };
         let check_retention = false;
         let (start, end) = timestamp_range.get_series_range(&series, check_retention);
-        assert_eq!(start, series.first_timestamp, "Expected start timestamp to be {}, got {}", series.first_timestamp, start);
-        assert_eq!(end, series.last_timestamp, "Expected end timestamp to be {}, got {}", series.last_timestamp, end);
+        assert_eq!(
+            start, series.first_timestamp,
+            "Expected start timestamp to be {}, got {}",
+            series.first_timestamp, start
+        );
+        assert_eq!(
+            end, series.last_timestamp,
+            "Expected end timestamp to be {}, got {}",
+            series.last_timestamp, end
+        );
     }
 
     #[test]
@@ -689,8 +868,16 @@ mod tests {
 
         let (start_timestamp, end_timestamp) = timestamp_range.get_series_range(&series, false);
 
-        assert_eq!(start_timestamp, 2000, "Expected start timestamp to be 2000, got {}", start_timestamp);
-        assert_eq!(end_timestamp, 5000, "Expected end timestamp to be 5000, got {}", end_timestamp);
+        assert_eq!(
+            start_timestamp, 2000,
+            "Expected start timestamp to be 2000, got {}",
+            start_timestamp
+        );
+        assert_eq!(
+            end_timestamp, 5000,
+            "Expected end timestamp to be 5000, got {}",
+            end_timestamp
+        );
     }
 
     #[test]
@@ -706,8 +893,15 @@ mod tests {
         };
         let current_time = current_time_millis();
         let (start_timestamp, end_timestamp) = timestamp_range.get_series_range(&series, false);
-        assert!((current_time..=current_time + 1).contains(&start_timestamp), "Expected start timestamp to be current time, got {}", start_timestamp);
-        assert_eq!(end_timestamp, series.last_timestamp, "Expected end timestamp to be {}, got {}", series.last_timestamp, end_timestamp);
+        assert!(
+            (current_time..=current_time + 1).contains(&start_timestamp),
+            "Expected start timestamp to be current time, got {}",
+            start_timestamp
+        );
+        assert_eq!(
+            end_timestamp, series.last_timestamp,
+            "Expected end timestamp to be {}, got {}",
+            series.last_timestamp, end_timestamp
+        );
     }
-
 }

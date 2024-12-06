@@ -1,13 +1,13 @@
 mod alerting;
-mod rule;
 mod config;
-mod recording;
-mod group;
 mod executor;
+mod group;
+mod recording;
+mod rule;
 
-pub use executor::*;
 pub use alerting::*;
 pub use config::*;
+pub use executor::*;
 pub use group::*;
 pub use recording::*;
 pub use rule::*;

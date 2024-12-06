@@ -1,9 +1,9 @@
+use crate::alerts::meta::with_group_mut;
+use crate::alerts::rules::{Group, MetricRule};
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
 use valkey_module_macros::command;
-use crate::alerts::rules::{Group, MetricRule};
-use crate::alerts::meta::with_group_mut;
 
-// todo: support multiple   
+// todo: support multiple
 /// VM.DELETE-RULE groupKey ruleId
 #[command(
     {
@@ -22,12 +22,12 @@ use crate::alerts::meta::with_group_mut;
 )]
 pub fn delete_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1);
-    if args.len()!= 2 {
+    if args.len() != 2 {
         return Err(ValkeyError::WrongArity);
     }
     let group_key = args.next_arg()?;
     let rule_id = args.next_u64()?;
-    
+
     with_group_mut(ctx, &group_key, move |group| {
         if !handle_delete(ctx, group, rule_id, false) {
             return Err(ValkeyError::Str("Err rules does not exist"));
@@ -44,6 +44,6 @@ fn handle_delete(_ctx: &Context, group: &mut Group, id: u64, remove_dest: bool) 
         }
     }
     // todo: emit event, replicate
-    
+
     group.remove_rule_by_id(id)
 }

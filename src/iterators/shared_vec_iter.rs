@@ -6,7 +6,7 @@
 /// on top of it.
 pub struct SharedVecIter<'a, T: Copy> {
     index: usize,
-    inner: &'a Vec<T>
+    inner: &'a Vec<T>,
 }
 
 impl<'a, T: Copy> SharedVecIter<'a, T> {

@@ -67,9 +67,8 @@ impl<'a> MultiSeriesSampleIter<'a> {
                 let _ = self.inner.swap_remove(*i);
             }
         }
-        
-        true
 
+        true
     }
 }
 

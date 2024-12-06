@@ -1,7 +1,7 @@
-use std::cmp::Ordering;
 use metricsql_parser::binaryop::get_scalar_binop_handler;
 use metricsql_parser::prelude::{BinopFunc, Operator as BaseOp};
 use phf::phf_map;
+use std::cmp::Ordering;
 use std::fmt;
 use std::str::FromStr;
 use valkey_module::ValkeyError;
@@ -114,7 +114,7 @@ impl JoinReducer {
             Unless => "unless",
             Avg => "avg",
             Max => "max",
-            Min => "min"
+            Min => "min",
         }
     }
 
@@ -153,7 +153,6 @@ impl JoinReducer {
             Unless => h(BaseOp::Unless),
             PctChange => pct_change,
         }
-
     }
 }
 
@@ -239,5 +238,4 @@ const fn pct_change(x: f64, y: f64) -> f64 {
 }
 
 #[cfg(test)]
-mod tests {
-}
+mod tests {}

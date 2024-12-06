@@ -14,12 +14,7 @@ use std::marker::PhantomData;
 
 use core::convert::From;
 
-use bitstream_io::{
-    BitQueue,
-    Endianness,
-    Numeric,
-    Primitive
-};
+use bitstream_io::{BitQueue, Endianness, Numeric, Primitive};
 
 pub use bitstream_io::BigEndian;
 
@@ -382,7 +377,6 @@ impl<W: io::Write, E: Endianness> BitWrite for BitWriter<W, E> {
     }
 }
 
-
 #[inline]
 fn write_byte<W>(mut writer: W, byte: u8) -> io::Result<()>
 where
@@ -547,4 +541,3 @@ impl<W: io::Write, E: Endianness> ByteWrite for ByteWriter<W, E> {
         &mut self.writer
     }
 }
-

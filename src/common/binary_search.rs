@@ -30,10 +30,15 @@ where
 pub fn find_last_ge_index<T: Ord>(arr: &[T], val: &T) -> usize {
     if arr.len() <= 16 {
         return arr.iter().rposition(|x| val >= x).map_or(0, |idx| {
-            if arr[idx] > *val { idx.saturating_sub(1) } else { idx }
+            if arr[idx] > *val {
+                idx.saturating_sub(1)
+            } else {
+                idx
+            }
         });
     }
-    arr.binary_search(val).unwrap_or_else(|x| x.saturating_sub(1))
+    arr.binary_search(val)
+        .unwrap_or_else(|x| x.saturating_sub(1))
 }
 
 /// Finds the start and end indices (inclusive) of a range within a sorted slice.
@@ -83,7 +88,6 @@ pub(crate) fn get_index_bounds<T: Ord>(values: &[T], start: &T, end: &T) -> Opti
     Some((start_idx, end_idx))
 }
 
-
 // https://en.wikipedia.org/wiki/Exponential_search
 // Use if you expect matches to be close by. Otherwise use binary search.
 pub trait ExponentialSearch<T> {
@@ -95,8 +99,14 @@ pub trait ExponentialSearch<T> {
     where
         P: FnMut(&T) -> bool,
     {
-        self.exponential_search_by(|x| if pred(x) { Ordering::Less } else { Ordering::Greater })
-            .unwrap_or_else(|i| i)
+        self.exponential_search_by(|x| {
+            if pred(x) {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+        })
+        .unwrap_or_else(|i| i)
     }
 }
 
@@ -134,7 +144,6 @@ impl<T: std::fmt::Debug> ExponentialSearch<T> for &[T] {
         }
     }
 }
-
 
 #[cfg(test)]
 mod test {

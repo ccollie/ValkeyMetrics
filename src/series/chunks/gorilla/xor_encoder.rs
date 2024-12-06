@@ -1,10 +1,12 @@
 use super::varbit_xor::write_varbit_xor;
 use crate::common::bitwriter::{BigEndian, BitWrite, BitWriter};
+use crate::common::serialization::{
+    rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize,
+};
 use crate::common::types::Sample;
 use crate::common::{write_uvarint, write_varint};
 use crate::series::chunks::gorilla::varbit::write_varbit;
 use crate::series::chunks::gorilla::xor_iterator::XORIterator;
-use crate::common::serialization::{rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize};
 use bitstream_io::BitQueue;
 use get_size::GetSize;
 use smallvec::SmallVec;
@@ -101,7 +103,6 @@ impl XOREncoder {
     }
 
     fn write_second_sample(&mut self, sample: &Sample) -> std::io::Result<()> {
-
         let timestamp_delta = sample.timestamp - self.timestamp;
         if timestamp_delta < 0 {
             return Err(std::io::Error::new(
@@ -116,13 +117,8 @@ impl XOREncoder {
         write_uvarint(timestamp_delta as u64, &mut uvarint_bytes)?;
         self.writer.write_bytes(&uvarint_bytes)?;
 
-        let (leading, trailing) = write_varbit_xor(
-            sample.value,
-            self.value,
-            0xff,
-            0,
-            &mut self.writer
-        )?;
+        let (leading, trailing) =
+            write_varbit_xor(sample.value, self.value, 0xff, 0, &mut self.writer)?;
 
         self.timestamp = sample.timestamp;
         self.value = sample.value;
@@ -252,11 +248,11 @@ fn save_bitwriter_to_rdb(rdb: *mut raw::RedisModuleIO, writer: &BitWriter<Vec<u8
     raw::save_unsigned(rdb, encoded_bitqueue);
 }
 
-fn load_bitwriter_from_rdb(rdb: *mut raw::RedisModuleIO) -> Result<BitWriter<Vec<u8>, BigEndian>, ValkeyError> {
+fn load_bitwriter_from_rdb(
+    rdb: *mut raw::RedisModuleIO,
+) -> Result<BitWriter<Vec<u8>, BigEndian>, ValkeyError> {
     // the load_string_buffer does not return an Err, so we can unwrap
-    let bytes = raw::load_string_buffer(rdb)?
-        .as_ref()
-        .to_vec();
+    let bytes = raw::load_string_buffer(rdb)?.as_ref().to_vec();
 
     let encoded_queue = raw::load_unsigned(rdb)?;
 
@@ -288,5 +284,4 @@ fn bitwriter_equals(a: &BitWriter<Vec<u8>, BigEndian>, b: &BitWriter<Vec<u8>, Bi
 }
 
 #[cfg(test)]
-mod tests {
-}
+mod tests {}

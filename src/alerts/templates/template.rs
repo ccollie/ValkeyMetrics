@@ -13,23 +13,23 @@
 
 use super::models::{instant_result_to_value, DateTimeModel, DurationModel, Metric};
 use super::utils::*;
-use crate::alerts::datasource::{AlertDatasource};
+use crate::alerts::datasource::AlertDatasource;
+use crate::alerts::{AlertsError, AlertsResult};
 use crate::common::types::Timestamp;
 use crate::common::METRIC_NAME_LABEL;
+use crate::query::Querier;
 use enquote::enquote;
 use gtmpl::{Func, FuncError, Template, Value};
 use htmlescape::encode_minimal;
 use metricsql_common::humanize::humanize_bytes;
+use metricsql_parser::parser::parse_duration_value;
 use regex::Regex;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, UNIX_EPOCH};
-use metricsql_parser::parser::parse_duration_value;
 use titlecase::titlecase;
 use url::Url;
-use crate::alerts::{AlertsError, AlertsResult};
-use crate::query::{Querier};
 
 pub type FuncMap = HashMap<String, Func>;
 
@@ -43,18 +43,14 @@ pub(crate) struct TextTemplate {
 impl Default for TextTemplate {
     fn default() -> Self {
         let current = new_template();
-        TextTemplate {
-            current,
-        }
+        TextTemplate { current }
     }
 }
 
 static MASTER_TEMPLATE: OnceLock<RwLock<TextTemplate>> = OnceLock::new();
 
 fn get_master_template_ref() -> &'static RwLock<TextTemplate> {
-    MASTER_TEMPLATE.get_or_init(|| {
-        create_master_template()
-    })
+    MASTER_TEMPLATE.get_or_init(create_master_template)
 }
 fn create_master_template() -> RwLock<TextTemplate> {
     let current = new_template();
@@ -73,14 +69,14 @@ pub(crate) fn new_template() -> Template {
 }
 pub(crate) fn clone_template(tpl: &Template) -> AlertsResult<Template> {
     let mut result = Template::default();
-    result.parse(&tpl.text)
+    result
+        .parse(&tpl.text)
         .map_err(|e| AlertsError::TemplateParseError(e.to_string()))?;
     result.name.clone_from(&tpl.name);
     result.funcs.clone_from(&tpl.funcs);
     result.text.clone_from(&tpl.text);
     Ok(result)
 }
-
 
 #[derive(Clone)]
 pub enum TemplateQueryContext {
@@ -91,7 +87,6 @@ pub enum TemplateQueryContext {
 thread_local!(static QUERY_TS: RefCell<TemplateQueryContext> = RefCell::new(
     TemplateQueryContext::Error("Query function is not set".to_string())
 ));
-
 
 /// returns a copy of current template with additional FuncMap provided with funcs argument
 pub(crate) fn get_with_funcs(funcs: FuncMap) -> AlertsResult<Template> {
@@ -116,7 +111,8 @@ fn proxy_func(query: &str) -> Result<Value, FuncError> {
         if let Ok(ctx) = local_enum.try_borrow_mut() {
             return match &*ctx {
                 TemplateQueryContext::Query(querier, ts) => {
-                    let result = querier.query(query, *ts)
+                    let result = querier
+                        .query(query, *ts)
                         .map_err(|e| FuncError::Generic(format!("query failed: {}", e)))?;
 
                     let mss = result
@@ -126,12 +122,12 @@ fn proxy_func(query: &str) -> Result<Value, FuncError> {
 
                     Ok(Value::Array(mss))
                 }
-                TemplateQueryContext::Error(msg) => {
-                    Err(FuncError::Generic(msg.clone()))
-                }
-            }
+                TemplateQueryContext::Error(msg) => Err(FuncError::Generic(msg.clone())),
+            };
         }
-        Err(FuncError::Generic("template query function is not set".to_string()))
+        Err(FuncError::Generic(
+            "template query function is not set".to_string(),
+        ))
     })
 }
 
@@ -147,7 +143,10 @@ pub(crate) fn make_query_fn(ctx: TemplateQueryContext) -> Func {
         if let Value::String(q) = arg {
             proxy_func(q)
         } else {
-            Err(FuncError::Generic(format!("expected string argument, got {}", arg)))
+            Err(FuncError::Generic(format!(
+                "expected string argument, got {}",
+                arg
+            )))
         }
     }
 }
@@ -193,7 +192,9 @@ fn trim_spaces(args: &[Value]) -> Result<Value, FuncError> {
     if let Value::String(s) = ensure_single_arg(args, "trimSpaces")? {
         Ok(s.trim().into())
     } else {
-        Err(FuncError::Generic("expected string for trimSpaces".to_string()))
+        Err(FuncError::Generic(
+            "expected string for trimSpaces".to_string(),
+        ))
     }
 }
 
@@ -202,7 +203,7 @@ fn parse_duration(args: &[Value]) -> Result<Value, FuncError> {
     let s = ensure_single_arg(args, "parseDuration")?.to_string();
     match parse_duration_value(&s, 1) {
         Ok(d) => Ok(((d / 1000) as f64).into()),
-        Err(_e) => Ok(Value::from(0f64))
+        Err(_e) => Ok(Value::from(0f64)),
     }
 }
 
@@ -221,11 +222,10 @@ fn re_replace_all(args: &[Value]) -> Result<Value, FuncError> {
     let pattern = ensure_string_arg(args, 0, "reReplaceAll")?;
     let repl = ensure_string_arg(args, 1, "reReplaceAll")?;
     let text = ensure_string_arg(args, 2, "reReplaceAll")?;
-    let re = Regex::new(pattern)
-        .map_err(|_| FuncError::Generic(format!("Invalid regex {pattern}")))?;
+    let re =
+        Regex::new(pattern).map_err(|_| FuncError::Generic(format!("Invalid regex {pattern}")))?;
     Ok(re.replace_all(text, repl).into())
 }
-
 
 /// `first` returns the first by order element from the given metrics list.
 /// usually used alongside with `query` template function.
@@ -234,9 +234,13 @@ fn first(args: &[Value]) -> Result<Value, FuncError> {
         if !metrics.is_empty() {
             return Ok(metrics[0].clone());
         }
-        Err(FuncError::Generic("first() called on vector with no elements".to_string()))
+        Err(FuncError::Generic(
+            "first() called on vector with no elements".to_string(),
+        ))
     } else {
-        Err(FuncError::Generic("first() called on non-array".to_string()))
+        Err(FuncError::Generic(
+            "first() called on non-array".to_string(),
+        ))
     }
 }
 
@@ -259,8 +263,8 @@ fn regex_match(args: &[Value]) -> Result<Value, FuncError> {
     let pattern = ensure_string_arg(args, 0, "match")?;
     let text = ensure_string_arg(args, 1, "match")?;
 
-    let re = Regex::new(pattern)
-        .map_err(|_e| FuncError::Generic(format!("Invalid regex {pattern}")))?;
+    let re =
+        Regex::new(pattern).map_err(|_e| FuncError::Generic(format!("Invalid regex {pattern}")))?;
     Ok(re.is_match(text).into())
 }
 
@@ -274,7 +278,10 @@ fn quotes_escape(args: &[Value]) -> Result<Value, FuncError> {
 
 static EMPTY_STRING: &str = "";
 fn get_metric_label_value<'a>(metric: &'a Metric, label: &str) -> &'a str {
-    metric.labels.iter().find(|l| l.name == label)
+    metric
+        .labels
+        .iter()
+        .find(|l| l.name == label)
         .map_or(EMPTY_STRING, |s| &s.value)
 }
 
@@ -282,7 +289,7 @@ fn get_metric_label_value<'a>(metric: &'a Metric, label: &str) -> &'a str {
 fn str_value(args: &[Value]) -> Result<Value, FuncError> {
     match get_metric_arg(args, 0, "strValue") {
         Ok(metric) => Ok(get_metric_label_value(&metric, METRIC_NAME_LABEL).into()),
-        _ => Ok(Value::NoValue)
+        _ => Ok(Value::NoValue),
     }
 }
 
@@ -295,11 +302,11 @@ fn get_label(args: &[Value]) -> Result<Value, FuncError> {
     let label = if let Ok(s) = ensure_string_arg(args, 0, "getLabel") {
         s
     } else {
-        return Ok(Value::NoValue)
+        return Ok(Value::NoValue);
     };
     match get_metric_arg(args, 1, "getLabel") {
         Ok(metric) => Ok(get_metric_label_value(&metric, label).into()),
-        _ => Ok(Value::NoValue)
+        _ => Ok(Value::NoValue),
     }
 }
 
@@ -308,14 +315,13 @@ fn get_label(args: &[Value]) -> Result<Value, FuncError> {
 fn get_value(args: &[Value]) -> Result<Value, FuncError> {
     let m = ensure_single_arg(args, "value")?;
     match m {
-        Value::Map(m) |
-        Value::Object(m) => {
+        Value::Map(m) | Value::Object(m) => {
             if let Some(v) = m.get("value") {
                 return Ok(v.clone());
             }
             Ok(Value::NoValue)
         }
-        _ => Err(FuncError::Generic("expected object for value".to_string()))
+        _ => Err(FuncError::Generic("expected object for value".to_string())),
     }
 }
 
@@ -327,7 +333,7 @@ fn sort_by_label(args: &[Value]) -> Result<Value, FuncError> {
     let label = if let Ok(s) = ensure_string_arg(args, 0, "sortByLabel") {
         s
     } else {
-        return Ok(Value::NoValue)
+        return Ok(Value::NoValue);
     };
     let arr = get_array_arg(args, 1, "sortByLabel")?;
     let mut metrics = Vec::with_capacity(arr.len());
@@ -355,7 +361,6 @@ fn args(args: &[Value]) -> Result<Value, FuncError> {
     Ok(Value::Map(result))
 }
 
-
 /// `pathEscape` escapes the string, so it can be safely placed inside a URL path segment.
 ///
 /// See also `queryEscape`.
@@ -378,10 +383,8 @@ fn query_escape(args: &[Value]) -> Result<Value, FuncError> {
 }
 
 fn parse_url(s: &str) -> Result<Url, FuncError> {
-    Url::parse(s)
-        .map_err(|e| FuncError::Generic(format!("Invalid URL {s}: {e}")))
+    Url::parse(s).map_err(|e| FuncError::Generic(format!("Invalid URL {s}: {e}")))
 }
-
 
 /// `stripPort` splits the url and returns only the host.
 fn strip_port(args: &[Value]) -> Result<Value, FuncError> {
@@ -416,7 +419,6 @@ fn html_escape(args: &[Value]) -> Result<Value, FuncError> {
     Ok(encode_minimal(&q).into())
 }
 
-
 /// `jsonEscape` converts the string to properly encoded JSON string.
 ///
 /// See also quotesEscape.
@@ -432,7 +434,7 @@ fn json_escape(args: &[Value]) -> Result<Value, FuncError> {
 fn humanize(args: &[Value]) -> Result<Value, FuncError> {
     match ensure_single_f64(args, "humanize") {
         Ok(n) => Ok(humanize_bytes(n).into()),
-        Err(_e) => Ok(Value::NoValue)
+        Err(_e) => Ok(Value::NoValue),
     }
 }
 
@@ -445,7 +447,7 @@ fn humanize1024(args: &[Value]) -> Result<Value, FuncError> {
             }
             Ok(humanize_bytes(v).into())
         }
-        Err(_e) => Ok(Value::NoValue)
+        Err(_e) => Ok(Value::NoValue),
     }
 }
 
@@ -453,7 +455,7 @@ fn humanize1024(args: &[Value]) -> Result<Value, FuncError> {
 fn humanize_duration(args: &[Value]) -> Result<Value, FuncError> {
     let mut v = match ensure_single_f64(args, "humanizeDuration") {
         Ok(n) => n,
-        Err(_e) => return Ok(Value::NoValue)
+        Err(_e) => return Ok(Value::NoValue),
     };
     if v.is_nan() || v.is_infinite() {
         return Ok(format!("{:.4}", v).into());
@@ -501,7 +503,7 @@ fn humanize_duration(args: &[Value]) -> Result<Value, FuncError> {
 fn humanize_percentage(args: &[Value]) -> Result<Value, FuncError> {
     match ensure_single_f64(args, "humanizePercentage") {
         Ok(v) => Ok(format!("{:.4}%", v * 100.0).into()),
-        Err(_e) => Ok(Value::NoValue)
+        Err(_e) => Ok(Value::NoValue),
     }
 }
 
@@ -515,7 +517,7 @@ fn humanize_timestamp(args: &[Value]) -> Result<Value, FuncError> {
             }
             Ok(format_unix_millis(v as u64).into())
         }
-        Err(_e) => Ok(Value::NoValue)
+        Err(_e) => Ok(Value::NoValue),
     }
 }
 
@@ -555,21 +557,22 @@ fn format_unix_millis(millis: u64) -> String {
     };
 
     let addendum = if is_leap_year { 1 } else { 0 };
-    let day = days - match month {
-        1 => 0,
-        2 => 31,
-        3 => 59 + addendum,
-        4 => 90 + addendum,
-        5 => 120 + addendum,
-        6 => 151 + addendum,
-        7 => 181 + addendum,
-        8 => 212 + addendum,
-        9 => 243 + addendum,
-        10 => 273 + addendum,
-        11 => 304 + addendum,
-        _ => 334 + addendum,
-    } + 1;
-    
+    let day =
+        days - match month {
+            1 => 0,
+            2 => 31,
+            3 => 59 + addendum,
+            4 => 90 + addendum,
+            5 => 120 + addendum,
+            6 => 151 + addendum,
+            7 => 181 + addendum,
+            8 => 212 + addendum,
+            9 => 243 + addendum,
+            10 => 273 + addendum,
+            11 => 304 + addendum,
+            _ => 334 + addendum,
+        } + 1;
+
     let hours = (secs % 86_400) / 3600;
     let minutes = (secs % 3600) / 60;
     let seconds = secs % 60;

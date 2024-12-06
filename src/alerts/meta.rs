@@ -1,10 +1,10 @@
 use crate::alerts::datasource::AlertDatasource;
 use crate::alerts::rules::Group;
 use crate::alerts::{GroupId, GroupManager, GROUP_MANAGERS, VKM_RULE_GROUP};
+use crate::common::get_current_db;
 use papaya::Guard;
 use std::sync::Arc;
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
-use crate::common::get_current_db;
 
 // todo: read configuration and construct accordingly
 fn create_group_manager(ctx: &Context, db: i32) -> GroupManager {
@@ -26,16 +26,18 @@ where
     with_group_manager(ctx, |manager| manager.with_group_by_id(ctx, group_id, f))
 }
 
-pub fn with_rule_groups<F, STATE>(
-    ctx: &Context,
-    names: &[String],
-    state: &mut STATE,
-    f: F,
-) where F: FnMut(&mut STATE, &Group) {
+pub fn with_rule_groups<F, STATE>(ctx: &Context, names: &[String], state: &mut STATE, f: F)
+where
+    F: FnMut(&mut STATE, &Group),
+{
     with_group_manager(ctx, |manager| manager.with_groups(ctx, names, state, f))
 }
 
-pub fn get_group_manager_for_db<'g>(ctx: &Context, db: i32, guard: &'g impl Guard) -> &'g GroupManager {
+pub fn get_group_manager_for_db<'g>(
+    ctx: &Context,
+    db: i32,
+    guard: &'g impl Guard,
+) -> &'g GroupManager {
     if let Some(manager) = GROUP_MANAGERS.get(&db, guard) {
         return manager;
     }
@@ -47,7 +49,7 @@ pub fn with_group_manager<F, R>(ctx: &Context, f: F) -> R
 where
     F: FnOnce(&GroupManager) -> R,
 {
-    let db = get_current_db(ctx) ;
+    let db = get_current_db(ctx);
     let guard = GROUP_MANAGERS.guard();
     let manager = get_group_manager_for_db(ctx, db, &guard);
     let res = f(manager);
@@ -55,16 +57,30 @@ where
     res
 }
 
-pub(crate) fn with_group<T>(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&Group) -> ValkeyResult<T>) -> ValkeyResult<T> {
+pub(crate) fn with_group<T>(
+    ctx: &Context,
+    key: &ValkeyString,
+    f: impl FnOnce(&Group) -> ValkeyResult<T>,
+) -> ValkeyResult<T> {
     ctx.open_key(key)
         .get_value::<Group>(&VKM_RULE_GROUP)?
-        .map_or_else(|| Err(ValkeyError::Str("ERR TSDB: the key is not a group")), f)
+        .map_or_else(
+            || Err(ValkeyError::Str("ERR TSDB: the key is not a group")),
+            f,
+        )
 }
 
-pub(crate) fn with_group_mut<T>(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&mut Group) -> ValkeyResult<T>) -> ValkeyResult<T> {
+pub(crate) fn with_group_mut<T>(
+    ctx: &Context,
+    key: &ValkeyString,
+    f: impl FnOnce(&mut Group) -> ValkeyResult<T>,
+) -> ValkeyResult<T> {
     ctx.open_key_writable(key)
         .get_value::<Group>(&VKM_RULE_GROUP)?
-        .map_or_else(|| Err(ValkeyError::Str("ERR TSDB: the key is not a group")), f)
+        .map_or_else(
+            || Err(ValkeyError::Str("ERR TSDB: the key is not a group")),
+            f,
+        )
 }
 
 pub fn with_rule_group_mut<F, R>(ctx: &Context, group_id: GroupId, f: F) -> ValkeyResult<R>
@@ -73,7 +89,6 @@ where
 {
     with_group_manager(ctx, |manager| manager.with_group_mut(ctx, group_id, f))
 }
-
 
 pub fn clear_group_manager(ctx: &Context) {
     let db = get_current_db(ctx);

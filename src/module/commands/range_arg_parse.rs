@@ -13,7 +13,7 @@ pub fn parse_range_options(args: &mut CommandArgIterator) -> ValkeyResult<RangeO
         CMD_ARG_GROUP_BY,
         CMD_ARG_WITH_LABELS,
         CMD_ARG_SELECTED_LABELS,
-        CMD_PARAM_REDUCER
+        CMD_PARAM_REDUCER,
     ];
 
     let date_range = parse_timestamp_range(args)?;
@@ -31,7 +31,9 @@ pub fn parse_range_options(args: &mut CommandArgIterator) -> ValkeyResult<RangeO
     };
 
     fn is_range_command_keyword(arg: &str) -> bool {
-        RANGE_OPTION_TOKENS.iter().any(|x| x.eq_ignore_ascii_case(arg))
+        RANGE_OPTION_TOKENS
+            .iter()
+            .any(|x| x.eq_ignore_ascii_case(arg))
     }
 
     while let Ok(arg) = args.next_str() {
@@ -45,7 +47,8 @@ pub fn parse_range_options(args: &mut CommandArgIterator) -> ValkeyResult<RangeO
                 options.value_filter = Some(parse_value_filter(args)?);
             }
             CMD_ARG_FILTER_BY_TS => {
-                options.timestamp_filter = Some(parse_timestamp_filter(args, is_range_command_keyword)?);
+                options.timestamp_filter =
+                    Some(parse_timestamp_filter(args, is_range_command_keyword)?);
             }
             CMD_ARG_GROUP_BY => {
                 options.grouping = Some(parse_grouping_params(args)?);

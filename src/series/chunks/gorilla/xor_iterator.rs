@@ -4,11 +4,7 @@ use crate::common::types::Sample;
 use crate::common::{read_uvarint, read_varint, NomBitInput};
 use crate::error::{TsdbError, TsdbResult};
 use crate::series::chunks::gorilla::varbit::read_varbit_int;
-use nom::{
-    bytes,
-    number::complete::be_f64,
-    sequence::tuple
-};
+use nom::{bytes, number::complete::be_f64, sequence::tuple};
 
 #[derive(Debug)]
 pub struct XORIterator<'a> {
@@ -50,9 +46,7 @@ impl XORIterator<'_> {
 
     fn read_first_sample(&mut self) -> TsdbResult<Sample> {
         let (remaining_input, (timestamp, value)) = tuple((read_varint, be_f64))(self.buf)
-            .map_err(|_| {
-                TsdbError::DecodingError("XOR encoder".to_string())
-            })?;
+            .map_err(|_| TsdbError::DecodingError("XOR encoder".to_string()))?;
 
         self.timestamp = timestamp;
         self.value = value;
@@ -71,15 +65,17 @@ impl XORIterator<'_> {
         let leading_bits = self.leading_bits_count;
         let trailing_bits = self.trailing_bits_count;
 
-        let (remaining_input, (timestamp_delta, (value, new_leading_bits_count, new_trailing_bits_count)))
-            = tuple((bytes(read_uvarint), read_varbit_xor(value, leading_bits, trailing_bits)))(self.cursor)
-            .map_err(|_| {
-                TsdbError::DecodingError("XOR encoder".to_string())
-            })?;
+        let (
+            remaining_input,
+            (timestamp_delta, (value, new_leading_bits_count, new_trailing_bits_count)),
+        ) = tuple((
+            bytes(read_uvarint),
+            read_varbit_xor(value, leading_bits, trailing_bits),
+        ))(self.cursor)
+        .map_err(|_| TsdbError::DecodingError("XOR encoder".to_string()))?;
 
-        self.timestamp += i64::try_from(timestamp_delta).map_err(|_| {
-            TsdbError::DecodingError("Timestamp delta too large".to_string())
-        })?;
+        self.timestamp += i64::try_from(timestamp_delta)
+            .map_err(|_| TsdbError::DecodingError("Timestamp delta too large".to_string()))?;
 
         self.value = value;
         self.leading_bits_count = new_leading_bits_count;
@@ -113,10 +109,10 @@ impl XORIterator<'_> {
                 previous_trailing_bits_count,
             ),
         ))(self.cursor)
-            .map_err(|e| {
-                println!("{:?}", e);
-                TsdbError::DecodingError("XOR encoder".to_string())
-            })?;
+        .map_err(|e| {
+            println!("{:?}", e);
+            TsdbError::DecodingError("XOR encoder".to_string())
+        })?;
 
         let timestamp_delta = ((previous_timestamp_delta as i64) + timestamp_delta_of_delta) as u64;
 
@@ -155,11 +151,10 @@ impl Iterator for XORIterator<'_> {
         Some(match self.idx {
             0 => self.read_first_sample(),
             1 => self.read_second_sample(),
-            _ => self.read_n_sample()
+            _ => self.read_n_sample(),
         })
     }
 }
 
 #[cfg(test)]
-mod tests {
-}
+mod tests {}

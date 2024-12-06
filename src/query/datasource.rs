@@ -11,25 +11,29 @@ pub trait Querier {
     fn query(&self, query: &str, ts: Timestamp) -> AlertsResult<InstantResult>;
     /// `query_range` executes range request with the given query on the given time range.
     /// It returns list of Metric in response and error if any.
-    fn query_range(&self, query: &str, from: Timestamp, to: Timestamp) -> AlertsResult<RangeResult>;
+    fn query_range(&self, query: &str, from: Timestamp, to: Timestamp)
+        -> AlertsResult<RangeResult>;
 }
-
 
 #[derive(Debug)]
 pub struct InstantQueryResult {
     pub metric: MetricName,
-    pub sample: Sample
+    pub sample: Sample,
 }
 
 #[derive(Debug, Clone)]
 pub struct RangeQueryResult {
     pub metric: MetricName,
-    pub samples: Vec<Sample>
+    pub samples: Vec<Sample>,
 }
 
 impl Display for RangeQueryResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "RangeQueryResult {{ metric: {}, samples: {:?} }}", self.metric, self.samples)
+        write!(
+            f,
+            "RangeQueryResult {{ metric: {}, samples: {:?} }}",
+            self.metric, self.samples
+        )
     }
 }
 
@@ -71,13 +75,11 @@ impl RangeResult {
     }
 }
 
-
 /// QuerierBuilder builds Querier with given params.
 pub trait QuerierBuilder {
     /// build_with_params creates a new Querier object with the given params
     fn build_with_params(&self, params: QuerierParams) -> Box<dyn Querier>;
 }
-
 
 /// QuerierParams params for Querier.
 #[derive(Debug, Clone, PartialEq)]
@@ -85,5 +87,5 @@ pub struct QuerierParams {
     pub evaluation_interval: Duration,
     pub eval_offset: Duration,
     pub query_params: HashMap<String, String>,
-    pub debug: bool
+    pub debug: bool,
 }

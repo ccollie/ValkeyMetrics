@@ -8,7 +8,6 @@ use valkey_module::{ValkeyString, ValkeyValue};
 
 pub static META_KEY_LABEL: &str = "__meta:key__";
 
-
 pub(crate) fn metric_name_to_valkey_value(
     metric_name: &MetricName,
     key: Option<&str>,
@@ -33,7 +32,6 @@ pub(crate) fn metric_name_to_valkey_value(
 
     ValkeyValue::Map(map)
 }
-
 
 /// `To Prometheus Range Vector output
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#range-vectors
@@ -73,7 +71,9 @@ pub fn to_matrix_result(vals: Vec<RangeQueryResult>) -> ValkeyValue {
         .into_iter()
         .map(|val| {
             let metric_name = metric_name_to_valkey_value(&val.metric, None);
-            let samples = val.samples.into_iter()
+            let samples = val
+                .samples
+                .into_iter()
                 .map(sample_to_value)
                 .collect::<Vec<_>>();
 
@@ -122,14 +122,17 @@ pub fn to_matrix_result(vals: Vec<RangeQueryResult>) -> ValkeyValue {
 /// }
 /// ```
 pub fn to_instant_vector_result(results: Vec<InstantQueryResult>) -> ValkeyValue {
-    let data: Vec<_> = results.iter().map(|x| {
-        let metric_name = metric_name_to_valkey_value(&x.metric, None);
-        let map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::from([
-            (ValkeyValueKey::from("metric"), metric_name),
-            (ValkeyValueKey::from("value"), sample_to_value(x.sample)),
-        ]);
-        map
-    }).collect();
+    let data: Vec<_> = results
+        .iter()
+        .map(|x| {
+            let metric_name = metric_name_to_valkey_value(&x.metric, None);
+            let map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::from([
+                (ValkeyValueKey::from("metric"), metric_name),
+                (ValkeyValueKey::from("value"), sample_to_value(x.sample)),
+            ]);
+            map
+        })
+        .collect();
 
     let map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::from([
         (ValkeyValueKey::from("resultType"), "matrix".into()),
@@ -139,17 +142,13 @@ pub fn to_instant_vector_result(results: Vec<InstantQueryResult>) -> ValkeyValue
     ValkeyValue::Map(map)
 }
 
-
 pub fn format_array_result(arr: Vec<ValkeyValue>) -> ValkeyValue {
     let map: HashMap<ValkeyValueKey, ValkeyValue> = [
         status_element(true),
-        (
-            ValkeyValueKey::from("data"),
-            ValkeyValue::Array(arr),
-        ),
+        (ValkeyValueKey::from("data"), ValkeyValue::Array(arr)),
     ]
-        .into_iter()
-        .collect();
+    .into_iter()
+    .collect();
 
     ValkeyValue::Map(map)
 }
@@ -162,7 +161,6 @@ fn status_element(success: bool) -> (ValkeyValueKey, ValkeyValue) {
     )
 }
 
-
 pub(super) fn get_ts_metric_selector(ts: &TimeSeries, key: Option<&ValkeyString>) -> ValkeyValue {
     let mut map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::with_capacity(ts.labels.len() + 1);
     map.insert(
@@ -170,15 +168,24 @@ pub(super) fn get_ts_metric_selector(ts: &TimeSeries, key: Option<&ValkeyString>
         ValkeyValue::from(&ts.metric_name),
     );
     if let Some(key) = key {
-        map.insert(ValkeyValueKey::String(META_KEY_LABEL.into()), ValkeyValue::from(key));
+        map.insert(
+            ValkeyValueKey::String(META_KEY_LABEL.into()),
+            ValkeyValue::from(key),
+        );
     }
     for Label { name, value } in ts.labels.iter() {
-        map.insert(ValkeyValueKey::String(name.into()), ValkeyValue::from(value));
+        map.insert(
+            ValkeyValueKey::String(name.into()),
+            ValkeyValue::from(value),
+        );
     }
     ValkeyValue::Map(map)
 }
 
 pub(crate) fn sample_to_value(sample: Sample) -> ValkeyValue {
-    let row = vec![ValkeyValue::from(sample.timestamp), ValkeyValue::from(sample.value)];
+    let row = vec![
+        ValkeyValue::from(sample.timestamp),
+        ValkeyValue::from(sample.value),
+    ];
     ValkeyValue::from(row)
 }

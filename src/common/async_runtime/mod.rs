@@ -1,9 +1,9 @@
-mod smol;
 mod async_std;
+mod smol;
 
-use std::future::Future;
-pub use metricsql_common::async_runtime::{JoinHandle};
 use cfg_if::cfg_if;
+pub use metricsql_common::async_runtime::JoinHandle;
+use std::future::Future;
 
 cfg_if! {
     if #[cfg(feature = "tokio")] {
@@ -30,7 +30,7 @@ cfg_if! {
         {
             TOKIO_RUNTIME.spawn_blocking(func)
         }
-        
+
      } else if #[cfg(feature = "async-std")] {
         mod async_std;
         pub use async_std::init_runtime;

@@ -2,6 +2,7 @@ use super::{XOREncoder, XORIterator};
 use crate::common::current_time_millis;
 use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
+use crate::error_consts;
 use crate::iterators::SampleIter;
 use crate::series::chunks::chunk::Chunk;
 use crate::series::merge::merge_samples;
@@ -9,11 +10,9 @@ use crate::series::{DuplicatePolicy, SampleAddResult, SERIES_SETTINGS};
 use get_size::GetSize;
 use std::cmp::Ordering;
 use std::mem::size_of;
-use crate::error_consts;
 
 /// `GorillaChunk` holds information about location and time range of a block of compressed data.
-#[derive(Debug, Clone, PartialEq)]
-#[derive(GetSize)]
+#[derive(Debug, Clone, PartialEq, GetSize)]
 pub struct GorillaChunk {
     pub(crate) xor_encoder: XOREncoder,
     pub(crate) first_timestamp: Timestamp,
@@ -113,7 +112,7 @@ impl GorillaChunk {
         GorillaChunkIterator::new(self, start_ts, end_ts).into()
     }
 
-    pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
+    pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>> {
         if self.len() == 0 || timestamps.is_empty() {
             return Ok(vec![]);
         }
@@ -236,7 +235,7 @@ impl Chunk for GorillaChunk {
 
         if self.is_empty() {
             self.add_sample(&sample)?;
-            return Ok(1)
+            return Ok(1);
         }
 
         let count = self.len();
@@ -275,14 +274,21 @@ impl Chunk for GorillaChunk {
         Ok(size)
     }
 
-    fn merge_samples(&mut self, samples: &[Sample], dp_policy: Option<DuplicatePolicy>) -> TsdbResult<Vec<SampleAddResult>> {
-
-        fn add_sample(chunk: &mut GorillaChunk, sample: &Sample, res: &mut Vec<SampleAddResult>) -> TsdbResult<()> {
+    fn merge_samples(
+        &mut self,
+        samples: &[Sample],
+        dp_policy: Option<DuplicatePolicy>,
+    ) -> TsdbResult<Vec<SampleAddResult>> {
+        fn add_sample(
+            chunk: &mut GorillaChunk,
+            sample: &Sample,
+            res: &mut Vec<SampleAddResult>,
+        ) -> TsdbResult<()> {
             match chunk.add_sample(sample) {
                 Ok(_) => {
                     res.push(SampleAddResult::Ok(sample.timestamp));
                     Ok(())
-                },
+                }
                 err @ Err(TsdbError::CapacityFull(_)) => Err(err.unwrap_err()),
                 Err(_e) => {
                     // todo: log error
@@ -302,7 +308,7 @@ impl Chunk for GorillaChunk {
             for sample in samples.iter() {
                 add_sample(self, sample, &mut result)?;
             }
-            return Ok(result)
+            return Ok(result);
         }
 
         struct MergeState {
@@ -320,21 +326,26 @@ impl Chunk for GorillaChunk {
         let left = SampleIter::Slice(samples.iter());
         let right = self.iter();
 
-        merge_samples(left, right, dp_policy, &mut merge_state, |state, sample, is_duplicate| {
-            if !is_duplicate {
-                state.count += 1;
-                push_sample(&mut state.xor_encoder, &sample)?;
-                state.result.push(SampleAddResult::Ok(sample.timestamp));
-            } else {
-                state.result.push(SampleAddResult::Duplicate);
-            }
-            Ok(())
-        })?;
+        merge_samples(
+            left,
+            right,
+            dp_policy,
+            &mut merge_state,
+            |state, sample, is_duplicate| {
+                if !is_duplicate {
+                    state.count += 1;
+                    push_sample(&mut state.xor_encoder, &sample)?;
+                    state.result.push(SampleAddResult::Ok(sample.timestamp));
+                } else {
+                    state.result.push(SampleAddResult::Duplicate);
+                }
+                Ok(())
+            },
+        )?;
 
         self.xor_encoder = merge_state.xor_encoder;
         Ok(merge_state.result)
     }
-
 
     fn split(&mut self) -> TsdbResult<Self>
     where
@@ -364,11 +375,10 @@ impl Chunk for GorillaChunk {
 }
 
 fn push_sample(encoder: &mut XOREncoder, sample: &Sample) -> TsdbResult<()> {
-    encoder.add_sample(sample)
-        .map_err(|e| {
-            println!("Error adding sample: {:?}", e);
-            TsdbError::CannotAddSample(*sample)
-        })
+    encoder.add_sample(sample).map_err(|e| {
+        println!("Error adding sample: {:?}", e);
+        TsdbError::CannotAddSample(*sample)
+    })
 }
 
 pub(crate) struct ChunkIter<'a> {
@@ -388,28 +398,32 @@ impl Iterator for ChunkIter<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         match self.inner.next() {
             Some(Ok(sample)) => Some(sample),
-            Some(Err(err)) => {
+            Some(Err(_err)) => {
                 #[cfg(debug_assertions)]
-                eprintln!("Error decoding sample: {:?}", err);
+                eprintln!("Error decoding sample: {:?}", _err);
                 None
-            },
+            }
             None => None,
         }
     }
 }
 
-
 pub struct GorillaChunkIterator<'a> {
     inner: XORIterator<'a>,
     start: Timestamp,
     end: Timestamp,
-    init: bool
+    init: bool,
 }
 
 impl<'a> GorillaChunkIterator<'a> {
     pub fn new(chunk: &'a GorillaChunk, start: Timestamp, end: Timestamp) -> Self {
         let inner = XORIterator::new(&chunk.xor_encoder);
-        Self { inner, start, end, init: false }
+        Self {
+            inner,
+            start,
+            end,
+            init: false,
+        }
     }
 
     fn next_internal(&mut self) -> Option<Sample> {
@@ -419,12 +433,12 @@ impl<'a> GorillaChunkIterator<'a> {
                     return None;
                 }
                 Some(sample)
-            },
+            }
             Some(Err(err)) => {
                 #[cfg(debug_assertions)]
                 eprintln!("Error decoding sample: {:?}", err);
                 None
-            },
+            }
             None => None,
         }
     }
@@ -465,7 +479,10 @@ mod tests {
     }
 
     fn compare_chunks(chunk1: &GorillaChunk, chunk2: &GorillaChunk) {
-        assert_eq!(chunk1.xor_encoder, chunk2.xor_encoder, "xor chunks do not match");
+        assert_eq!(
+            chunk1.xor_encoder, chunk2.xor_encoder,
+            "xor chunks do not match"
+        );
         assert_eq!(chunk1.max_size, chunk2.max_size);
     }
 
@@ -473,11 +490,11 @@ mod tests {
     fn test_chunk_compress() {
         let mut chunk = GorillaChunk::with_max_size(16384);
         let options = GeneratorOptions::default();
-  //    options.significant_digits = Some(8);
+        //    options.significant_digits = Some(8);
         let data = generate_random_samples(0, 1000);
 
         for sample in data.iter() {
-            chunk.add_sample(&sample).unwrap();
+            chunk.add_sample(sample).unwrap();
         }
         assert_eq!(chunk.len(), data.len());
         assert_eq!(chunk.first_timestamp(), data[0].timestamp);
@@ -510,7 +527,9 @@ mod tests {
 
             let sample_count = samples.len();
             for sample in samples.into_iter() {
-                chunk.upsert_sample(sample, DuplicatePolicy::KeepLast).unwrap();
+                chunk
+                    .upsert_sample(sample, DuplicatePolicy::KeepLast)
+                    .unwrap();
             }
             assert_eq!(chunk.len(), sample_count);
         }
@@ -526,7 +545,7 @@ mod tests {
         loop {
             let sample = Sample {
                 timestamp: ts,
-                value
+                value,
             };
             ts += 1000;
             value *= 2.0;
@@ -548,7 +567,9 @@ mod tests {
             value: 1.0,
         };
 
-        assert!(chunk.upsert_sample(sample, DuplicatePolicy::KeepLast).is_err());
+        assert!(chunk
+            .upsert_sample(sample, DuplicatePolicy::KeepLast)
+            .is_err());
 
         // should update value for duplicate timestamp
         sample.timestamp = timestamp;
@@ -564,7 +585,7 @@ mod tests {
         let mut chunk = GorillaChunk::with_max_size(16384);
 
         for sample in samples.iter() {
-            chunk.add_sample(&sample).unwrap();
+            chunk.add_sample(sample).unwrap();
         }
 
         let count = samples.len();
@@ -590,7 +611,7 @@ mod tests {
         let mut chunk = GorillaChunk::default();
 
         for sample in samples.iter() {
-            chunk.add_sample(&sample).unwrap();
+            chunk.add_sample(sample).unwrap();
         }
 
         let count = samples.len();

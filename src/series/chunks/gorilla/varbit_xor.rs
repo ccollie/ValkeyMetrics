@@ -1,9 +1,9 @@
+use crate::common::bitwriter::BitWrite;
+use crate::common::NomBitInput;
 use nom::{
     bits::complete::{bool, take},
     IResult,
 };
-use crate::common::bitwriter::BitWrite;
-use crate::common::NomBitInput;
 
 /// Writes a f64 as a Prometheus varbit xor encoded number.
 ///
@@ -148,9 +148,9 @@ mod tests {
     use core::f64;
 
     use super::*;
-    use bitstream_io::{BigEndian};
-    use rand::{Rng, SeedableRng};
     use crate::common::bitwriter::BitWriter;
+    use bitstream_io::BigEndian;
+    use rand::{Rng, SeedableRng};
 
     fn generate_random_test_data(seed: u64) -> Vec<Vec<f64>> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);

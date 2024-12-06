@@ -12,10 +12,7 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use valkey_module::{
-    Context, RedisModuleTimerID,
-    ValkeyError, ValkeyResult, ValkeyString,
-};
+use valkey_module::{Context, RedisModuleTimerID, ValkeyError, ValkeyResult, ValkeyString};
 use xxhash_rust::xxh3::Xxh3;
 
 pub type GroupId = u64;
@@ -23,10 +20,9 @@ pub type GroupId = u64;
 // map a db to its group manager
 pub type GroupManagerMap = HashMap<i32, GroupManager>;
 
-
 #[derive(Clone)]
 struct GroupTimerMeta {
-    group_id: GroupId
+    group_id: GroupId,
 }
 
 impl GroupTimerMeta {
@@ -117,10 +113,15 @@ impl GroupManager {
         }
     }
 
-    pub fn add_group(&self, ctx: &Context, group: &mut Group, key: &ValkeyString) -> ValkeyResult<()> {
+    pub fn add_group(
+        &self,
+        ctx: &Context,
+        group: &mut Group,
+        key: &ValkeyString,
+    ) -> ValkeyResult<()> {
         let groups = self.groups_by_id.pin();
         let hash = get_hash(group);
-        
+
         group.id = self.next_id();
 
         let _key = key.to_vec().into_boxed_slice();
@@ -147,7 +148,7 @@ impl GroupManager {
             Ok(())
         }
     }
-    
+
     pub fn start_write_queue_timer(&mut self, ctx: &Context) {
         let flush_timer_id = ctx.create_timer(
             self.write_queue.flush_interval,
@@ -160,26 +161,21 @@ impl GroupManager {
         }
         self.write_queue_timer = flush_timer_id;
     }
-    
+
     fn stop_write_queue_timer(&mut self, ctx: &Context) {
         if self.write_queue_timer != 0 {
-            ctx.stop_timer::<Arc<WriteQueue>>(self.write_queue_timer).ok();
+            ctx.stop_timer::<Arc<WriteQueue>>(self.write_queue_timer)
+                .ok();
             self.write_queue_timer = 0;
         }
         // flush the queue
     }
 
-    fn start_timer_internal(
-        &self,
-        ctx: &Context,
-        group: &Group,
-    ) -> RedisModuleTimerID {
-        let meta = GroupTimerMeta {
-            group_id: group.id,
-        };
+    fn start_timer_internal(&self, ctx: &Context, group: &Group) -> RedisModuleTimerID {
+        let meta = GroupTimerMeta { group_id: group.id };
         ctx.create_timer(group.interval, group_timer_callback, meta)
     }
-    
+
     fn next_id(&self) -> GroupId {
         let guard = self.groups_by_id.guard();
         loop {
@@ -197,11 +193,7 @@ impl GroupManager {
         // todo: handle overflow
     }
 
-    fn start_group_timer(
-        &self,
-        ctx: &Context,
-        group_id: GroupId,
-    ) -> bool {
+    fn start_group_timer(&self, ctx: &Context, group_id: GroupId) -> bool {
         let groups = self.groups_by_id.pin();
 
         groups
@@ -348,7 +340,7 @@ impl GroupManager {
 
         drop(groups);
         self.stop_write_queue_timer(ctx);
-        
+
         self.is_stopped.store(true, Ordering::SeqCst);
     }
 
@@ -411,9 +403,11 @@ impl GroupManager {
         if let Some(meta) = groups.get(&group_id) {
             return Ok(f(meta));
         }
-        Err(ValkeyError::String(format!("ERR the group with id {group_id} does not exist")))
+        Err(ValkeyError::String(format!(
+            "ERR the group with id {group_id} does not exist"
+        )))
     }
-    
+
     pub fn with_groups<F, STATE>(
         &self,
         ctx: &Context,

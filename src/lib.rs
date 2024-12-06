@@ -13,26 +13,26 @@ use valkey_module::{logging, valkey_module, Context, Status, ValkeyString};
 
 use valkey_module_macros::config_changed_event_handler;
 mod aggregators;
+mod alerts;
 mod common;
 mod config;
 mod error;
+mod error_consts;
+mod iterators;
+mod join;
 mod module;
+mod query;
 mod series;
+mod server_events;
 #[cfg(test)]
 mod tests;
-mod iterators;
-mod error_consts;
-mod join;
-mod query;
-mod alerts;
-mod server_events;
 use module::*;
 
-use crate::alerts::{VKM_RULE_GROUP};
+use crate::alerts::VKM_RULE_GROUP;
 use crate::common::async_runtime::init_runtime;
-use crate::server_events::{generic_key_event_handler, register_server_events};
 use crate::config::load_config;
 use crate::series::{start_series_background_worker, stop_series_background_worker};
+use crate::server_events::{generic_key_event_handler, register_server_events};
 
 pub const VKMETRICS_VERSION: i32 = 1;
 pub const MODULE_NAME: &str = "VKMetrics";
@@ -40,9 +40,9 @@ pub const MODULE_TYPE: &str = "vkmetrics";
 
 fn initialize(ctx: &Context, args: &[ValkeyString]) -> Status {
     logging::log_debug("initialize");
-    
+
     init_runtime();
-    
+
     if load_config(ctx, args).is_err() {
         logging::log_warning("Failed to load configuration");
         return Status::Err;

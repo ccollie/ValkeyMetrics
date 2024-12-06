@@ -1,5 +1,4 @@
-use std::sync::Arc;
-use crate::module::group_data_type::VKM_RULE_GROUP;
+use crate::alerts::datasource::{AlertDatasource, WriteQueue};
 use crate::alerts::meta::get_group_manager_for_db;
 use crate::alerts::replay::{replay, ReplayOptions};
 use crate::alerts::rules::{merge_hashes, Group, MetricRule, Rule};
@@ -7,20 +6,14 @@ use crate::alerts::GROUP_MANAGERS;
 use crate::common::get_current_db;
 use crate::error_consts;
 use crate::module::arg_parse::*;
+use crate::module::group_data_type::VKM_RULE_GROUP;
+use std::sync::Arc;
 use std::thread;
 use valkey_module::{
-    logging,
-    Context,
-    NextArg,
-    NotifyEvent,
-    ThreadSafeContext,
-    ValkeyError,
-    ValkeyResult,
-    ValkeyString,
-    ValkeyValue
+    logging, Context, NextArg, NotifyEvent, ThreadSafeContext, ValkeyError, ValkeyResult,
+    ValkeyString, ValkeyValue,
 };
 use valkey_module_macros::command;
-use crate::alerts::datasource::{AlertDatasource, WriteQueue};
 
 const RULES_DELAY: &str = "RULES_DELAY";
 const RULES_RETRIES: &str = "RULES_RETRIES";
@@ -32,7 +25,7 @@ struct ParsedOptions {
     options: ReplayOptions,
     key_buf: Vec<u8>,
     data_source: AlertDatasource,
-    write_queue: Arc<WriteQueue>
+    write_queue: Arc<WriteQueue>,
 }
 
 /// Replay the rules of a group
@@ -64,10 +57,14 @@ pub fn replay_group_function(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRe
     // todo: run on a thread from rayon thread pool
     thread::spawn(move || {
         let thread_ctx = ThreadSafeContext::with_blocked_client(blocked_client);
-        
-        let res = replay(&options.data_source, 
-                         &mut options.group, &options.options, &options.write_queue);
-        match res { 
+
+        let res = replay(
+            &options.data_source,
+            &mut options.group,
+            &options.options,
+            &options.write_queue,
+        );
+        match res {
             Ok(val) => {
                 let ctx = thread_ctx.lock();
                 let key = ctx.create_string(options.key_buf);
@@ -91,12 +88,14 @@ fn parse_replay_options(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult<
 
     let mut options = ReplayOptions::default();
 
-    let key = args.next().ok_or(ValkeyError::Str("Err missing key argument"))?;
+    let key = args
+        .next()
+        .ok_or(ValkeyError::Str("Err missing key argument"))?;
     let date_range = parse_timestamp_range(&mut args)?;
     let (start, end) = date_range.get_timestamps();
     options.from = start;
     options.to = end;
-    
+
     const TOKENS: [&str; 4] = [RULES_DELAY, MAX_DATAPOINTS, RULES_RETRIES, LABELS];
     fn is_cmd_token(token: &str) -> bool {
         TOKENS.contains(&token)
@@ -111,7 +110,7 @@ fn parse_replay_options(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult<
                 options.max_data_points = args.next_u64()? as usize;
                 if options.max_data_points < 1 {
                     return Err(ValkeyError::Str(
-                        "replay.max_data_points can't be lower than 1"
+                        "replay.max_data_points can't be lower than 1",
                     ));
                 }
             }
@@ -119,7 +118,7 @@ fn parse_replay_options(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult<
                 options.rule_retry_attempts = args.next_u64()? as usize;
             }
             arg if arg.eq_ignore_ascii_case(LABELS) => {
-                let labels = parse_key_value_pairs(&mut args,  is_cmd_token)?;
+                let labels = parse_key_value_pairs(&mut args, is_cmd_token)?;
                 options.extra_labels = labels;
             }
             _ => {
@@ -129,8 +128,9 @@ fn parse_replay_options(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult<
     }
 
     let db = get_current_db(ctx);
-    
-    let mut cloned_group = ctx.open_key(&key)
+
+    let mut cloned_group = ctx
+        .open_key(&key)
         .get_value::<Group>(&VKM_RULE_GROUP)?
         .ok_or(ValkeyError::Str(error_consts::GROUP_NOT_FOUND))?
         .clone();
@@ -140,15 +140,25 @@ fn parse_replay_options(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult<
             let name = rule.name().to_string();
             match rule {
                 MetricRule::AlertingRule(ar) => {
-                    merge_hashes(&cloned_group.name, &name, &mut ar.labels, &options.extra_labels);
+                    merge_hashes(
+                        &cloned_group.name,
+                        &name,
+                        &mut ar.labels,
+                        &options.extra_labels,
+                    );
                 }
                 MetricRule::RecordingRule(rr) => {
-                    merge_hashes(&cloned_group.name, &name, &mut rr.labels, &options.extra_labels);
+                    merge_hashes(
+                        &cloned_group.name,
+                        &name,
+                        &mut rr.labels,
+                        &options.extra_labels,
+                    );
                 }
             }
         }
     }
-    
+
     let guard = GROUP_MANAGERS.guard();
     let manager = get_group_manager_for_db(ctx, db, &guard);
     let res = manager.with_group_meta(cloned_group.id, |group_meta| {
@@ -163,6 +173,6 @@ fn parse_replay_options(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult<
         options,
         key_buf: key.to_vec(),
         data_source,
-        write_queue
+        write_queue,
     })
 }

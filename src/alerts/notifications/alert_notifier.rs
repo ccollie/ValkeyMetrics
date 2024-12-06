@@ -1,7 +1,7 @@
+use super::{Alert, Notifier, NullNotifier, PubSubNotifier, StreamNotifier};
+use crate::alerts::AlertsResult;
 use std::collections::HashMap;
 use valkey_module::Context;
-use crate::alerts::AlertsResult;
-use super::{Alert, Notifier, NullNotifier, PubSubNotifier, StreamNotifier};
 
 #[derive(Debug, Clone)]
 pub enum AlertNotifier {
@@ -15,7 +15,7 @@ impl AlertNotifier {
         AlertNotifier::Stream(StreamNotifier::new(max_len))
     }
     pub fn pubsub() -> Self {
-        AlertNotifier::PubSub(PubSubNotifier{})
+        AlertNotifier::PubSub(PubSubNotifier {})
     }
 
     pub fn null() -> Self {
@@ -28,7 +28,8 @@ impl Notifier for AlertNotifier {
         &self,
         ctx: &Context,
         alerts: &[&Alert],
-        notifier_headers: &HashMap<String, String>) -> AlertsResult<()> {
+        notifier_headers: &HashMap<String, String>,
+    ) -> AlertsResult<()> {
         match self {
             AlertNotifier::Stream(notifier) => notifier.send(ctx, alerts, notifier_headers),
             AlertNotifier::PubSub(notifier) => notifier.send(ctx, alerts, notifier_headers),

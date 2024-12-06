@@ -1,5 +1,5 @@
-use crate::alerts::meta::with_rule_group;
 use crate::alerts::commands::rule_to_api;
+use crate::alerts::meta::with_rule_group;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString};
 use valkey_module_macros::command;
 
@@ -21,10 +21,10 @@ use valkey_module_macros::command;
 )]
 pub fn get_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let mut args = args.into_iter().skip(1).peekable();
-    
+
     let group_id = args.next_u64()?;
     let rule_id = args.next_u64()?;
-    
+
     let mut exclude_alerts = false;
     if let Some(arg) = args.peek() {
         let arg = arg.to_string_lossy();
@@ -32,7 +32,7 @@ pub fn get_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
             exclude_alerts = true;
         }
     }
-    
+
     with_rule_group(ctx, group_id, |group| {
         if let Some(rule) = group.get_rule_by_id(rule_id) {
             return Ok(rule_to_api(group, rule, exclude_alerts));

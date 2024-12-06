@@ -13,9 +13,7 @@ fn load_optional_marker(rdb: *mut RedisModuleIO) -> ValkeyResult<bool> {
     match marker {
         OPTIONAL_MARKER_PRESENT => Ok(true),
         OPTIONAL_MARKER_ABSENT => Ok(false),
-        _ => {
-            Err(ValkeyError::String(format!("Invalid marker: {marker}")))
-        }
+        _ => Err(ValkeyError::String(format!("Invalid marker: {marker}"))),
     }
 }
 
@@ -39,7 +37,11 @@ fn save_optional_unsigned(rdb: *mut RedisModuleIO, value: Option<u64>) {
 
 fn load_optional_unsigned(rdb: *mut RedisModuleIO) -> ValkeyResult<Option<u64>> {
     let value = raw::load_signed(rdb)?;
-    Ok(if value == -1 {  None } else { Some(value as u64) })
+    Ok(if value == -1 {
+        None
+    } else {
+        Some(value as u64)
+    })
 }
 
 pub fn rdb_save_duration(rdb: *mut RedisModuleIO, duration: &Duration) {
@@ -49,10 +51,12 @@ pub fn rdb_save_duration(rdb: *mut RedisModuleIO, duration: &Duration) {
 
 /// NOTE: represents optional duration as i64, meaning that durations above i64::MAX milliseconds
 /// will be truncated
-pub(crate) fn rdb_load_optional_duration(rdb: *mut RedisModuleIO) -> ValkeyResult<Option<Duration>> {
+pub(crate) fn rdb_load_optional_duration(
+    rdb: *mut RedisModuleIO,
+) -> ValkeyResult<Option<Duration>> {
     let val = raw::load_signed(rdb)?;
     if val == -1 {
-        return Ok(None)
+        return Ok(None);
     }
     Ok(Some(Duration::from_millis(val as u64)))
 }
@@ -146,11 +150,16 @@ pub(crate) fn rdb_load_rounding(rdb: *mut RedisModuleIO) -> ValkeyResult<Roundin
             let digits = rdb_load_i32(rdb)?;
             Ok(RoundingStrategy::DecimalDigits(digits))
         }
-        _ => Err(ValkeyError::String(format!("Invalid rounding marker: {marker}"))),
+        _ => Err(ValkeyError::String(format!(
+            "Invalid rounding marker: {marker}"
+        ))),
     }
 }
 
-pub(crate) fn rdb_save_optional_rounding(rdb: *mut RedisModuleIO, rounding: &Option<RoundingStrategy>) {
+pub(crate) fn rdb_save_optional_rounding(
+    rdb: *mut RedisModuleIO,
+    rounding: &Option<RoundingStrategy>,
+) {
     if let Some(rounding) = rounding {
         rdb_save_optional_marker(rdb, true);
         rdb_save_rounding(rdb, rounding)
@@ -159,7 +168,9 @@ pub(crate) fn rdb_save_optional_rounding(rdb: *mut RedisModuleIO, rounding: &Opt
     }
 }
 
-pub(crate) fn rdb_load_optional_rounding(rdb: *mut RedisModuleIO) -> ValkeyResult<Option<RoundingStrategy>> {
+pub(crate) fn rdb_load_optional_rounding(
+    rdb: *mut RedisModuleIO,
+) -> ValkeyResult<Option<RoundingStrategy>> {
     if load_optional_marker(rdb)? {
         let rounding = rdb_load_rounding(rdb)?;
         Ok(Some(rounding))
@@ -167,7 +178,6 @@ pub(crate) fn rdb_load_optional_rounding(rdb: *mut RedisModuleIO) -> ValkeyResul
         Ok(None)
     }
 }
-
 
 #[inline]
 pub(crate) fn rdb_save_string(rdb: *mut RedisModuleIO, value: &str) {
@@ -186,7 +196,7 @@ pub(crate) fn rdb_save_bool(rdb: *mut RedisModuleIO, val: bool) {
 
 pub(crate) fn rdb_load_bool(rdb: *mut RedisModuleIO) -> ValkeyResult<bool> {
     let bool_val = rdb_load_u8(rdb)?;
-    Ok(bool_val!= 0)
+    Ok(bool_val != 0)
 }
 
 pub(crate) fn save_optional_bool(rdb: *mut RedisModuleIO, value: Option<bool>) {
@@ -203,19 +213,23 @@ pub(crate) fn load_optional_bool(rdb: *mut RedisModuleIO) -> ValkeyResult<Option
         0 => Ok(Some(false)),
         1 => Ok(Some(true)),
         2 => Ok(None),
-        _ => Err(ValkeyError::String(format!("Invalid bool marker: {marker}"))),
+        _ => Err(ValkeyError::String(format!(
+            "Invalid bool marker: {marker}"
+        ))),
     }
 }
 
 pub(crate) fn rdb_save_string_hashmap(rdb: *mut RedisModuleIO, map: &HashMap<String, String>) {
     rdb_save_usize(rdb, map.len());
-    for (key, val) in map.iter()  {
+    for (key, val) in map.iter() {
         rdb_save_string(rdb, key);
         rdb_save_string(rdb, val);
     }
 }
 
-pub(crate) fn rdb_load_string_hashmap(rdb: *mut RedisModuleIO) -> ValkeyResult<HashMap<String, String>> {
+pub(crate) fn rdb_load_string_hashmap(
+    rdb: *mut RedisModuleIO,
+) -> ValkeyResult<HashMap<String, String>> {
     let len = rdb_load_usize(rdb)?;
     // todo: check available mem first
     let mut map = HashMap::with_capacity(len);
@@ -226,7 +240,6 @@ pub(crate) fn rdb_load_string_hashmap(rdb: *mut RedisModuleIO) -> ValkeyResult<H
     }
     Ok(map)
 }
-
 
 pub fn save_atomic_u64(rdb: *mut RedisModuleIO, value: &AtomicU64) {
     raw::save_unsigned(rdb, value.load(std::sync::atomic::Ordering::Relaxed))

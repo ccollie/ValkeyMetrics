@@ -1,19 +1,13 @@
-use crate::module::group_data_type::VKM_RULE_GROUP;
-use crate::alerts::rules::{validate_offset_and_interval, Group, GroupConfig};
 use crate::alerts::meta::with_group_manager;
+use crate::alerts::rules::{validate_offset_and_interval, Group, GroupConfig};
 use crate::error_consts;
 use crate::module::arg_parse::*;
+use crate::module::group_data_type::VKM_RULE_GROUP;
 use metricsql_parser::parser::is_valid_identifier;
 use std::time::Duration;
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{
-    Context,
-    NextArg,
-    NotifyEvent,
-    ValkeyError,
-    ValkeyResult,
-    ValkeyString,
-    VALKEY_OK
+    Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK,
 };
 use valkey_module_macros::command;
 
@@ -21,7 +15,6 @@ const INTERVAL: &str = "INTERVAL";
 const EVAL_OFFSET: &str = "EVAL_OFFSET";
 const EVAL_DELAY: &str = "EVAL_DELAY";
 const EVAL_ALIGNMENT: &str = "EVAL_ALIGNMENT";
-
 
 /// Create a new Group
 ///
@@ -60,9 +53,11 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
 
     let mut options = GroupConfig::default();
 
-    let key = args.next().ok_or(ValkeyError::Str("Err missing key argument"))?;
+    let key = args
+        .next()
+        .ok_or(ValkeyError::Str("Err missing key argument"))?;
     let name = args.next_string()?;
-    
+
     if !is_valid_identifier(&name) {
         return Err(ValkeyError::Str("ERR invalid group name"));
     }
@@ -71,14 +66,14 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
         return Err(ValkeyError::Str("ERR missing group name"));
     }
     options.name = name;
-    
+
     const CREATE_TOKENS: [&str; 6] = [
         EVAL_ALIGNMENT,
         EVAL_DELAY,
         EVAL_OFFSET,
         INTERVAL,
         CMD_ARG_LIMIT,
-        CMD_ARG_LABELS
+        CMD_ARG_LABELS,
     ];
 
     fn is_command_keyword(arg: &str) -> bool {
@@ -113,12 +108,15 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
     }
 
     validate_offset_and_interval(options.eval_offset, options.eval_delay)?;
-    
+
     Ok((key, options))
 }
 
-
-pub(crate) fn create_group(ctx: &Context, key: &ValkeyString, options: GroupConfig) -> ValkeyResult<()> {
+pub(crate) fn create_group(
+    ctx: &Context,
+    key: &ValkeyString,
+    options: GroupConfig,
+) -> ValkeyResult<()> {
     let _key = ValkeyKeyWritable::open(ctx.ctx, key);
     // check if this refers to an existing series
     if !_key.is_empty() {
@@ -133,6 +131,6 @@ pub(crate) fn create_group(ctx: &Context, key: &ValkeyString, options: GroupConf
 
     // todo: handle errors
     let _ = with_group_manager(ctx, |manager| manager.add_group(ctx, &mut group, key));
-    
+
     Ok(())
 }

@@ -4,11 +4,11 @@ use std::sync::{Arc, LazyLock};
 
 use crate::common;
 
-mod vm_metric_storage;
 pub mod datasource;
-mod series_querier;
 mod handlers;
+mod series_querier;
 mod tracing;
+mod vm_metric_storage;
 
 cfg_if::cfg_if! {
     if #[cfg(test)] {
@@ -35,7 +35,7 @@ pub(super) fn create_query_context() -> QueryContext {
     #[cfg(not(test))]
     let provider = Arc::new(VMMetricStorage {});
     let default_config = crate::config::get_query_context_config();
-    
+
     QueryContext::new()
         .with_config(default_config.clone())
         .with_metric_storage(provider)

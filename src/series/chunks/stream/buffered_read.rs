@@ -1,6 +1,6 @@
-use std::boxed::Box;
-use super::{Error, Read};
 use super::Bit;
+use super::{Error, Read};
+use std::boxed::Box;
 
 /// BufferedReader
 ///
@@ -23,7 +23,7 @@ impl BufferedReader {
     }
 
     fn get_byte(&mut self) -> Result<u8, Error> {
-        self.bytes.get(self.index).cloned().ok_or(Error::EOF)
+        self.bytes.get(self.index).cloned().ok_or(Error::Eof)
     }
 }
 
@@ -110,9 +110,9 @@ impl Read for BufferedReader {
 
 #[cfg(test)]
 mod tests {
+    use super::Bit;
     use super::BufferedReader;
     use super::{Error, Read};
-    use super::Bit;
 
     #[test]
     fn read_bit() {
@@ -137,7 +137,7 @@ mod tests {
         assert_eq!(b.read_bit().unwrap(), Bit::Zero);
         assert_eq!(b.read_bit().unwrap(), Bit::One);
 
-        assert_eq!(b.read_bit().err().unwrap(), Error::EOF);
+        assert_eq!(b.read_bit().err().unwrap(), Error::Eof);
     }
 
     #[test]
@@ -158,7 +158,7 @@ mod tests {
 
         assert_eq!(b.read_byte().unwrap(), 15);
 
-        assert_eq!(b.read_byte().err().unwrap(), Error::EOF);
+        assert_eq!(b.read_byte().err().unwrap(), Error::Eof);
     }
 
     #[test]
@@ -170,7 +170,7 @@ mod tests {
         assert_eq!(b.read_bits(1).unwrap(), 0b1);
         assert_eq!(b.read_bits(20).unwrap(), 0b01110001110111110101);
         assert_eq!(b.read_bits(8).unwrap(), 0b00010100);
-        assert_eq!(b.read_bits(4).err().unwrap(), Error::EOF);
+        assert_eq!(b.read_bits(4).err().unwrap(), Error::Eof);
     }
 
     #[test]
@@ -184,7 +184,7 @@ mod tests {
         assert_eq!(b.read_bits(2).unwrap(), 0b11);
         assert_eq!(b.read_bit().unwrap(), Bit::Zero);
         assert_eq!(b.read_bits(1).unwrap(), 0b1);
-        assert_eq!(b.read_bit().err().unwrap(), Error::EOF);
+        assert_eq!(b.read_bit().err().unwrap(), Error::Eof);
     }
 
     #[test]
@@ -206,6 +206,6 @@ mod tests {
         assert_eq!(b.peek_bits(8).unwrap(), 0b11011111);
         assert_eq!(b.peek_bits(20).unwrap(), 0b11011111010100010100);
 
-        assert_eq!(b.peek_bits(22).err().unwrap(), Error::EOF);
+        assert_eq!(b.peek_bits(22).err().unwrap(), Error::Eof);
     }
 }

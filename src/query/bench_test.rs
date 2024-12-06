@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
     use crate::query::test_metric_storage::TestMetricStorage;
-    use crate::query::test_utils::{create_context, range_query_cases, setup_range_query_test_data};
+    use crate::query::test_utils::{
+        create_context, range_query_cases, setup_range_query_test_data,
+    };
     use criterion::Criterion;
 
     fn benchmark_range_query(crit: &mut Criterion) {
@@ -9,7 +11,7 @@ mod tests {
         let mut stor = TestMetricStorage::new();
 
         const INTERVAL: i64 = 10000; // 10s interval.
-        // A day of data plus 10k steps.
+                                     // A day of data plus 10k steps.
         let num_intervals = 8640 + 10000;
 
         setup_range_query_test_data(&mut stor, INTERVAL, num_intervals).unwrap();
@@ -34,5 +36,4 @@ mod tests {
             todo!()
         }
     }
-
 }

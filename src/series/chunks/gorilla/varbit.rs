@@ -139,30 +139,46 @@ pub fn read_varbit_uint(input: NomBitInput) -> IResult<NomBitInput, u64> {
 
 #[cfg(test)]
 mod tests {
-    use crate::common::bitwriter::{BitWrite, BitWriter};
     use super::{read_varbit_int, write_varbit};
+    use crate::common::bitwriter::{BitWrite, BitWriter};
     use bitstream_io::BigEndian;
 
     #[test]
     fn test_write_varbit() {
         let numbers = vec![
             i64::MIN,
-            -36028797018963968, -36028797018963967,
-            -16777216, -16777215,
-            -131072, -131071,
-            -2048, -2047,
-            -256, -255,
-            -32, -31,
-            -4, -3,
-            -1, 0, 1,
-            4, 5,
-            32, 33,
-            256, 257,
-            2048, 2049,
-            131072, 131073,
-            16777216, 16777217,
-            36028797018963968, 36028797018963969,
-            i64::MAX
+            -36028797018963968,
+            -36028797018963967,
+            -16777216,
+            -16777215,
+            -131072,
+            -131071,
+            -2048,
+            -2047,
+            -256,
+            -255,
+            -32,
+            -31,
+            -4,
+            -3,
+            -1,
+            0,
+            1,
+            4,
+            5,
+            32,
+            33,
+            256,
+            257,
+            2048,
+            2049,
+            131072,
+            131073,
+            16777216,
+            16777217,
+            36028797018963968,
+            36028797018963969,
+            i64::MAX,
         ];
 
         let mut buffer: Vec<u8> = Vec::new();
@@ -181,6 +197,5 @@ mod tests {
             cursor = new_cursor;
             assert_eq!(want, got)
         }
-
     }
 }

@@ -1,14 +1,16 @@
-use valkey_module::{logging, RedisModuleTypeMethods};
 use valkey_module::REDISMODULE_AUX_BEFORE_RDB;
-use valkey_module::{native_types::ValkeyType, RedisModuleDefragCtx, RedisModuleString, ValkeyString};
+use valkey_module::{logging, RedisModuleTypeMethods};
+use valkey_module::{
+    native_types::ValkeyType, RedisModuleDefragCtx, RedisModuleString, ValkeyString,
+};
 
 use crate::series::defrag_series;
-use crate::series::time_series::TimeSeries;
-use std::os::raw::{c_int, c_void};
-use valkey_module::raw;
 use crate::series::index::serialization::{ts_index_rdb_aux_load, ts_index_rdb_aux_save};
 use crate::series::index::with_timeseries_index;
 use crate::series::serialization::{rdb_load_series, rdb_save_series};
+use crate::series::time_series::TimeSeries;
+use std::os::raw::{c_int, c_void};
+use valkey_module::raw;
 // see https://github.com/redis/redis/blob/unstable/tests/modules
 
 pub static VKM_SERIES_VERSION: i32 = 1;
@@ -49,7 +51,7 @@ unsafe extern "C" fn rdb_load(rdb: *mut raw::RedisModuleIO, enc_ver: c_int) -> *
         Err(e) => {
             logging::log_notice(format!("Failed to load series from RDB. {:?}", e));
             std::ptr::null_mut()
-        },
+        }
     }
 }
 

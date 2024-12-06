@@ -19,9 +19,7 @@ pub fn info(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
     args.done()?;
 
-    with_timeseries(ctx, &key, |series| {
-        Ok(get_ts_info(series, debugging, None))
-    })
+    with_timeseries(ctx, &key, |series| Ok(get_ts_info(series, debugging, None)))
 }
 
 fn get_ts_info(ts: &TimeSeries, debug: bool, key: Option<&ValkeyString>) -> ValkeyValue {
@@ -32,19 +30,29 @@ fn get_ts_info(ts: &TimeSeries, debug: bool, key: Option<&ValkeyString>) -> Valk
     map.insert("memoryUsage".into(), ts.memory_usage().into());
     map.insert("firstTimestamp".into(), ts.first_timestamp.into());
     map.insert("lastTimestamp".into(), ts.last_timestamp.into());
-    map.insert("retentionTime".into(), (ts.retention.as_millis() as f64).into());
+    map.insert(
+        "retentionTime".into(),
+        (ts.retention.as_millis() as f64).into(),
+    );
     map.insert("chunkCount".into(), (ts.chunks.len() as f64).into());
     map.insert("chunkSize".into(), ts.chunk_size_bytes.into());
     map.insert("chunkType".into(), ts.chunk_compression.name().into());
 
     if let Some(key) = key {
-        map.insert(ValkeyValueKey::String(META_KEY_LABEL.into()), ValkeyValue::from(key));
+        map.insert(
+            ValkeyValueKey::String(META_KEY_LABEL.into()),
+            ValkeyValue::from(key),
+        );
     }
 
-    let mut labels_map: HashMap<ValkeyValueKey, ValkeyValue> = HashMap::with_capacity(ts.labels.len() + 1);
+    let mut labels_map: HashMap<ValkeyValueKey, ValkeyValue> =
+        HashMap::with_capacity(ts.labels.len() + 1);
     labels_map.insert(METRIC_NAME_LABEL.into(), ValkeyValue::from(&ts.metric_name));
     for Label { name, value } in ts.labels.iter() {
-        labels_map.insert(ValkeyValueKey::String(name.into()), ValkeyValue::from(value));
+        labels_map.insert(
+            ValkeyValueKey::String(name.into()),
+            ValkeyValue::from(value),
+        );
     }
     map.insert("labels".into(), ValkeyValue::from(labels_map));
 
@@ -55,11 +63,12 @@ fn get_ts_info(ts: &TimeSeries, debug: bool, key: Option<&ValkeyString>) -> Valk
     ValkeyValue::Map(map)
 }
 
-
 fn get_chunks_info(ts: &TimeSeries) -> ValkeyValue {
-    let items = ts.chunks.iter().map(|chunk| {
-        get_one_chunk_info(chunk)
-    }).collect::<Vec<_>>();
+    let items = ts
+        .chunks
+        .iter()
+        .map(get_one_chunk_info)
+        .collect::<Vec<ValkeyValue>>();
 
     ValkeyValue::Array(items)
 }

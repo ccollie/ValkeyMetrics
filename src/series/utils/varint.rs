@@ -1,4 +1,3 @@
-
 #[derive(Debug)]
 pub struct VarIntError;
 
@@ -9,7 +8,7 @@ pub fn encode(val: u64, buf: &mut [u8]) -> Result<usize, VarIntError> {
     let mut val = val;
     while val >= 128 {
         if idx >= buf.len() {
-            return Err(VarIntError{});
+            return Err(VarIntError {});
         }
 
         byte = (0x80 | (val & 0x7f)) as u8;
@@ -19,7 +18,7 @@ pub fn encode(val: u64, buf: &mut [u8]) -> Result<usize, VarIntError> {
     }
 
     if idx >= buf.len() {
-        return Err(VarIntError{});
+        return Err(VarIntError {});
     }
 
     byte = val as u8;
@@ -35,7 +34,7 @@ pub fn decode(buf: &[u8]) -> Result<(u64, usize), VarIntError> {
 
     loop {
         if idx >= buf.len() {
-            return Err(VarIntError{})
+            return Err(VarIntError {});
         }
         let byte = buf[idx];
         val |= ((byte & 0x7f) as u64) << shift;
@@ -80,8 +79,8 @@ fn test_varint_encoding() {
 
     let mut buf = [0u8; 10];
 
-    assert_eq!(encode(1 as u64, &mut buf).unwrap(), 1);
-    assert!(decode(&vec![128]).is_err());
+    assert_eq!(encode(1_u64, &mut buf).unwrap(), 1);
+    assert!(decode(&[128]).is_err());
 
     assert_eq!(encode_zigzag(-1), 1);
     assert_eq!(decode_zigzag(encode_zigzag(-5)), -5);

@@ -1,11 +1,10 @@
-use std::fmt::Display;
 use get_size::GetSize;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 use thiserror::Error;
 
 /// Enum for various alert errors.
-#[derive(Debug, Clone, Error, Eq, PartialEq, Serialize, Deserialize)]
-#[derive(GetSize)]
+#[derive(Debug, Clone, Error, Eq, PartialEq, Serialize, Deserialize, GetSize)]
 pub enum AlertsError {
     #[error("Invalid configuration. {0}")]
     InvalidConfiguration(String),
@@ -24,7 +23,7 @@ pub enum AlertsError {
 
     #[error("Duplicate series. {0}")] // need better error
     DuplicateSeries(String),
-    
+
     #[error("Duplicate rule \"{0}\"")]
     RuleAlreadyExists(String),
 
@@ -51,7 +50,7 @@ pub enum AlertsError {
 
     #[error("Failed to execute group rules: {0}")]
     GroupExecutionError(ErrorGroup),
-    
+
     #[error("Failure expanding template: {0}")]
     TemplateExpansionError(String),
 
@@ -59,11 +58,10 @@ pub enum AlertsError {
     Generic(String),
 
     #[error("Failure restoring rules: {0}")]
-    RuleRestoreError(String)
+    RuleRestoreError(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq)]
-#[derive(GetSize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, GetSize)]
 pub struct ErrorGroup(pub Vec<AlertsError>);
 
 impl ErrorGroup {

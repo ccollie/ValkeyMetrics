@@ -7,12 +7,12 @@ pub struct SampleSliceIter<'a> {
 impl<'a> SampleSliceIter<'a> {
     pub fn new(samples: &'a [Sample]) -> Self {
         Self {
-            inner: samples.iter()
+            inner: samples.iter(),
         }
     }
 }
 
-impl<'a> Iterator for SampleSliceIter<'a> {
+impl Iterator for SampleSliceIter<'_> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {

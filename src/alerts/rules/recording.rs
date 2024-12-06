@@ -1,3 +1,4 @@
+use crate::alerts::datasource::AlertDatasource;
 use crate::alerts::rules::config::RuleConfig;
 use crate::alerts::rules::rule::fmt_rule;
 use crate::alerts::rules::{Group, Rule, RuleState, RuleStateEntry, RuleType};
@@ -7,6 +8,7 @@ use crate::common::types::{Label, MetricName, Sample, Timestamp};
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::config::DEFAULT_RULE_UPDATE_ENTRIES_LIMIT;
 use crate::query::{InstantQueryResult, Querier, RangeQueryResult};
+use crate::series::chunks::utils::make_series_key;
 use ahash::AHashSet;
 use enquote::enquote;
 use get_size::GetSize;
@@ -16,16 +18,13 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use crate::alerts::datasource::AlertDatasource;
-use crate::series::chunks::utils::make_series_key;
 
 const ERR_DUPLICATE: &str =
     "result contains metrics with the same labelset after applying rules labels.";
 
-/// `RecordingRule` is a Rule that evaluates a configured vector expression and records 
+/// `RecordingRule` is a Rule that evaluates a configured vector expression and records
 /// the result into new timeseries.timeseries.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[derive(GetSize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, GetSize)]
 pub struct RecordingRule {
     pub rule_id: u64,
     /// The name of the time series to output to. Must be a valid metric name.
@@ -41,8 +40,7 @@ pub struct RecordingRule {
     pub metrics: RecordingRuleMetrics,
 }
 
-#[derive(Default, Debug, Serialize, Deserialize)]
-#[derive(GetSize)]
+#[derive(Default, Debug, Serialize, Deserialize, GetSize)]
 pub struct RecordingRuleMetrics {
     pub(crate) errors: AtomicU64,
     pub(crate) samples: AtomicU64,
@@ -65,7 +63,9 @@ impl Display for RecordingRule {
 
 impl RecordingRule {
     pub fn new(_group: &Group, cfg: RuleConfig) -> Self {
-        let max_entries = cfg.update_entries_limit.unwrap_or(DEFAULT_RULE_UPDATE_ENTRIES_LIMIT);
+        let max_entries = cfg
+            .update_entries_limit
+            .unwrap_or(DEFAULT_RULE_UPDATE_ENTRIES_LIMIT);
         RecordingRule {
             rule_id: cfg.id,
             name: cfg.record,
@@ -98,13 +98,16 @@ impl RecordingRule {
         }
 
         let mut labels = metric.labels.clone();
-        labels.insert(0, Label {
-            name: METRIC_NAME_LABEL.to_string(),
-            value: self.name.clone(),
-        });
+        labels.insert(
+            0,
+            Label {
+                name: METRIC_NAME_LABEL.to_string(),
+                value: self.name.clone(),
+            },
+        );
 
         let key = make_series_key(&labels);
-        
+
         RawTimeSeries {
             key,
             samples: samples.to_vec(),
@@ -142,7 +145,12 @@ impl Rule for RecordingRule {
         &self.expr
     }
 
-    fn exec(&mut self, querier: &AlertDatasource, ts: Timestamp, limit: usize) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec(
+        &mut self,
+        querier: &AlertDatasource,
+        ts: Timestamp,
+        limit: usize,
+    ) -> AlertsResult<Vec<RawTimeSeries>> {
         let start = current_time_millis();
 
         let mut cur_state = RuleStateEntry {
@@ -200,7 +208,12 @@ impl Rule for RecordingRule {
     /// `exec_range` executes recording rules on the given time range similarly to `exec`.
     /// It doesn't update internal states of the Rule and meant to be used just to get time series
     /// for backfilling.
-    fn exec_range(&mut self, querier: &AlertDatasource, start: Timestamp, end: Timestamp) -> AlertsResult<Vec<RawTimeSeries>> {
+    fn exec_range(
+        &mut self,
+        querier: &AlertDatasource,
+        start: Timestamp,
+        end: Timestamp,
+    ) -> AlertsResult<Vec<RawTimeSeries>> {
         let res = querier
             .query_range(&self.expr, start, end)
             .map_err(|e| AlertsError::QueryExecutionError(format!("{}: {:?}", self.expr, e)))?;
@@ -225,12 +238,15 @@ impl Rule for RecordingRule {
 
     fn update_with(&mut self, other: &dyn Rule) -> AlertsResult<()> {
         if other.rule_type() != RuleType::Recording {
-            let msg = format!("BUG: attempt to update recording rules with wrong type {}", other.rule_type());
+            let msg = format!(
+                "BUG: attempt to update recording rules with wrong type {}",
+                other.rule_type()
+            );
             return Err(AlertsError::Generic(msg)); // todo: better error
         }
-        
+
         let rr = other.as_any().downcast_ref::<RecordingRule>().unwrap();
-        
+
         self.expr.clone_from(&rr.expr);
         self.labels.clone_from(&rr.labels);
         Ok(())
@@ -247,7 +263,7 @@ impl Rule for RecordingRule {
     fn get_all_entries(&self) -> Vec<RuleStateEntry> {
         self.state.get_all()
     }
-    
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -258,7 +274,11 @@ pub fn stringify_labels(ts: &RawTimeSeries) -> String {
     let mut b = String::with_capacity(40); // todo: better capacity calculation.
     labels.sort();
     for (i, label) in ts.labels.iter().enumerate() {
-        b.push_str(&format!("{}=\"{}\"", &label.name, enquote('"', &label.value)));
+        b.push_str(&format!(
+            "{}=\"{}\"",
+            &label.name,
+            enquote('"', &label.value)
+        ));
         if i < labels.len() - 1 {
             b.push(',')
         }

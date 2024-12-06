@@ -1,4 +1,2 @@
 #[cfg(feature = "smol")]
-pub fn init_runtime() {
-
-}
+pub fn init_runtime() {}

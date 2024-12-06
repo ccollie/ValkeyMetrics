@@ -1,18 +1,23 @@
 use crate::alerts::meta::with_group_manager;
 use crate::alerts::rules::Group;
-use crate::alerts::serialization::{load_group, rdb_load_group_metadata, rdb_save_group_metadata, save_group};
+use crate::alerts::serialization::{
+    load_group, rdb_load_group_metadata, rdb_save_group_metadata, save_group,
+};
 use crate::common::current_time_millis;
 use std::ffi::c_int;
 use std::os::raw::c_void;
 use std::ptr::null_mut;
 use valkey_module::native_types::ValkeyType;
-use valkey_module::{logging, raw, Context, RedisModuleDefragCtx, RedisModuleString, ValkeyString, REDISMODULE_AUX_AFTER_RDB};
+use valkey_module::{
+    logging, raw, Context, RedisModuleDefragCtx, RedisModuleString, ValkeyString,
+    REDISMODULE_AUX_AFTER_RDB,
+};
 
 const VM_GROUP_VERSION: i32 = 1;
 
 pub static VKM_RULE_GROUP: ValkeyType = ValkeyType::new(
     "vmalrtgrp",
-        VM_GROUP_VERSION,
+    VM_GROUP_VERSION,
     raw::RedisModuleTypeMethods {
         version: raw::REDISMODULE_TYPE_METHOD_VERSION as u64,
         rdb_load: Some(group_rdb_load),
@@ -71,7 +76,7 @@ unsafe extern "C" fn copy(
     let group = &*(value as *mut Group);
     let mut new_group = group.clone();
     new_group.id = 0; // will be set in manager
-    
+
     let key = ValkeyString::from_redis_module_string(guard.ctx, to_key);
     let res = with_group_manager(&guard, |manager| {
         manager.add_group(&guard, &mut new_group, &key)
@@ -81,7 +86,7 @@ unsafe extern "C" fn copy(
         logging::log_debug(format!("Failed to copy group: {:?}", res));
         return null_mut();
     }
-    
+
     Box::into_raw(Box::new(new_group)).cast::<c_void>()
 }
 
@@ -104,7 +109,6 @@ unsafe extern "C" fn free(value: *mut c_void) {
     Box::from_raw(sm);
 }
 
-
 unsafe extern "C" fn unlink(_key: *mut RedisModuleString, value: *const c_void) {
     let group = &*(value as *mut Group);
     remove_group_from_manager(group);
@@ -118,7 +122,7 @@ unsafe extern "C" fn defrag(
 ) -> c_int {
     let group = &mut *(value as *mut Group);
     let now = current_time_millis();
-    
+
     group.remove_inactive_alerts(now);
 
     0

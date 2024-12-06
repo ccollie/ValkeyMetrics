@@ -15,10 +15,22 @@ mod tests {
     #[test]
     fn test_clear_chunk_with_multiple_samples() {
         let samples = vec![
-            Sample { timestamp: 10, value: 1.0 },
-            Sample { timestamp: 20, value: 2.0 },
-            Sample { timestamp: 30, value: 3.0 },
-            Sample { timestamp: 40, value: 4.0 },
+            Sample {
+                timestamp: 10,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 30,
+                value: 3.0,
+            },
+            Sample {
+                timestamp: 40,
+                value: 4.0,
+            },
         ];
 
         for chunk_type in CHUNK_TYPES {
@@ -49,7 +61,10 @@ mod tests {
 
     #[test]
     fn test_get_range_single_sample() {
-        let sample = Sample { timestamp: 10, value: 1.0 };
+        let sample = Sample {
+            timestamp: 10,
+            value: 1.0,
+        };
 
         for chunk_type in CHUNK_TYPES {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
@@ -58,7 +73,13 @@ mod tests {
             assert_eq!(chunk.len(), 1);
 
             let result = chunk.get_range(0, 20).unwrap();
-            assert_eq!(result.len(), 1, "{}: get_range_single_sample - expected 1 sample, got {}", chunk_type, result.len());
+            assert_eq!(
+                result.len(),
+                1,
+                "{}: get_range_single_sample - expected 1 sample, got {}",
+                chunk_type,
+                result.len()
+            );
             assert_eq!(result[0], sample);
 
             let empty_result = chunk.get_range(20, 30).unwrap();
@@ -69,9 +90,18 @@ mod tests {
     #[test]
     fn test_get_range_start_equals_end() {
         let samples = vec![
-            Sample { timestamp: 10, value: 1.0 },
-            Sample { timestamp: 20, value: 2.0 },
-            Sample { timestamp: 30, value: 3.0 },
+            Sample {
+                timestamp: 10,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 30,
+                value: 3.0,
+            },
         ];
 
         for chunk_type in CHUNK_TYPES {
@@ -82,19 +112,39 @@ mod tests {
 
             let result = chunk.get_range(20, 20).unwrap();
             assert_eq!(result.len(), 1);
-            assert_eq!(result[0], Sample { timestamp: 20, value: 2.0 });
+            assert_eq!(
+                result[0],
+                Sample {
+                    timestamp: 20,
+                    value: 2.0
+                }
+            );
 
             let empty_result = chunk.get_range(15, 15).unwrap();
-            assert!(empty_result.is_empty(), "{}: Expected empty result, got {:?}", chunk_type, empty_result);
+            assert!(
+                empty_result.is_empty(),
+                "{}: Expected empty result, got {:?}",
+                chunk_type,
+                empty_result
+            );
         }
     }
 
     #[test]
     fn test_get_range_start_greater_than_end() {
         let samples = vec![
-            Sample { timestamp: 10, value: 1.0 },
-            Sample { timestamp: 20, value: 2.0 },
-            Sample { timestamp: 30, value: 3.0 },
+            Sample {
+                timestamp: 10,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 30,
+                value: 3.0,
+            },
         ];
 
         for chunk_type in CHUNK_TYPES {
@@ -111,9 +161,18 @@ mod tests {
     #[test]
     fn test_get_range_full_range() {
         let samples = vec![
-            Sample { timestamp: 10, value: 1.0 },
-            Sample { timestamp: 20, value: 2.0 },
-            Sample { timestamp: 30, value: 3.0 },
+            Sample {
+                timestamp: 10,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 30,
+                value: 3.0,
+            },
         ];
 
         for chunk_type in CHUNK_TYPES {
@@ -131,10 +190,22 @@ mod tests {
     #[test]
     fn test_get_range_between_samples() {
         let samples = vec![
-            Sample { timestamp: 10, value: 1.0 },
-            Sample { timestamp: 20, value: 2.0 },
-            Sample { timestamp: 30, value: 3.0 },
-            Sample { timestamp: 40, value: 4.0 },
+            Sample {
+                timestamp: 10,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 30,
+                value: 3.0,
+            },
+            Sample {
+                timestamp: 40,
+                value: 4.0,
+            },
         ];
 
         for chunk_type in CHUNK_TYPES {
@@ -145,18 +216,42 @@ mod tests {
 
             let result = chunk.get_range(15, 35).unwrap();
             assert_eq!(result.len(), 2);
-            assert_eq!(result[0], Sample { timestamp: 20, value: 2.0 });
-            assert_eq!(result[1], Sample { timestamp: 30, value: 3.0 });
+            assert_eq!(
+                result[0],
+                Sample {
+                    timestamp: 20,
+                    value: 2.0
+                }
+            );
+            assert_eq!(
+                result[1],
+                Sample {
+                    timestamp: 30,
+                    value: 3.0
+                }
+            );
         }
     }
 
     #[test]
     fn test_remove_range_chunk() {
         let samples = vec![
-            Sample { timestamp: 10, value: 1.0 },
-            Sample { timestamp: 20, value: 2.0 },
-            Sample { timestamp: 30, value: 3.0 },
-            Sample { timestamp: 40, value: 4.0 },
+            Sample {
+                timestamp: 10,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 30,
+                value: 3.0,
+            },
+            Sample {
+                timestamp: 40,
+                value: 4.0,
+            },
         ];
 
         for chunk_type in CHUNK_TYPES {
@@ -168,16 +263,28 @@ mod tests {
             chunk.remove_range(20, 30).unwrap();
 
             assert_eq!(chunk.len(), 2);
-            assert_eq!(chunk.get_range(0, 100).unwrap(), vec![
-                Sample { timestamp: 10, value: 1.0 },
-                Sample { timestamp: 40, value: 4.0 },
-            ]);
+            assert_eq!(
+                chunk.get_range(0, 100).unwrap(),
+                vec![
+                    Sample {
+                        timestamp: 10,
+                        value: 1.0
+                    },
+                    Sample {
+                        timestamp: 40,
+                        value: 4.0
+                    },
+                ]
+            );
         }
     }
 
     #[test]
     fn test_remove_range_single_sample() {
-        let sample = Sample { timestamp: 10, value: 1.0 };
+        let sample = Sample {
+            timestamp: 10,
+            value: 1.0,
+        };
 
         for chunk_type in CHUNK_TYPES {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
@@ -196,9 +303,18 @@ mod tests {
     #[test]
     fn test_remove_range_same_timestamp() {
         let samples = vec![
-            Sample { timestamp: 10, value: 1.0 },
-            Sample { timestamp: 10, value: 2.0 },
-            Sample { timestamp: 20, value: 3.0 },
+            Sample {
+                timestamp: 10,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 10,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 3.0,
+            },
         ];
 
         for chunk_type in CHUNK_TYPES {
@@ -210,59 +326,125 @@ mod tests {
             chunk.remove_range(10, 10).unwrap();
 
             assert_eq!(chunk.len(), 1);
-            assert_eq!(chunk.get_range(0, 100).unwrap(), vec![
-                Sample { timestamp: 20, value: 3.0 },
-            ]);
+            assert_eq!(
+                chunk.get_range(0, 100).unwrap(),
+                vec![Sample {
+                    timestamp: 20,
+                    value: 3.0
+                },]
+            );
         }
     }
 
     #[test]
     fn test_merge_samples_with_duplicate_timestamps_keep_first() {
         let samples = vec![
-            Sample { timestamp: 10, value: 1.0 },
-            Sample { timestamp: 20, value: 2.0 },
-            Sample { timestamp: 20, value: 3.0 },
-            Sample { timestamp: 30, value: 4.0 },
+            Sample {
+                timestamp: 10,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 3.0,
+            },
+            Sample {
+                timestamp: 30,
+                value: 4.0,
+            },
         ];
 
         for chunk_type in CHUNK_TYPES {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
-            chunk.set_data(&[Sample { timestamp: 20, value: 5.0 }]).unwrap();
+            chunk
+                .set_data(&[Sample {
+                    timestamp: 20,
+                    value: 5.0,
+                }])
+                .unwrap();
 
-            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::KeepFirst)).unwrap();
+            let result = chunk
+                .merge_samples(&samples, Some(DuplicatePolicy::KeepFirst))
+                .unwrap();
 
             assert_eq!(result.len(), 3);
             assert_eq!(chunk.len(), 3);
-            assert_eq!(chunk.get_range(0, 100).unwrap(), vec![
-                Sample { timestamp: 10, value: 1.0 },
-                Sample { timestamp: 20, value: 5.0 },
-                Sample { timestamp: 30, value: 4.0 },
-            ]);
+            assert_eq!(
+                chunk.get_range(0, 100).unwrap(),
+                vec![
+                    Sample {
+                        timestamp: 10,
+                        value: 1.0
+                    },
+                    Sample {
+                        timestamp: 20,
+                        value: 5.0
+                    },
+                    Sample {
+                        timestamp: 30,
+                        value: 4.0
+                    },
+                ]
+            );
         }
     }
 
     #[test]
     fn test_merge_samples_with_duplicate_timestamps_keep_last() {
         let samples = vec![
-            Sample { timestamp: 10, value: 1.0 },
-            Sample { timestamp: 20, value: 2.0 },
-            Sample { timestamp: 20, value: 3.0 },
-            Sample { timestamp: 30, value: 4.0 },
+            Sample {
+                timestamp: 10,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 3.0,
+            },
+            Sample {
+                timestamp: 30,
+                value: 4.0,
+            },
         ];
 
         for chunk_type in CHUNK_TYPES {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
-            chunk.set_data(&[Sample { timestamp: 20, value: 5.0 }]).unwrap();
+            chunk
+                .set_data(&[Sample {
+                    timestamp: 20,
+                    value: 5.0,
+                }])
+                .unwrap();
 
-            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::KeepLast)).unwrap();
+            let result = chunk
+                .merge_samples(&samples, Some(DuplicatePolicy::KeepLast))
+                .unwrap();
 
             assert_eq!(result.len(), 3);
             assert_eq!(chunk.len(), 3);
-            assert_eq!(chunk.get_range(0, 100).unwrap(), vec![
-                Sample { timestamp: 10, value: 1.0 },
-                Sample { timestamp: 20, value: 3.0 },
-                Sample { timestamp: 30, value: 4.0 },
-            ]);
+            assert_eq!(
+                chunk.get_range(0, 100).unwrap(),
+                vec![
+                    Sample {
+                        timestamp: 10,
+                        value: 1.0
+                    },
+                    Sample {
+                        timestamp: 20,
+                        value: 3.0
+                    },
+                    Sample {
+                        timestamp: 30,
+                        value: 4.0
+                    },
+                ]
+            );
             // assert_eq!(blocked.len(), 1);
         }
     }
@@ -272,77 +454,157 @@ mod tests {
         for chunk_type in CHUNK_TYPES {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             let initial_samples = vec![
-                Sample { timestamp: 10, value: 1.0 },
-                Sample { timestamp: 20, value: 2.0 },
+                Sample {
+                    timestamp: 10,
+                    value: 1.0,
+                },
+                Sample {
+                    timestamp: 20,
+                    value: 2.0,
+                },
             ];
             chunk.set_data(&initial_samples).unwrap();
 
             let samples_to_merge = vec![
-                Sample { timestamp: 30, value: 3.0 },
-                Sample { timestamp: 40, value: 4.0 },
-                Sample { timestamp: 50, value: 5.0 },
+                Sample {
+                    timestamp: 30,
+                    value: 3.0,
+                },
+                Sample {
+                    timestamp: 40,
+                    value: 4.0,
+                },
+                Sample {
+                    timestamp: 50,
+                    value: 5.0,
+                },
             ];
 
             let result = chunk.merge_samples(&samples_to_merge, Some(DuplicatePolicy::Block));
 
             assert!(result.is_ok());
             let merged = result.unwrap();
-            assert!(merged.len() < samples_to_merge.len(),
-                "{}: Expected fewer samples to be merged due to capacity limit", chunk_type);
+            assert!(
+                merged.len() < samples_to_merge.len(),
+                "{}: Expected fewer samples to be merged due to capacity limit",
+                chunk_type
+            );
 
             let all_samples = chunk.get_range(0, 100).unwrap();
-            assert!(all_samples.len() > initial_samples.len(),
-                "{}: Expected some samples to be merged", chunk_type);
-            assert!(all_samples.len() < initial_samples.len() + samples_to_merge.len(),
-                "{}: Expected not all samples to be merged due to capacity limit", chunk_type);
+            assert!(
+                all_samples.len() > initial_samples.len(),
+                "{}: Expected some samples to be merged",
+                chunk_type
+            );
+            assert!(
+                all_samples.len() < initial_samples.len() + samples_to_merge.len(),
+                "{}: Expected not all samples to be merged due to capacity limit",
+                chunk_type
+            );
         }
     }
 
     #[test]
     fn test_merge_samples_with_duplicate_timestamps_sum() {
         let samples = vec![
-            Sample { timestamp: 10, value: 1.0 },
-            Sample { timestamp: 20, value: 2.0 },
-            Sample { timestamp: 20, value: 3.0 },
-            Sample { timestamp: 30, value: 4.0 },
+            Sample {
+                timestamp: 10,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 3.0,
+            },
+            Sample {
+                timestamp: 30,
+                value: 4.0,
+            },
         ];
 
         for chunk_type in CHUNK_TYPES {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
-            chunk.add_sample(&Sample { timestamp: 20, value: 5.0 }).unwrap();
+            chunk
+                .add_sample(&Sample {
+                    timestamp: 20,
+                    value: 5.0,
+                })
+                .unwrap();
 
-            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Sum)).unwrap();
+            let result = chunk
+                .merge_samples(&samples, Some(DuplicatePolicy::Sum))
+                .unwrap();
 
             assert_eq!(result.len(), 3);
             assert_eq!(chunk.len(), 3);
 
             let merged_samples = chunk.get_range(0, 40).unwrap();
-            assert_eq!(merged_samples, vec![
-                Sample { timestamp: 10, value: 1.0 },
-                Sample { timestamp: 20, value: 10.0 }, // 5.0 + 2.0 + 3.0
-                Sample { timestamp: 30, value: 4.0 },
-            ]);
+            assert_eq!(
+                merged_samples,
+                vec![
+                    Sample {
+                        timestamp: 10,
+                        value: 1.0
+                    },
+                    Sample {
+                        timestamp: 20,
+                        value: 10.0
+                    }, // 5.0 + 2.0 + 3.0
+                    Sample {
+                        timestamp: 30,
+                        value: 4.0
+                    },
+                ]
+            );
         }
     }
 
     #[test]
     fn test_merge_samples_outside_range() {
         let samples = vec![
-            Sample { timestamp: 5, value: 1.0 },
-            Sample { timestamp: 15, value: 2.0 },
-            Sample { timestamp: 25, value: 3.0 },
-            Sample { timestamp: 35, value: 4.0 },
+            Sample {
+                timestamp: 5,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 15,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 25,
+                value: 3.0,
+            },
+            Sample {
+                timestamp: 35,
+                value: 4.0,
+            },
         ];
 
         for chunk_type in CHUNK_TYPES {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
-            chunk.set_data(&[Sample { timestamp: 10, value: 0.0 }, Sample { timestamp: 20, value: 0.0 }]).unwrap();
+            chunk
+                .set_data(&[
+                    Sample {
+                        timestamp: 10,
+                        value: 0.0,
+                    },
+                    Sample {
+                        timestamp: 20,
+                        value: 0.0,
+                    },
+                ])
+                .unwrap();
 
             assert_eq!(chunk.len(), 2);
             assert_eq!(chunk.first_timestamp(), 10);
             assert_eq!(chunk.last_timestamp(), 20);
 
-            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Block)).unwrap();
+            let result = chunk
+                .merge_samples(&samples, Some(DuplicatePolicy::Block))
+                .unwrap();
 
             assert_eq!(result.len(), 2);
             assert_eq!(chunk.len(), 4);
@@ -350,28 +612,64 @@ mod tests {
             assert_eq!(chunk.last_timestamp(), 35);
 
             let range = chunk.get_range(0, 40).unwrap();
-            assert_eq!(range, vec![
-                Sample { timestamp: 5, value: 1.0 },
-                Sample { timestamp: 10, value: 0.0 },
-                Sample { timestamp: 20, value: 0.0 },
-                Sample { timestamp: 35, value: 4.0 },
-            ]);
+            assert_eq!(
+                range,
+                vec![
+                    Sample {
+                        timestamp: 5,
+                        value: 1.0
+                    },
+                    Sample {
+                        timestamp: 10,
+                        value: 0.0
+                    },
+                    Sample {
+                        timestamp: 20,
+                        value: 0.0
+                    },
+                    Sample {
+                        timestamp: 35,
+                        value: 4.0
+                    },
+                ]
+            );
         }
     }
 
     #[test]
     fn test_merge_samples_with_mixed_timestamps() {
         let existing_samples = vec![
-            Sample { timestamp: 10, value: 1.0 },
-            Sample { timestamp: 20, value: 2.0 },
-            Sample { timestamp: 30, value: 3.0 },
+            Sample {
+                timestamp: 10,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 30,
+                value: 3.0,
+            },
         ];
 
         let new_samples = vec![
-            Sample { timestamp: 15, value: 1.5 },
-            Sample { timestamp: 20, value: 2.5 },
-            Sample { timestamp: 25, value: 2.5 },
-            Sample { timestamp: 35, value: 3.5 },
+            Sample {
+                timestamp: 15,
+                value: 1.5,
+            },
+            Sample {
+                timestamp: 20,
+                value: 2.5,
+            },
+            Sample {
+                timestamp: 25,
+                value: 2.5,
+            },
+            Sample {
+                timestamp: 35,
+                value: 3.5,
+            },
         ];
 
         for chunk_type in CHUNK_TYPES {
@@ -380,7 +678,9 @@ mod tests {
 
             assert_eq!(chunk.len(), 3);
 
-            let result = chunk.merge_samples(&new_samples, Some(DuplicatePolicy::Block)).unwrap();
+            let result = chunk
+                .merge_samples(&new_samples, Some(DuplicatePolicy::Block))
+                .unwrap();
 
             assert_eq!(result.len(), 3);
             assert_eq!(chunk.len(), 6);
@@ -388,43 +688,100 @@ mod tests {
             // assert!(blocked.contains(&20));
 
             let all_samples = chunk.get_range(0, 40).unwrap();
-            assert_eq!(all_samples, vec![
-                Sample { timestamp: 10, value: 1.0 },
-                Sample { timestamp: 15, value: 1.5 },
-                Sample { timestamp: 20, value: 2.0 },
-                Sample { timestamp: 25, value: 2.5 },
-                Sample { timestamp: 30, value: 3.0 },
-                Sample { timestamp: 35, value: 3.5 },
-            ]);
+            assert_eq!(
+                all_samples,
+                vec![
+                    Sample {
+                        timestamp: 10,
+                        value: 1.0
+                    },
+                    Sample {
+                        timestamp: 15,
+                        value: 1.5
+                    },
+                    Sample {
+                        timestamp: 20,
+                        value: 2.0
+                    },
+                    Sample {
+                        timestamp: 25,
+                        value: 2.5
+                    },
+                    Sample {
+                        timestamp: 30,
+                        value: 3.0
+                    },
+                    Sample {
+                        timestamp: 35,
+                        value: 3.5
+                    },
+                ]
+            );
         }
     }
 
     #[test]
     fn test_merge_samples_return_value() {
         let samples = vec![
-            Sample { timestamp: 10, value: 1.0 },
-            Sample { timestamp: 20, value: 2.0 },
-            Sample { timestamp: 30, value: 3.0 },
+            Sample {
+                timestamp: 10,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 20,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 30,
+                value: 3.0,
+            },
         ];
 
         for chunk_type in CHUNK_TYPES {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
 
             // First merge should add all samples
-            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Block)).unwrap();
-            assert_eq!(result.len(), 3, "{}: Expected 3 samples to be merged", chunk_type);
+            let result = chunk
+                .merge_samples(&samples, Some(DuplicatePolicy::Block))
+                .unwrap();
+            assert_eq!(
+                result.len(),
+                3,
+                "{}: Expected 3 samples to be merged",
+                chunk_type
+            );
 
             // Second merge with same samples should add no new samples
-            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Block)).unwrap();
-            assert_eq!(result.len(), 0, "{}: Expected 0 samples to be merged on second attempt", chunk_type);
+            let result = chunk
+                .merge_samples(&samples, Some(DuplicatePolicy::Block))
+                .unwrap();
+            assert_eq!(
+                result.len(),
+                0,
+                "{}: Expected 0 samples to be merged on second attempt",
+                chunk_type
+            );
 
             // Merge with new samples should add only the new ones
             let new_samples = vec![
-                Sample { timestamp: 40, value: 4.0 },
-                Sample { timestamp: 20, value: 5.0 }, // Duplicate timestamp
+                Sample {
+                    timestamp: 40,
+                    value: 4.0,
+                },
+                Sample {
+                    timestamp: 20,
+                    value: 5.0,
+                }, // Duplicate timestamp
             ];
-            let result = chunk.merge_samples(&new_samples, Some(DuplicatePolicy::Block)).unwrap();
-            assert_eq!(result.len(), 1, "{}: Expected 1 new sample to be merged", chunk_type);
+            let result = chunk
+                .merge_samples(&new_samples, Some(DuplicatePolicy::Block))
+                .unwrap();
+            assert_eq!(
+                result.len(),
+                1,
+                "{}: Expected 1 new sample to be merged",
+                chunk_type
+            );
         }
     }
 
@@ -440,7 +797,7 @@ mod tests {
                 Ok(_) => (),
                 Err(TsdbError::CapacityFull(_)) => {
                     break;
-                },
+                }
                 _ => {}
             };
         }
@@ -455,7 +812,12 @@ mod tests {
         // Ensure the source chunk is empty
         assert!(src_chunk.is_empty());
 
-        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, Some(DuplicatePolicy::KeepLast));
+        let result = merge_by_capacity(
+            &mut dest_chunk,
+            &mut src_chunk,
+            0,
+            Some(DuplicatePolicy::KeepLast),
+        );
 
         assert_eq!(result, Ok(None));
     }
@@ -471,10 +833,18 @@ mod tests {
         src_chunk.set_data(&samples).unwrap();
 
         // Ensure destination chunk has exactly the same remaining capacity as source chunk's size
-        assert_eq!(dest_chunk.estimate_remaining_sample_capacity(), src_chunk.len());
+        assert_eq!(
+            dest_chunk.estimate_remaining_sample_capacity(),
+            src_chunk.len()
+        );
 
         // Perform the merge
-        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, Some(DuplicatePolicy::KeepLast));
+        let result = merge_by_capacity(
+            &mut dest_chunk,
+            &mut src_chunk,
+            0,
+            Some(DuplicatePolicy::KeepLast),
+        );
 
         // Verify the result
         assert!(result.is_ok());
@@ -484,7 +854,9 @@ mod tests {
         assert!(src_chunk.is_empty());
 
         // Ensure destination chunk contains all samples from source
-        let dest_samples = dest_chunk.get_range(0, samples.last().unwrap().timestamp).unwrap();
+        let dest_samples = dest_chunk
+            .get_range(0, samples.last().unwrap().timestamp)
+            .unwrap();
         assert_eq!(dest_samples.len(), samples.len());
         assert_eq!(dest_samples, samples);
     }
@@ -508,7 +880,13 @@ mod tests {
         let remaining_capacity = dest_chunk.estimate_remaining_sample_capacity();
 
         // Perform the merge
-        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, Some(DuplicatePolicy::KeepLast)).unwrap();
+        let result = merge_by_capacity(
+            &mut dest_chunk,
+            &mut src_chunk,
+            0,
+            Some(DuplicatePolicy::KeepLast),
+        )
+        .unwrap();
 
         // Check that a partial merge occurred
         assert!(result.is_some());
@@ -538,7 +916,12 @@ mod tests {
         // Ensure remaining capacity is less than a quarter of the source chunk's sample count
         assert!(remaining_capacity < src_chunk.len() / 4);
 
-        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, Some(DuplicatePolicy::KeepLast));
+        let result = merge_by_capacity(
+            &mut dest_chunk,
+            &mut src_chunk,
+            0,
+            Some(DuplicatePolicy::KeepLast),
+        );
 
         assert_eq!(result.unwrap(), None);
     }
@@ -550,9 +933,18 @@ mod tests {
 
         // Add samples to the source chunk with duplicate timestamps
         let samples = vec![
-            Sample { timestamp: 1000, value: 1.0 },
-            Sample { timestamp: 1000, value: 2.0 },
-            Sample { timestamp: 2000, value: 3.0 },
+            Sample {
+                timestamp: 1000,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 1000,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 2000,
+                value: 3.0,
+            },
         ];
         src_chunk.set_data(&samples).unwrap();
 
@@ -569,8 +961,20 @@ mod tests {
         // Verify the destination chunk contains the correct samples
         let merged_samples = dest_chunk.get_range(0, 3000).unwrap();
         assert_eq!(merged_samples.len(), 2);
-        assert_eq!(merged_samples[0], Sample { timestamp: 1000, value: 1.0 }); // First occurrence
-        assert_eq!(merged_samples[1], Sample { timestamp: 2000, value: 3.0 });
+        assert_eq!(
+            merged_samples[0],
+            Sample {
+                timestamp: 1000,
+                value: 1.0
+            }
+        ); // First occurrence
+        assert_eq!(
+            merged_samples[1],
+            Sample {
+                timestamp: 2000,
+                value: 3.0
+            }
+        );
     }
 
     #[test]
@@ -580,9 +984,18 @@ mod tests {
 
         // Add some samples to the source chunk
         let samples = vec![
-            Sample { timestamp: 100, value: 1.0 },
-            Sample { timestamp: 200, value: 2.0 },
-            Sample { timestamp: 300, value: 3.0 },
+            Sample {
+                timestamp: 100,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 200,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 300,
+                value: 3.0,
+            },
         ];
         src_chunk.set_data(&samples).unwrap();
 
@@ -590,7 +1003,12 @@ mod tests {
         assert!(dest_chunk.is_empty());
 
         // Perform the merge
-        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, 0, Some(DuplicatePolicy::KeepLast));
+        let result = merge_by_capacity(
+            &mut dest_chunk,
+            &mut src_chunk,
+            0,
+            Some(DuplicatePolicy::KeepLast),
+        );
 
         // Verify the merge result
         assert_eq!(result.unwrap(), Some(samples.len()));
@@ -617,7 +1035,12 @@ mod tests {
 
         // Perform the merge
         let min_timestamp = samples[0].timestamp;
-        let result = merge_by_capacity(&mut dest_chunk, &mut src_chunk, min_timestamp, Some(DuplicatePolicy::KeepLast));
+        let result = merge_by_capacity(
+            &mut dest_chunk,
+            &mut src_chunk,
+            min_timestamp,
+            Some(DuplicatePolicy::KeepLast),
+        );
 
         // Verify the result
         assert!(result.is_ok());
@@ -631,9 +1054,14 @@ mod tests {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 4096);
             let expected_samples = saturate_chunk(&mut chunk);
 
-            let actual_samples  = chunk.iter().collect::<Vec<Sample>>();
+            let actual_samples = chunk.iter().collect::<Vec<Sample>>();
 
-            assert_eq!(expected_samples.len(), actual_samples.len(), "{} : expected samples len", chunk_type);
+            assert_eq!(
+                expected_samples.len(),
+                actual_samples.len(),
+                "{} : expected samples len",
+                chunk_type
+            );
             assert_eq!(expected_samples, actual_samples);
         }
     }

@@ -2,8 +2,8 @@ use crate::alerts::notifications::Alert;
 use crate::alerts::rules::executor::Executor;
 use crate::alerts::rules::{AlertingRule, GroupConfig, MetricRule, RecordingRule, Rule, RuleType};
 use crate::alerts::{AlertsError, AlertsResult, ALERT_SETTINGS};
+use crate::common::current_time_millis;
 use crate::common::types::{Label, Timestamp, TimestampTrait};
-use crate::common::{current_time_millis};
 use crate::query::{QuerierBuilder, QuerierParams};
 use get_size::GetSize;
 use metricsql_parser::ast::{Expr, MetricExpr};
@@ -121,9 +121,10 @@ impl Clone for GroupMetrics {
 
 impl Group {
     pub fn new() -> Self {
-        let mut group = Group::default();
-        group.eval_alignment = Some(true);
-        group
+        Group {
+            eval_alignment: Some(true),
+            ..Default::default()
+        }
     }
 
     pub fn from_config(cfg: GroupConfig, default_interval: Duration, labels: Vec<Label>) -> Group {
@@ -226,7 +227,7 @@ impl Group {
                 });
 
                 alerting_rule
-                    .restore(ctx, &querier, ts, look_back)
+                    .restore(ctx, querier, ts, look_back)
                     .map_err(|e| {
                         AlertsError::RuleRestoreError(format!("{}: {:?}", alerting_rule.expr, e))
                     })?;
@@ -331,7 +332,7 @@ impl Group {
     /// Alert rules, by definition, cannot have any dependents - but they can have dependencies. Any recording rules on whose
     /// output an Alert rules depends will not be able to run concurrently.
     ///
-    /// There is a class of rules expressions which are considered "indeterminate", because either relationships cannot be
+    /// There is a class of rules expressions which are considered `"indeterminate"`, because either relationships cannot be
     /// inferred, or concurrent evaluation of rules depending on these series would produce undefined/unexpected behaviour:
     ///   - wildcard queries like {cluster="prod1"} which would match every series with that label selector
     ///   - any "meta" series (series produced by Prometheus itself) like ALERTS, ALERTS_FOR_STATE
@@ -342,7 +343,7 @@ impl Group {
     /// of rules within the group. The first index contains rules that have no dependencies.
     /// Each subsequent element contains the rules that depend on the rules in the previous layer.
     ///
-    /// None is returned if the group contains "indeterminate" rules expressions
+    /// None is returned if the group contains `"indeterminate"` rules expressions
     fn build_dependencies(&self) -> Option<DependencyMap> {
         if self.rules.len() <= 1 {
             // No relationships if group has 1 or fewer rules.

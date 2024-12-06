@@ -1,4 +1,2 @@
 #[cfg(feature = "async-std")]
-pub fn init_runtime() {
-
-}
+pub fn init_runtime() {}

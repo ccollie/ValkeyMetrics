@@ -13,8 +13,7 @@ use valkey_module::ValkeyError;
 pub const MIN_CHUNK_SIZE: usize = 48;
 pub const MAX_CHUNK_SIZE: usize = 1048576;
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[derive(GetSize)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize, GetSize)]
 #[non_exhaustive]
 pub enum ChunkCompression {
     Uncompressed = 1,
@@ -86,17 +85,9 @@ pub trait Chunk: Sized {
     fn max_size(&self) -> usize;
     fn remove_range(&mut self, start_ts: Timestamp, end_ts: Timestamp) -> TsdbResult<usize>;
     fn add_sample(&mut self, sample: &Sample) -> TsdbResult<()>;
-    fn get_range(
-        &self,
-        start: Timestamp,
-        end: Timestamp,
-    ) -> TsdbResult<Vec<Sample>>;
+    fn get_range(&self, start: Timestamp, end: Timestamp) -> TsdbResult<Vec<Sample>>;
 
-    fn upsert_sample(
-        &mut self,
-        sample: Sample,
-        dp_policy: DuplicatePolicy,
-    ) -> TsdbResult<usize>;
+    fn upsert_sample(&mut self, sample: Sample, dp_policy: DuplicatePolicy) -> TsdbResult<usize>;
 
     fn merge_samples(
         &mut self,
@@ -119,11 +110,12 @@ pub struct ChunkSampleIterator<'a> {
 }
 
 impl<'a> ChunkSampleIterator<'a> {
-    pub fn new(chunk: &'a TimeSeriesChunk,
-           start: Timestamp,
-           end: Timestamp,
-           value_filter: &'a Option<ValueFilter>,
-           ts_filter: &'a Option<Vec<Timestamp>>,
+    pub fn new(
+        chunk: &'a TimeSeriesChunk,
+        start: Timestamp,
+        end: Timestamp,
+        value_filter: &'a Option<ValueFilter>,
+        ts_filter: &'a Option<Vec<Timestamp>>,
     ) -> Self {
         Self {
             inner: Default::default(),
@@ -142,7 +134,9 @@ impl<'a> ChunkSampleIterator<'a> {
         self.inner = if !self.is_overlap {
             Default::default()
         } else {
-            self.chunk.get_range_filtered(self.start, self.end, self.ts_filter, self.value_filter).into_iter()
+            self.chunk
+                .get_range_filtered(self.start, self.end, self.ts_filter, self.value_filter)
+                .into_iter()
         }
     }
 }
@@ -180,7 +174,5 @@ pub(crate) fn validate_chunk_size(chunk_size_bytes: usize) -> TsdbResult<()> {
     Ok(())
 }
 
-
 #[cfg(test)]
-mod tests {
-}
+mod tests {}

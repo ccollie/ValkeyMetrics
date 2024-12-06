@@ -1,14 +1,13 @@
+use crate::alerts::{AlertsError, AlertsResult};
+use crate::common::types::{Timestamp, TimestampTrait};
+use crate::query::datasource::{
+    InstantResult, Querier, QuerierBuilder, QuerierParams, RangeResult,
+};
+use crate::query::{run_instant_query_internal, run_range_query_internal, QUERY_CONTEXT};
+use get_size::GetSize;
+use metricsql_runtime::prelude::query::QueryParams;
 use std::ops::Add;
 use std::time::Duration;
-use get_size::GetSize;
-use crate::alerts::{
-    AlertsError,
-    AlertsResult,
-};
-use crate::common::types::{Timestamp, TimestampTrait};
-use crate::query::datasource::{InstantResult, Querier, QuerierBuilder, QuerierParams, RangeResult};
-use crate::query::{run_instant_query_internal, run_range_query_internal, QUERY_CONTEXT};
-use metricsql_runtime::prelude::query::QueryParams;
 
 /// SeriesQuerier represents entity with ability to read and write metrics
 /// Query timeseries data using PromQL/MetricsQL
@@ -52,7 +51,11 @@ impl SeriesQuerier {
         self
     }
 
-    pub(crate) fn get_instant_req_params(&self, query: String, timestamp: Timestamp) -> QueryParams {
+    pub(crate) fn get_instant_req_params(
+        &self,
+        query: String,
+        timestamp: Timestamp,
+    ) -> QueryParams {
         let timestamp = self.adjust_req_timestamp(timestamp);
         let mut params = QueryParams {
             query,
@@ -75,13 +78,16 @@ impl SeriesQuerier {
         params
     }
 
-    pub(crate) fn get_range_req_params(&self, query: String, start: Timestamp, end: Timestamp) -> QueryParams {
+    pub(crate) fn get_range_req_params(
+        &self,
+        query: String,
+        start: Timestamp,
+        end: Timestamp,
+    ) -> QueryParams {
         let mut start = start;
         if !self.evaluation_offset.is_zero() {
             let offset = self.evaluation_offset.as_millis() as i64; // todo: check for overflow
-            start = start
-                .truncate(self.evaluation_interval)
-                .add(offset);
+            start = start.truncate(self.evaluation_interval).add(offset);
         }
 
         let mut params = QueryParams {
@@ -146,11 +152,16 @@ impl Querier for SeriesQuerier {
     /// `query_range` executes the given query on the given time range.
     /// For Prometheus type see https://prometheus.io/docs/prometheus/latest/querying/api/#range-queries
     /// Graphite type isn't supported.
-    fn query_range(&self, query: &str, from: Timestamp, to: Timestamp) -> AlertsResult<RangeResult> {
+    fn query_range(
+        &self,
+        query: &str,
+        from: Timestamp,
+        to: Timestamp,
+    ) -> AlertsResult<RangeResult> {
         let params = self.get_range_req_params(query.to_string(), from, to);
         let query_result = run_range_query_internal(&QUERY_CONTEXT, &params)
             .map_err(|_e| AlertsError::QueryExecutionError(query.to_string()))?;
-        Ok(RangeResult{ data: query_result })
+        Ok(RangeResult { data: query_result })
     }
 }
 

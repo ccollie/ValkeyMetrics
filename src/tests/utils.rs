@@ -38,8 +38,8 @@ pub fn start_redis_server_with_module(port: u16) -> Result<ChildGuard> {
         std::env::current_dir()?,
         PathBuf::from(format!("target/{profile}/lib{MODULE_NAME}.{extension}")),
     ]
-        .iter()
-        .collect();
+    .iter()
+    .collect();
 
     let module_path = format!("{}", module_path.display());
     assert!(fs::metadata(&module_path)
@@ -50,7 +50,7 @@ pub fn start_redis_server_with_module(port: u16) -> Result<ChildGuard> {
         "--port",
         &port.to_string(),
         "--loadmodule",
-        module_path.as_str()
+        module_path.as_str(),
     ];
 
     let valkey_server = Command::new("valkey-server")
@@ -59,7 +59,8 @@ pub fn start_redis_server_with_module(port: u16) -> Result<ChildGuard> {
         .map(|c| ChildGuard {
             name: "valkey-server",
             child: c,
-        }).with_context(|| format!("Error in raising valkey-server => {}", module_path.as_str()))?;
+        })
+        .with_context(|| format!("Error in raising valkey-server => {}", module_path.as_str()))?;
 
     Ok(valkey_server)
 }

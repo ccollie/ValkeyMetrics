@@ -14,7 +14,7 @@ pub struct StreamNotifier {
 }
 
 impl StreamNotifier {
-    pub fn new(max_messages: Option<usize>) -> Self { 
+    pub fn new(max_messages: Option<usize>) -> Self {
         StreamNotifier {
             max_messages,
             compact: false,
@@ -22,7 +22,6 @@ impl StreamNotifier {
     }
 
     fn serialize_alert(&self, alert: &Alert, serialized_alert: &mut Vec<String>) {
-
         fn add_key_value_pair(key: &str, value: &str, serialized_alert: &mut Vec<String>) {
             serialized_alert.push(key.to_string());
             serialized_alert.push(value.to_string());
@@ -39,7 +38,11 @@ impl StreamNotifier {
             serialized_alert.push(value.to_string());
         }
 
-        fn add_hash_map(key: &str, value: &HashMap<String, String>, serialized_alert: &mut Vec<String>) {
+        fn add_hash_map(
+            key: &str,
+            value: &HashMap<String, String>,
+            serialized_alert: &mut Vec<String>,
+        ) {
             if value.is_empty() {
                 return;
             }
@@ -74,15 +77,16 @@ impl StreamNotifier {
         let prefix = crate::config::KEY_PREFIX.as_str();
         format!("{prefix}:{STREAM_NOTIFIER_KEY_PREFIX}:{}", alert.group_id)
     }
-    
+
     fn trim_stream(&self, ctx: &Context, key: &str) -> AlertsResult<()> {
         if let Some(max_messages) = self.max_messages {
             let max = format!("{max_messages}");
             // Prepare the arguments for the XADD command
             let xtrim_args = vec![key, "MAXLEN", &max];
             // Call the XADD command
-            let result: ValkeyValue = ctx.call("XTRIM", &*xtrim_args)
-                .map_err(|_| AlertsError::Generic("Error adding pushing alert to stream".to_string()))?;
+            let result: ValkeyValue = ctx.call("XTRIM", &*xtrim_args).map_err(|_| {
+                AlertsError::Generic("Error adding pushing alert to stream".to_string())
+            })?;
 
             // The result will be the ID of the new entry in the stream
             match result {
@@ -91,17 +95,23 @@ impl StreamNotifier {
                     ctx.log_warning(&msg);
                 }
                 _ => {
-                    return Err(AlertsError::Generic("Unexpected response from XTRIM".into()));
+                    return Err(AlertsError::Generic(
+                        "Unexpected response from XTRIM".into(),
+                    ));
                 }
             }
-
         }
         Ok(())
     }
 }
 
 impl Notifier for StreamNotifier {
-    fn send(&self, ctx: &Context, alerts: &[&Alert], notifier_headers: &HashMap<String, String>) -> AlertsResult<()> {
+    fn send(
+        &self,
+        ctx: &Context,
+        alerts: &[&Alert],
+        notifier_headers: &HashMap<String, String>,
+    ) -> AlertsResult<()> {
         let mut keys: Vec<String> = Vec::new();
 
         keys.push("".to_string()); // to be replaced by actual key
@@ -116,20 +126,21 @@ impl Notifier for StreamNotifier {
         }
 
         let mut to_trim = HashSet::new();
-        
+
         for alert in alerts {
             self.serialize_alert(alert, &mut keys);
             let key = self.get_stream_key(alert);
-            
+
             if self.max_messages.is_some() {
                 to_trim.insert(key.clone());
             }
-            
+
             keys[0] = key;
 
             let xadd_args = keys.iter().map(|k| k.as_str()).collect::<Vec<&str>>();
-            let result: ValkeyValue = ctx.call("XADD", &*xadd_args)
-                .map_err(|_| AlertsError::Generic("Error adding pushing alert to stream".to_string()))?;
+            let result: ValkeyValue = ctx.call("XADD", &*xadd_args).map_err(|_| {
+                AlertsError::Generic("Error adding pushing alert to stream".to_string())
+            })?;
 
             match result {
                 ValkeyValue::SimpleString(id) => {
@@ -140,14 +151,14 @@ impl Notifier for StreamNotifier {
                     return Err(AlertsError::Generic("Unexpected response from XADD".into()));
                 }
             }
-            
+
             keys.drain(drain_ofs..);
         }
 
         for key in to_trim.into_iter() {
-            self.trim_stream(ctx, &key)?;   
+            self.trim_stream(ctx, &key)?;
         }
-        
+
         Ok(())
     }
 
@@ -157,5 +168,8 @@ impl Notifier for StreamNotifier {
 }
 
 fn hash_map_to_string(map: &HashMap<String, String>) -> String {
-    map.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<String>>().join(",")
+    map.iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<String>>()
+        .join(",")
 }

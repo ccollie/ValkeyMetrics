@@ -1,13 +1,11 @@
-use crate::alerts::notifications::validate_templates;
-use crate::alerts::rules::{calc_rule_hash, validate_alert_expr, AlertingRule, MetricRule, RuleState};
 use crate::alerts::meta::with_group_mut;
+use crate::alerts::notifications::validate_templates;
+use crate::alerts::rules::{
+    calc_rule_hash, validate_alert_expr, AlertingRule, MetricRule, RuleState,
+};
 use crate::error_consts;
 use crate::module::arg_parse::{
-    parse_duration,
-    parse_key_value_pairs,
-    CommandArgIterator,
-    CMD_ARG_ANNOTATIONS,
-    CMD_ARG_EXPR,
+    parse_duration, parse_key_value_pairs, CommandArgIterator, CMD_ARG_ANNOTATIONS, CMD_ARG_EXPR,
     CMD_ARG_LABELS,
 };
 use metricsql_parser::parser::is_valid_identifier;
@@ -18,7 +16,6 @@ const CMD_ARG_ALERT_FOR: &str = "FOR"; // todo: rename to THRESHOLD
 const CMD_ARG_KEEP_FIRING_FOR: &str = "KEEP_FIRING_FOR";
 const CMD_ARG_EVAL_INTERVAL: &str = "EVAL_INTERVAL";
 const CMD_ARG_MAX_ENTRIES: &str = "MAX_ENTRIES";
-
 
 /// VM.CREATE-ALERTING-RULE groupKey ruleName
 ///  EXPR expression
@@ -47,11 +44,12 @@ pub fn create_alerting_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRes
 
     with_group_mut(ctx, &group_key, move |group| {
         let rule = parse_alerting_rule_config(args)?;
-        
+
         let to_add = MetricRule::AlertingRule(Box::new(rule));
-        group.add_rule(to_add)
+        group
+            .add_rule(to_add)
             .map_err(|_e| ValkeyError::Str(error_consts::ALERTS_DUPLICATE_RULE))?;
-        
+
         // todo: Replicate
         VALKEY_OK
     })
@@ -66,13 +64,13 @@ fn parse_alerting_rule_config(mut args: CommandArgIterator) -> ValkeyResult<Aler
             CMD_ARG_KEEP_FIRING_FOR,
             CMD_ARG_ANNOTATIONS,
             CMD_ARG_EVAL_INTERVAL,
-            CMD_ARG_MAX_ENTRIES
+            CMD_ARG_MAX_ENTRIES,
         ];
         TOKENS.contains(&token)
     }
 
     let name = args.next_string()?;
-    
+
     if name.is_empty() {
         return Err(ValkeyError::Str("ERR missing rules name"));
     }
@@ -82,7 +80,7 @@ fn parse_alerting_rule_config(mut args: CommandArgIterator) -> ValkeyResult<Aler
 
     let mut rule = AlertingRule {
         name,
-       ..Default::default()
+        ..Default::default()
     };
 
     while let Ok(arg) = args.next_str() {
@@ -118,14 +116,11 @@ fn parse_alerting_rule_config(mut args: CommandArgIterator) -> ValkeyResult<Aler
                 // todo: limit
                 rule.state = RuleState::with_capacity(max_entries as usize);
             }
-            _ => {
-                return Err(ValkeyError::Str("ERR invalid argument"))
-            }
+            _ => return Err(ValkeyError::Str("ERR invalid argument")),
         }
     }
-    
-    rule.rule_id = calc_rule_hash(&rule)
-        .map_err(|_err| ValkeyError::Str("ERR hashing rule"))?;
-    
+
+    rule.rule_id = calc_rule_hash(&rule).map_err(|_err| ValkeyError::Str("ERR hashing rule"))?;
+
     Ok(rule)
 }

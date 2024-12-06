@@ -5,6 +5,8 @@ use valkey_module::{raw, ValkeyError, ValkeyResult};
 use crate::series::chunks::compressed_vec::serialization::{rdb_load_compressed_vec_chunk, rdb_save_compressed_vec_chunk};
 use crate::series::chunks::gorilla::{rdb_load_gorilla_chunk, rdb_save_gorilla_chunk};
 use crate::series::chunks::pco::{rdb_load_pco_chunk, rdb_save_pco_chunk};
+use crate::series::{TimeSeriesChunk, UncompressedChunk};
+use valkey_module::{raw, ValkeyError, ValkeyResult};
 
 fn rdb_save_uncompressed_chunk(chunk: &UncompressedChunk, rdb: *mut raw::RedisModuleIO) {
     // todo: compress ?
@@ -17,7 +19,10 @@ fn rdb_save_uncompressed_chunk(chunk: &UncompressedChunk, rdb: *mut raw::RedisMo
     }
 }
 
-fn rdb_load_compressed_chunk(rdb: *mut raw::RedisModuleIO, _encver: i32) -> Result<UncompressedChunk, valkey_module::error::Error> {
+fn rdb_load_compressed_chunk(
+    rdb: *mut raw::RedisModuleIO,
+    _encver: i32,
+) -> Result<UncompressedChunk, valkey_module::error::Error> {
     let max_size = rdb_load_usize(rdb)?;
     let max_elements = rdb_load_usize(rdb)?;
     let len = rdb_load_usize(rdb)?;
@@ -25,7 +30,10 @@ fn rdb_load_compressed_chunk(rdb: *mut raw::RedisModuleIO, _encver: i32) -> Resu
     for _ in 0..len {
         let ts = raw::load_signed(rdb)?;
         let val = raw::load_double(rdb)?;
-        samples.push(Sample { timestamp: ts, value: val });
+        samples.push(Sample {
+            timestamp: ts,
+            value: val,
+        });
     }
     Ok(UncompressedChunk {
         max_size,
@@ -69,7 +77,10 @@ pub fn rdb_save_series_chunk(chunk: &TimeSeriesChunk, rdb: *mut raw::RedisModule
     }
 }
 
-pub fn rdb_load_series_chunk(rdb: *mut raw::RedisModuleIO, enc_ver: i32) -> ValkeyResult<TimeSeriesChunk> {
+pub fn rdb_load_series_chunk(
+    rdb: *mut raw::RedisModuleIO,
+    enc_ver: i32,
+) -> ValkeyResult<TimeSeriesChunk> {
     let chunk_type = rdb_load_string(rdb)?;
     let chunk = match chunk_type.as_str() {
         "uncompressed" => TimeSeriesChunk::Uncompressed(rdb_load_compressed_chunk(rdb, enc_ver)?),

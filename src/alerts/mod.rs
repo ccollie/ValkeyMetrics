@@ -2,23 +2,23 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-mod datasource;
-mod types;
 mod alerts_error;
-mod templates;
-mod constants;
-mod replay;
 mod commands;
+mod constants;
+mod datasource;
 mod group_manager;
+mod replay;
+mod templates;
+mod types;
 
+pub mod meta;
+pub mod notifications;
 pub mod rules;
 pub mod serialization;
-pub mod notifications;
-pub mod meta;
 
 use crate::alerts::notifications::AlertNotifier;
-pub use alerts_error::*;
 pub use crate::module::group_data_type::VKM_RULE_GROUP;
+pub use alerts_error::*;
 pub use group_manager::*;
 
 #[derive(Clone, Debug, Default)]
@@ -68,21 +68,19 @@ pub struct AlertSettings {
     /// digits after the decimal point in response values.
     pub round_digits: Option<u8>,
     /// skip random sleep delay in group first evaluation
-    pub skip_rand_sleep_on_group_start: bool
+    pub skip_rand_sleep_on_group_start: bool,
 }
 
 // set from config
-pub(crate) static ALERT_SETTINGS: LazyLock<AlertSettings> = 
+pub(crate) static ALERT_SETTINGS: LazyLock<AlertSettings> =
     LazyLock::new(|| crate::config::get_alert_settings().clone());
 pub(crate) static GROUP_MANAGERS: LazyLock<GroupManagerMap> = LazyLock::new(GroupManagerMap::new);
 pub(crate) static NOTIFIERS: LazyLock<Arc<Vec<AlertNotifier>>> = LazyLock::new(construct_notifiers);
 
-
 fn construct_notifiers() -> Arc<Vec<AlertNotifier>> {
     // todo: get settings from config
-    Arc::new(
-        vec![
-        AlertNotifier::pubsub(), 
-       // AlertNotifier::stream(Some(50))
+    Arc::new(vec![
+        AlertNotifier::pubsub(),
+        // AlertNotifier::stream(Some(50))
     ])
 }

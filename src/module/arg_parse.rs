@@ -10,10 +10,7 @@ use crate::series::{ChunkCompression, DuplicatePolicy, MAX_CHUNK_SIZE, MIN_CHUNK
 use crate::series::{TimestampRange, TimestampValue};
 use metricsql_parser::common::{Value, ValueType};
 use metricsql_parser::parser::{
-    parse as parse_expr,
-    parse_duration_value,
-    parse_metric_name as parse_metric,
-    parse_number,
+    parse as parse_expr, parse_duration_value, parse_metric_name as parse_metric, parse_number,
     parse_timestamp as parse_timestamp_internal,
 };
 use metricsql_parser::prelude::Matchers;
@@ -59,14 +56,17 @@ pub fn parse_number_arg(arg: &ValkeyString, name: &str) -> ValkeyResult<f64> {
         return Ok(value);
     }
     let arg_str = arg.to_string_lossy();
-    parse_number_with_unit(&arg_str)
-        .map_err(|_| {
-            let msg = format!("ERR invalid number parsing {name}");
-            ValkeyError::String(msg)
-        })
+    parse_number_with_unit(&arg_str).map_err(|_| {
+        let msg = format!("ERR invalid number parsing {name}");
+        ValkeyError::String(msg)
+    })
 }
 
-pub fn parse_integer_arg(arg: &ValkeyString, name: &str, allow_negative: bool) -> ValkeyResult<i64> {
+pub fn parse_integer_arg(
+    arg: &ValkeyString,
+    name: &str,
+    allow_negative: bool,
+) -> ValkeyResult<i64> {
     let value = if let Ok(val) = arg.parse_integer() {
         val
     } else {
@@ -91,10 +91,8 @@ pub fn parse_timestamp(arg: &str) -> ValkeyResult<Timestamp> {
     if arg == "*" {
         return Ok(get_current_time_millis());
     }
-    parse_timestamp_internal(arg)
-        .map_err(|_| ValkeyError::Str(error_consts::INVALID_TIMESTAMP))
+    parse_timestamp_internal(arg).map_err(|_| ValkeyError::Str(error_consts::INVALID_TIMESTAMP))
 }
-
 
 pub fn parse_timestamp_range_value(arg: &str) -> ValkeyResult<TimestampValue> {
     TimestampValue::try_from(arg)
@@ -103,7 +101,9 @@ pub fn parse_timestamp_range_value(arg: &str) -> ValkeyResult<TimestampValue> {
 pub fn parse_duration_arg(arg: &ValkeyString) -> ValkeyResult<Duration> {
     if let Ok(value) = arg.parse_integer() {
         if value < 0 {
-            return Err(ValkeyError::Str("ERR: invalid duration, must be a non-negative integer"));
+            return Err(ValkeyError::Str(
+                "ERR: invalid duration, must be a non-negative integer",
+            ));
         }
         return Ok(Duration::from_millis(value as u64));
     }
@@ -116,14 +116,11 @@ pub fn parse_duration(arg: &str) -> ValkeyResult<Duration> {
 }
 
 pub fn parse_duration_ms(arg: &str) -> ValkeyResult<i64> {
-    parse_duration_value(arg, 1)
-        .map_err(|_| ValkeyError::Str(error_consts::INVALID_DURATION))
+    parse_duration_value(arg, 1).map_err(|_| ValkeyError::Str(error_consts::INVALID_DURATION))
 }
 
 pub fn parse_number_with_unit(arg: &str) -> TsdbResult<f64> {
-    parse_number(arg).map_err(|_e| {
-        TsdbError::InvalidNumber(arg.to_string())
-    })
+    parse_number(arg).map_err(|_e| TsdbError::InvalidNumber(arg.to_string()))
 }
 
 pub fn parse_boolean(arg: &str) -> ValkeyResult<bool> {
@@ -137,15 +134,11 @@ pub fn parse_boolean(arg: &str) -> ValkeyResult<bool> {
 }
 
 pub fn parse_series_selector(arg: &str) -> TsdbResult<Matchers> {
-    parse_metric_selector(arg).map_err(|_e| {
-        TsdbError::InvalidSeriesSelector(arg.to_string())
-    })
+    parse_metric_selector(arg).map_err(|_e| TsdbError::InvalidSeriesSelector(arg.to_string()))
 }
 
 pub fn parse_metric_name(arg: &str) -> TsdbResult<Vec<Label>> {
-    parse_metric(arg).map_err(|_e| {
-        TsdbError::InvalidMetric(arg.to_string())
-    })
+    parse_metric(arg).map_err(|_e| TsdbError::InvalidMetric(arg.to_string()))
 }
 
 pub fn parse_operator(arg: &str) -> ValkeyResult<JoinReducer> {
@@ -159,46 +152,42 @@ pub fn parse_chunk_size(args: &mut CommandArgIterator) -> ValkeyResult<usize> {
         Err(ValkeyError::String(msg))
     }
 
-    let chunk_size = parse_number_with_unit(arg).map_err(|_e| {
-        ValkeyError::Str(error_consts::INVALID_CHUNK_SIZE)
-    })?;
+    let chunk_size = parse_number_with_unit(arg)
+        .map_err(|_e| ValkeyError::Str(error_consts::INVALID_CHUNK_SIZE))?;
 
     if chunk_size != chunk_size.floor() {
-        return get_error_result()
+        return get_error_result();
     }
     if chunk_size < MIN_CHUNK_SIZE as f64 || chunk_size > MAX_CHUNK_SIZE as f64 {
-        return get_error_result()
+        return get_error_result();
     }
     let chunk_size = chunk_size as usize;
     if chunk_size % 2 != 0 {
-        return get_error_result()
+        return get_error_result();
     }
     Ok(chunk_size)
 }
 
 pub fn parse_chunk_compression(args: &mut CommandArgIterator) -> ValkeyResult<ChunkCompression> {
-    args.next_str()
-        .and_then(|next| ChunkCompression::try_from(next)
+    args.next_str().and_then(|next| {
+        ChunkCompression::try_from(next)
             .map_err(|_| ValkeyError::Str(error_consts::INVALID_CHUNK_COMPRESSION))
-        )
+    })
 }
 
 pub fn parse_duplicate_policy(args: &mut CommandArgIterator) -> ValkeyResult<DuplicatePolicy> {
-    args.next_str()
-        .and_then(
-            |next| DuplicatePolicy::try_from(next)
-                        .map_err(|_| ValkeyError::Str(error_consts::INVALID_DUPLICATE_POLICY)
-            )
-        )
+    args.next_str().and_then(|next| {
+        DuplicatePolicy::try_from(next)
+            .map_err(|_| ValkeyError::Str(error_consts::INVALID_DUPLICATE_POLICY))
+    })
 }
 
 pub fn parse_timestamp_range(args: &mut CommandArgIterator) -> ValkeyResult<TimestampRange> {
     let first_arg = args.next_str()?;
     let start = parse_timestamp_range_value(first_arg)?;
     let end_value = if let Ok(arg) = args.next_str() {
-        parse_timestamp_range_value(arg).map_err(|_e| {
-            ValkeyError::Str("ERR invalid end timestamp")
-        })?
+        parse_timestamp_range_value(arg)
+            .map_err(|_e| ValkeyError::Str("ERR invalid end timestamp"))?
     } else {
         TimestampValue::Latest
     };
@@ -206,15 +195,17 @@ pub fn parse_timestamp_range(args: &mut CommandArgIterator) -> ValkeyResult<Time
 }
 
 pub fn parse_retention(args: &mut CommandArgIterator) -> ValkeyResult<Duration> {
-    if let Ok(next) = args.next_str() { 
-        parse_duration(next)
-            .map_err(|_e| ValkeyError::Str(error_consts::INVALID_DURATION))
+    if let Ok(next) = args.next_str() {
+        parse_duration(next).map_err(|_e| ValkeyError::Str(error_consts::INVALID_DURATION))
     } else {
         Err(ValkeyError::Str("ERR missing RETENTION value"))
     }
 }
 
-pub fn parse_timestamp_filter(args: &mut CommandArgIterator, is_valid_arg: fn(&str) -> bool) -> ValkeyResult<Vec<Timestamp>> {
+pub fn parse_timestamp_filter(
+    args: &mut CommandArgIterator,
+    is_valid_arg: fn(&str) -> bool,
+) -> ValkeyResult<Vec<Timestamp>> {
     // FILTER_BY_TS already seen
     let mut values: Vec<Timestamp> = Vec::new();
     loop {
@@ -224,15 +215,17 @@ pub fn parse_timestamp_filter(args: &mut CommandArgIterator, is_valid_arg: fn(&s
         let arg = args.next_str()?;
         if let Ok(timestamp) = parse_timestamp(arg) {
             values.push(timestamp);
-        } else  {
+        } else {
             return Err(ValkeyError::Str(error_consts::INVALID_TIMESTAMP));
         }
         if values.len() == MAX_TS_VALUES_FILTER {
-            break
+            break;
         }
     }
     if values.is_empty() {
-        return Err(ValkeyError::Str("TSDB: FILTER_BY_TS one or more arguments are missing"));
+        return Err(ValkeyError::Str(
+            "TSDB: FILTER_BY_TS one or more arguments are missing",
+        ));
     }
     values.sort();
     values.dedup();
@@ -245,7 +238,9 @@ pub fn parse_value_filter(args: &mut CommandArgIterator) -> ValkeyResult<ValueFi
     let max = parse_number_with_unit(args.next_str()?)
         .map_err(|_| ValkeyError::Str("ERR cannot parse filter max parameter"))?;
     if max < min {
-        return Err(ValkeyError::Str("ERR filter min parameter is greater than max"));
+        return Err(ValkeyError::Str(
+            "ERR filter min parameter is greater than max",
+        ));
     }
     ValueFilter::new(min, max)
 }
@@ -274,13 +269,16 @@ pub(crate) fn advance_if_next_token(args: &mut CommandArgIterator, token: &str) 
     }
 }
 
-pub(crate) fn advance_if_next_token_one_of<'a>(args: &mut CommandArgIterator, token: &'a [&str]) -> Option<&'a str> {
+pub(crate) fn advance_if_next_token_one_of<'a>(
+    args: &mut CommandArgIterator,
+    token: &'a [&str],
+) -> Option<&'a str> {
     if let Some(next) = args.peek() {
         let str = next.to_string_lossy();
         for token in token.iter() {
             if token.eq_ignore_ascii_case(str.as_ref()) {
                 args.next();
-                return Some(*token)
+                return Some(*token);
             }
         }
         None
@@ -290,12 +288,12 @@ pub(crate) fn advance_if_next_token_one_of<'a>(args: &mut CommandArgIterator, to
 }
 
 fn is_token_or_end(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool) -> bool {
-    if let Some(next)  = args.peek() {
+    if let Some(next) = args.peek() {
         match next.try_as_str() {
             Ok(s) => {
                 args.next();
                 is_cmd_token(s)
-            },
+            }
             Err(_) => false,
         }
     } else {
@@ -303,7 +301,10 @@ fn is_token_or_end(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool
     }
 }
 
-pub fn parse_label_list(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool) -> ValkeyResult<Vec<String>> {
+pub fn parse_label_list(
+    args: &mut CommandArgIterator,
+    is_cmd_token: fn(&str) -> bool,
+) -> ValkeyResult<Vec<String>> {
     let mut labels: BTreeSet<String> = BTreeSet::new();
 
     loop {
@@ -322,7 +323,10 @@ pub fn parse_label_list(args: &mut CommandArgIterator, is_cmd_token: fn(&str) ->
     Ok(temp)
 }
 
-pub fn parse_key_value_pairs(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool) -> ValkeyResult<HashMap<String, String>> {
+pub fn parse_key_value_pairs(
+    args: &mut CommandArgIterator,
+    is_cmd_token: fn(&str) -> bool,
+) -> ValkeyResult<HashMap<String, String>> {
     let mut labels: HashMap<String, String> = HashMap::new();
 
     loop {
@@ -339,7 +343,8 @@ pub fn parse_key_value_pairs(args: &mut CommandArgIterator, is_cmd_token: fn(&st
 
         // todo: regex validation
 
-        let value = args.next_string()
+        let value = args
+            .next_string()
             .map_err(|_| ValkeyError::Str("ERR invalid label value"))?;
 
         labels.insert(label, value);
@@ -354,11 +359,13 @@ pub fn parse_key_value_pairs(args: &mut CommandArgIterator, is_cmd_token: fn(&st
 
 pub fn parse_dedupe_interval(args: &mut CommandArgIterator) -> ValkeyResult<Duration> {
     let next = args.next_arg()?;
-    parse_duration_arg(&next)
-        .map_err(|_e| ValkeyError::Str("ERR invalid DEDUPE_INTERVAL value"))
+    parse_duration_arg(&next).map_err(|_e| ValkeyError::Str("ERR invalid DEDUPE_INTERVAL value"))
 }
 
-pub fn parse_series_selector_list(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool) -> ValkeyResult<Vec<Matchers>> {
+pub fn parse_series_selector_list(
+    args: &mut CommandArgIterator,
+    is_cmd_token: fn(&str) -> bool,
+) -> ValkeyResult<Vec<Matchers>> {
     let mut matchers = vec![];
 
     while let Some(next) = args.peek() {
@@ -376,9 +383,12 @@ pub fn parse_series_selector_list(args: &mut CommandArgIterator, is_cmd_token: f
     Ok(matchers)
 }
 
-pub fn parse_aggregation_options(args: &mut CommandArgIterator) -> ValkeyResult<AggregationOptions> {
+pub fn parse_aggregation_options(
+    args: &mut CommandArgIterator,
+) -> ValkeyResult<AggregationOptions> {
     // AGGREGATION token already seen
-    let agg_str = args.next_str()
+    let agg_str = args
+        .next_str()
         .map_err(|_e| ValkeyError::Str("ERR: Error parsing AGGREGATION"))?;
     let aggregator = Aggregator::try_from(agg_str)?;
     let bucket_duration = parse_duration_arg(&args.next_arg()?)
@@ -412,7 +422,7 @@ pub fn parse_aggregation_options(args: &mut CommandArgIterator) -> ValkeyResult<
                 let next = args.next_str()?;
                 aggr.alignment = parse_alignment(next)?;
             }
-            _ => break
+            _ => break,
         }
         if arg_count == 3 {
             break;
@@ -446,45 +456,45 @@ fn parse_alignment(align: &str) -> ValkeyResult<RangeAlignment> {
 pub fn parse_grouping_params(args: &mut CommandArgIterator) -> ValkeyResult<RangeGroupingOptions> {
     // GROUPBY token already seen
     let label = args.next_str()?;
-    let token = args.next_str()
+    let token = args
+        .next_str()
         .map_err(|_| ValkeyError::Str("ERR: missing REDUCE"))?;
     if !token.eq_ignore_ascii_case(CMD_PARAM_REDUCER) {
         let msg = format!("ERR: expected \"{CMD_PARAM_REDUCER}\", found \"{token}\"");
         return Err(ValkeyError::String(msg));
     }
-    let agg_str = args.next_str()
+    let agg_str = args
+        .next_str()
         .map_err(|_e| ValkeyError::Str("ERR: Error parsing grouping reducer"))?;
 
-    let aggregator = Aggregator::try_from(agg_str)
-        .map_err(|_| {
-            let msg = format!("ERR: invalid grouping aggregator \"{}\"", agg_str);
-            ValkeyError::String(msg)
-        })?;
+    let aggregator = Aggregator::try_from(agg_str).map_err(|_| {
+        let msg = format!("ERR: invalid grouping aggregator \"{}\"", agg_str);
+        ValkeyError::String(msg)
+    })?;
 
-    Ok(
-        RangeGroupingOptions {
-            group_label: label.to_string(),
-            aggregator
-        }
-    )
+    Ok(RangeGroupingOptions {
+        group_label: label.to_string(),
+        aggregator,
+    })
 }
 
-pub fn parse_significant_digit_rounding(args: &mut CommandArgIterator) -> ValkeyResult<RoundingStrategy> {
+pub fn parse_significant_digit_rounding(
+    args: &mut CommandArgIterator,
+) -> ValkeyResult<RoundingStrategy> {
     let next = args.next_u64()?;
     if next > MAX_SIGNIFICANT_DIGITS as u64 {
-        let msg = format!(
-            "ERR SIGNIFICANT_DIGITS must be between 0 and {MAX_SIGNIFICANT_DIGITS}"
-        );
+        let msg = format!("ERR SIGNIFICANT_DIGITS must be between 0 and {MAX_SIGNIFICANT_DIGITS}");
         return Err(ValkeyError::String(msg));
     }
     Ok(RoundingStrategy::SignificantDigits(next as i32))
 }
 
-pub fn parse_decimal_digit_rounding(args: &mut CommandArgIterator) -> ValkeyResult<RoundingStrategy> {
+pub fn parse_decimal_digit_rounding(
+    args: &mut CommandArgIterator,
+) -> ValkeyResult<RoundingStrategy> {
     let next = args.next_u64()?;
     if next > MAX_DECIMAL_DIGITS as u64 {
-        let msg =
-            format!("ERR DECIMAL_DIGITS must be between 0 and {MAX_DECIMAL_DIGITS}");
+        let msg = format!("ERR DECIMAL_DIGITS must be between 0 and {MAX_DECIMAL_DIGITS}");
         return Err(ValkeyError::String(msg));
     }
     Ok(RoundingStrategy::DecimalDigits(next as i32))
@@ -492,18 +502,16 @@ pub fn parse_decimal_digit_rounding(args: &mut CommandArgIterator) -> ValkeyResu
 
 pub fn parse_promql_vector_expr(args: &mut CommandArgIterator) -> ValkeyResult<String> {
     const ERROR_MSG: &str = "ERR: invalid PromQL vector expression";
-    
+
     let expr = args.next_string()?;
     match parse_expr(&expr) {
         Ok(candidate) => {
             if candidate.value_type() == ValueType::InstantVector {
-                Ok(expr)   
+                Ok(expr)
             } else {
                 Err(ValkeyError::Str(ERROR_MSG))
             }
-        },
-        Err(_) => {
-            Err(ValkeyError::Str(ERROR_MSG))
         }
+        Err(_) => Err(ValkeyError::Str(ERROR_MSG)),
     }
 }

@@ -1,15 +1,12 @@
+use crate::common::bitwriter::BitWrite;
+use crate::common::NomBitInput;
 use nom::{
     bits::complete::{bool, take},
     IResult,
 };
-use crate::common::bitwriter::BitWrite;
-use crate::common::NomBitInput;
 
 /// Writes a i64 as a Prometheus varbit timestamp.
-pub fn write_varbit_ts<W: BitWrite>(
-    value: i64,
-    writer: &mut W,
-) -> std::io::Result<()> {
+pub fn write_varbit_ts<W: BitWrite>(value: i64, writer: &mut W) -> std::io::Result<()> {
     match value {
         0 => writer.write_bit(false)?,
         // 1 to 14 bits
@@ -91,9 +88,9 @@ pub fn read_varbit_ts(input: NomBitInput) -> IResult<NomBitInput, i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitstream_io::{BigEndian};
-    use rand::{Rng, SeedableRng};
     use crate::common::bitwriter::{BitWrite, BitWriter};
+    use bitstream_io::BigEndian;
+    use rand::{Rng, SeedableRng};
 
     fn generate_random_test_data(seed: u64) -> Vec<Vec<i64>> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);

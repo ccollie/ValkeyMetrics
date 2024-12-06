@@ -113,7 +113,12 @@ impl<'a> PcoSampleIterator<'a> {
         })
     }
 
-    pub fn new_range(timestamps: &'a [u8], values: &'a [u8], start_ts: Timestamp, end_ts: Timestamp) -> ValkeyResult<Self> {
+    pub fn new_range(
+        timestamps: &'a [u8],
+        values: &'a [u8],
+        start_ts: Timestamp,
+        end_ts: Timestamp,
+    ) -> ValkeyResult<Self> {
         let mut iter = Self::new(timestamps, values)?;
         iter.filtered = true;
         iter.first_ts = start_ts;
@@ -126,8 +131,13 @@ impl<'a> PcoSampleIterator<'a> {
         if self.chunks_finished {
             return false;
         }
-        self.chunks_finished = match (self.timestamp_state.next_chunk(&mut self.timestamps), self.values_state.next_chunk(&mut self.values)) {
-            (Ok(true), Ok(true)) => self.timestamp_state.is_finished || self.values_state.is_finished,
+        self.chunks_finished = match (
+            self.timestamp_state.next_chunk(&mut self.timestamps),
+            self.values_state.next_chunk(&mut self.values),
+        ) {
+            (Ok(true), Ok(true)) => {
+                self.timestamp_state.is_finished || self.values_state.is_finished
+            }
             _ => true,
         };
         // these counts should be the same
@@ -189,22 +199,28 @@ mod tests {
             .map(|x| round_to_decimal_digits(x, 6))
             .collect::<Vec<_>>();
 
-        let timestamps = (0..SAMPLE_COUNT).map(|x| (epoch + x * 5000) as Timestamp)
+        let timestamps = (0..SAMPLE_COUNT)
+            .map(|x| (epoch + x * 5000) as Timestamp)
             .collect::<Vec<_>>();
 
         let mut timestamp_buf: Vec<u8> = Vec::with_capacity(1024);
         let mut values_buf: Vec<u8> = Vec::with_capacity(1024);
 
-        compress_timestamps(&mut timestamp_buf, &timestamps).expect("Unable to compress timestamps");
+        compress_timestamps(&mut timestamp_buf, &timestamps)
+            .expect("Unable to compress timestamps");
         compress_values(&mut values_buf, &values).expect("Unable to compress values");
 
-        let expected: Vec<_> = timestamps.iter().zip(values.iter())
+        let expected: Vec<_> = timestamps
+            .iter()
+            .zip(values.iter())
             .map(|(ts, val)| Sample {
                 timestamp: *ts,
                 value: *val,
-            }).collect();
+            })
+            .collect();
 
-        let iterator = PcoSampleIterator::new(&timestamp_buf, &values_buf).expect("Unable to create iterator");
+        let iterator =
+            PcoSampleIterator::new(&timestamp_buf, &values_buf).expect("Unable to create iterator");
         let actual: Vec<Sample> = iterator.collect();
 
         assert_eq!(actual.len(), expected.len());

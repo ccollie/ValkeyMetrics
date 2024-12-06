@@ -1,16 +1,15 @@
 use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
 use crate::iterators::SampleIter;
+use crate::series::chunks::utils::get_sample_index_bounds;
 use crate::series::chunks::Chunk;
 use crate::series::merge::merge_samples;
-use crate::series::chunks::utils::get_sample_index_bounds;
 use crate::series::{DuplicatePolicy, SampleAddResult, SAMPLE_SIZE};
 use core::mem::size_of;
 use get_size::GetSize;
 
 // todo: move to constants
 pub const MAX_UNCOMPRESSED_SAMPLES: usize = 256;
-
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UncompressedChunk {
@@ -89,7 +88,7 @@ impl UncompressedChunk {
         SAMPLE_SIZE
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=Sample> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = Sample> + '_ {
         self.samples.iter().cloned()
     }
 
@@ -98,7 +97,7 @@ impl UncompressedChunk {
         SampleIter::vec(slice)
     }
 
-    pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
+    pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>> {
         if self.len() == 0 || timestamps.is_empty() {
             return Ok(vec![]);
         }
@@ -124,7 +123,9 @@ impl UncompressedChunk {
     }
 
     fn get_range_slice(&self, start_ts: Timestamp, end_ts: Timestamp) -> Vec<Sample> {
-        if let Some((start_idx, end_index)) = get_sample_index_bounds(&self.samples, start_ts, end_ts) {
+        if let Some((start_idx, end_index)) =
+            get_sample_index_bounds(&self.samples, start_ts, end_ts)
+        {
             self.samples[start_idx..=end_index].to_vec()
         } else {
             vec![]
@@ -135,7 +136,7 @@ impl UncompressedChunk {
 fn get_sample_index(samples: &[Sample], ts: Timestamp) -> (usize, bool) {
     match samples.binary_search_by(|x| x.timestamp.cmp(&ts)) {
         Ok(pos) => (pos, true),
-        Err(idx) => (idx, false)
+        Err(idx) => (idx, false),
     }
 }
 
@@ -175,9 +176,8 @@ impl Chunk for UncompressedChunk {
 
     fn remove_range(&mut self, start_ts: Timestamp, end_ts: Timestamp) -> TsdbResult<usize> {
         let count = self.samples.len();
-        self.samples.retain(|sample| -> bool {
-            sample.timestamp < start_ts || sample.timestamp > end_ts
-        });
+        self.samples
+            .retain(|sample| -> bool { sample.timestamp < start_ts || sample.timestamp > end_ts });
         Ok(count - self.samples.len())
     }
 
@@ -194,11 +194,7 @@ impl Chunk for UncompressedChunk {
         Ok(slice)
     }
 
-    fn upsert_sample(
-        &mut self,
-        sample: Sample,
-        dp_policy: DuplicatePolicy,
-    ) -> TsdbResult<usize> {
+    fn upsert_sample(&mut self, sample: Sample, dp_policy: DuplicatePolicy) -> TsdbResult<usize> {
         let ts = sample.timestamp;
 
         let count = self.samples.len();
@@ -235,8 +231,11 @@ impl Chunk for UncompressedChunk {
 
         if self.is_empty() || first.timestamp > self.last_timestamp() {
             self.samples.extend_from_slice(samples);
-            let result = samples.iter().map(|sample| SampleAddResult::Ok(sample.timestamp)).collect();
-            return Ok(result)
+            let result = samples
+                .iter()
+                .map(|sample| SampleAddResult::Ok(sample.timestamp))
+                .collect();
+            return Ok(result);
         }
 
         struct State {
@@ -252,20 +251,25 @@ impl Chunk for UncompressedChunk {
         let left_iter = SampleIter::Slice(samples.iter());
         let right_iter = SampleIter::Slice(self.samples.iter());
 
-        merge_samples(left_iter, right_iter, dp_policy, &mut state, |state, sample, duplicate| {
-            if !duplicate {
-                state.dest.push(sample);
-                state.res.push(SampleAddResult::Ok(sample.timestamp));
-            } else {
-                state.res.push(SampleAddResult::Duplicate);
-            }
-            Ok(())
-        })?;
+        merge_samples(
+            left_iter,
+            right_iter,
+            dp_policy,
+            &mut state,
+            |state, sample, duplicate| {
+                if !duplicate {
+                    state.dest.push(sample);
+                    state.res.push(SampleAddResult::Ok(sample.timestamp));
+                } else {
+                    state.res.push(SampleAddResult::Duplicate);
+                }
+                Ok(())
+            },
+        )?;
 
         self.samples = state.dest;
         Ok(state.res)
     }
-
 
     fn split(&mut self) -> TsdbResult<Self>
     where
@@ -285,5 +289,4 @@ impl Chunk for UncompressedChunk {
 }
 
 #[cfg(test)]
-mod tests {
-}
+mod tests {}

@@ -1,17 +1,14 @@
-use crate::alerts::rules::{calc_rule_hash, MetricRule, RecordingRule, RuleState};
 use crate::alerts::meta::with_group_mut;
+use crate::alerts::notifications::validate_templates;
+use crate::alerts::rules::{calc_rule_hash, MetricRule, RecordingRule, RuleState};
+use crate::error_consts;
 use crate::module::arg_parse::{
-    parse_key_value_pairs,
-    parse_promql_vector_expr,
-    CommandArgIterator,
-    CMD_ARG_EXPR,
+    parse_key_value_pairs, parse_promql_vector_expr, CommandArgIterator, CMD_ARG_EXPR,
     CMD_ARG_LABELS,
 };
 use metricsql_parser::parser::is_valid_identifier;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
 use valkey_module_macros::command;
-use crate::alerts::notifications::validate_templates;
-use crate::error_consts;
 
 const CMD_ARG_MAX_ENTRIES: &str = "MAX_ENTRIES";
 
@@ -41,21 +38,17 @@ pub fn create_recording_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRe
     with_group_mut(ctx, &group_key, move |group| {
         let rule = parse_rule_config(args)?;
         let to_add = MetricRule::RecordingRule(rule);
-        group.add_rule(to_add)
+        group
+            .add_rule(to_add)
             .map_err(|_e| ValkeyError::Str(error_consts::ALERTS_DUPLICATE_RULE))?;
-        
+
         VALKEY_OK
     })
-    
 }
 
 fn parse_rule_config(mut args: CommandArgIterator) -> ValkeyResult<RecordingRule> {
     fn is_cmd_token(token: &str) -> bool {
-        const TOKENS: [&str; 3] = [
-            CMD_ARG_EXPR,
-            CMD_ARG_LABELS,
-            CMD_ARG_MAX_ENTRIES,
-        ];
+        const TOKENS: [&str; 3] = [CMD_ARG_EXPR, CMD_ARG_LABELS, CMD_ARG_MAX_ENTRIES];
         TOKENS.contains(&token)
     }
 
@@ -85,18 +78,15 @@ fn parse_rule_config(mut args: CommandArgIterator) -> ValkeyResult<RecordingRule
                 // todo: limit
                 rule.state = RuleState::with_capacity(max_entries);
             }
-            _ => {
-                return Err(ValkeyError::Str("ERR invalid argument"))
-            }
+            _ => return Err(ValkeyError::Str("ERR invalid argument")),
         }
     }
 
     if rule.expr.is_empty() {
         return Err(ValkeyError::Str("ERR missing expression"));
     }
-    
-    rule.rule_id = calc_rule_hash(&rule)
-        .map_err(|_err| ValkeyError::Str("ERR hashing rule"))?;
-    
+
+    rule.rule_id = calc_rule_hash(&rule).map_err(|_err| ValkeyError::Str("ERR hashing rule"))?;
+
     Ok(rule)
 }

@@ -19,7 +19,6 @@ struct ParsedInput<'a> {
     index: usize,
 }
 
-
 pub fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let arg_count = args.len() - 1;
 
@@ -76,17 +75,27 @@ pub fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         });
 
     temp.sort_by(|x, y| x.0.cmp(&y.0));
-    let result = temp.into_iter().map(|(_, res)| ValkeyValue::from(res))
+    let result = temp
+        .into_iter()
+        .map(|(_, res)| ValkeyValue::from(res))
         .collect::<Vec<_>>();
 
     // todo!!
-    Ok(ValkeyValue::Array(result.into()))
+    Ok(ValkeyValue::Array(result))
 }
 
-fn add_sample_internal(ctx: &Context, key: &ValkeyString, input: &Vec<ParsedInput>) -> TsdbResult<Vec<(usize, SampleAddResult)>>  {
+fn add_sample_internal(
+    ctx: &Context,
+    key: &ValkeyString,
+    input: &Vec<ParsedInput>,
+) -> TsdbResult<Vec<(usize, SampleAddResult)>> {
     if let Ok(Some(series)) = get_timeseries_mut(ctx, key, true) {
-        let samples = input.iter()
-            .map(|input| Sample { timestamp: input.timestamp, value: input.value } )
+        let samples = input
+            .iter()
+            .map(|input| Sample {
+                timestamp: input.timestamp,
+                value: input.value,
+            })
             .collect::<Vec<Sample>>();
 
         let add_results = series.merge_samples(&samples, None)?;
@@ -104,20 +113,19 @@ fn add_sample_internal(ctx: &Context, key: &ValkeyString, input: &Vec<ParsedInpu
             ctx.replicate("VM.MADD", &*replication_args);
             let mut idx = 0;
             while idx < replication_args.len() {
-                ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.ADD", &replication_args[idx]);
+                ctx.notify_keyspace_event(NotifyEvent::MODULE, "VM.ADD", replication_args[idx]);
                 idx += 3;
             }
         }
 
         Ok(results)
-
     } else {
-        Ok(
-            input.iter().map(|input| (input.index, SampleAddResult::InvalidKey)).collect()
-        )
+        Ok(input
+            .iter()
+            .map(|input| (input.index, SampleAddResult::InvalidKey))
+            .collect())
     }
 }
-
 
 fn group<K, V, I>(iter: I) -> Vec<Vec<V>>
 where
@@ -130,8 +138,11 @@ where
     };
 
     for (key, value) in iter {
-        hash_map.entry(key).or_insert_with(|| Vec::with_capacity(1)).push(value);
+        hash_map
+            .entry(key)
+            .or_insert_with(|| Vec::with_capacity(1))
+            .push(value);
     }
 
-    hash_map.into_iter().map(|(_, v)| v).collect()
+    hash_map.into_values().collect()
 }

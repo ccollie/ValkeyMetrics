@@ -1,10 +1,10 @@
+use super::JoinValue;
 use crate::common::types::Sample;
 use joinkit::Joinkit;
-use super::JoinValue;
 
 // todo: accept iterators instead of slices
 pub struct JoinRightExclusiveIter<'a> {
-    iter: Box<dyn Iterator<Item = &'a Sample> + 'a>
+    iter: Box<dyn Iterator<Item = &'a Sample> + 'a>,
 }
 
 impl<'a> JoinRightExclusiveIter<'a> {
@@ -27,6 +27,8 @@ impl Iterator for JoinRightExclusiveIter<'_> {
     type Item = JoinValue;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|sample| JoinValue::right(sample.timestamp, sample.value))
+        self.iter
+            .next()
+            .map(|sample| JoinValue::right(sample.timestamp, sample.value))
     }
 }

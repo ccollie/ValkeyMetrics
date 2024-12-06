@@ -1,8 +1,8 @@
-mod pco_utils;
-mod pco_chunk;
 mod iterator;
+mod pco_chunk;
+mod pco_utils;
 mod serialization;
 
-pub use pco_chunk::*;
 pub use iterator::*;
+pub use pco_chunk::*;
 pub use serialization::*;

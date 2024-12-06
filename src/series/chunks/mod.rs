@@ -1,21 +1,18 @@
 mod chunk;
-mod uncompressed;
 mod gorilla;
 mod pco;
+mod serialization;
+mod stream;
 mod timeseries_chunk;
 mod compressed_vec;
 #[cfg(test)]
 mod timeseries_chunk_tests;
-mod serialization;
+mod uncompressed;
 pub mod utils;
-mod stream;
 
 pub use chunk::*;
-pub use gorilla::{
-    GorillaChunk,
-    GorillaChunkIterator
-};
+pub use gorilla::{GorillaChunk, GorillaChunkIterator};
 pub use pco::{PcoChunk, PcoSampleIterator};
-pub use uncompressed::*;
-pub use timeseries_chunk::*;
 pub use serialization::*;
+pub use timeseries_chunk::*;
+pub use uncompressed::*;

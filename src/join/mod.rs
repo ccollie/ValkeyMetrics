@@ -1,24 +1,24 @@
-use std::fmt::Display;
-use std::time::Duration;
-use joinkit::EitherOrBoth;
-use metricsql_common::humanize::humanize_duration;
 use crate::common::types::{Sample, Timestamp};
 use crate::series::types::{AggregationOptions, ValueFilter};
+use joinkit::EitherOrBoth;
+use metricsql_common::humanize::humanize_duration;
+use std::fmt::Display;
+use std::time::Duration;
 
-mod join_inner_iter;
+pub mod asof;
+mod join_asof_iter;
 mod join_full_iter;
-mod join_right_exclusive_iter;
+mod join_inner_iter;
+mod join_iter;
 mod join_left_exclusive_iter;
 mod join_left_iter;
-mod join_right_iter;
-mod join_asof_iter;
-mod join_iter;
-pub mod asof;
 pub(crate) mod join_reducer;
+mod join_right_exclusive_iter;
+mod join_right_iter;
 
-pub use join_iter::*;
 use crate::join::asof::AsOfJoinStrategy;
 use crate::series::TimestampRange;
+pub use join_iter::*;
 use join_reducer::JoinReducer;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -38,7 +38,7 @@ impl JoinValue {
                 (Some(l), None) => EitherOrBoth::Left(*l),
                 (None, Some(r)) => EitherOrBoth::Right(*r),
                 (None, None) => unreachable!(),
-            }
+            },
         }
     }
 
@@ -46,14 +46,14 @@ impl JoinValue {
         JoinValue {
             timestamp,
             other_timestamp: None,
-            value: EitherOrBoth::Left(value)
+            value: EitherOrBoth::Left(value),
         }
     }
     pub fn right(timestamp: Timestamp, value: f64) -> Self {
         JoinValue {
             other_timestamp: None,
             timestamp,
-            value: EitherOrBoth::Right(value)
+            value: EitherOrBoth::Right(value),
         }
     }
 
@@ -61,7 +61,7 @@ impl JoinValue {
         JoinValue {
             timestamp,
             other_timestamp: None,
-            value: EitherOrBoth::Both(l, r)
+            value: EitherOrBoth::Both(l, r),
         }
     }
 }
@@ -75,7 +75,7 @@ impl From<&EitherOrBoth<&Sample, &Sample>> for JoinValue {
                 value
             }
             EitherOrBoth::Left(l) => Self::left(l.timestamp, l.value),
-            EitherOrBoth::Right(r) => Self::right(r.timestamp, r.value)
+            EitherOrBoth::Right(r) => Self::right(r.timestamp, r.value),
         }
     }
 }
@@ -132,7 +132,6 @@ impl Display for JoinType {
     }
 }
 
-
 #[derive(Debug, Default)]
 pub struct JoinOptions {
     pub join_type: JoinType,
@@ -143,7 +142,6 @@ pub struct JoinOptions {
     pub reducer: Option<JoinReducer>,
     pub aggregation: Option<AggregationOptions>,
 }
-
 
 pub(crate) fn convert_join_item(item: EitherOrBoth<&Sample, &Sample>) -> JoinValue {
     match item {

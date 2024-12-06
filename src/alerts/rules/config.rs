@@ -56,22 +56,23 @@ impl RuleConfig {
 
     pub fn update_entries_limit(&self) -> usize {
         // todo; this is a placeholder. use global config
-        self.update_entries_limit.unwrap_or(DEFAULT_RULE_UPDATE_ENTRIES_LIMIT)
+        self.update_entries_limit
+            .unwrap_or(DEFAULT_RULE_UPDATE_ENTRIES_LIMIT)
     }
 
     pub fn validate(&self) -> AlertsResult<()> {
         let name = self.name();
 
-        let err = |msg: &str| -> AlertsResult<()> {
-            Err(AlertsError::InvalidRule(msg.to_string()))
-        };
+        let err =
+            |msg: &str| -> AlertsResult<()> { Err(AlertsError::InvalidRule(msg.to_string())) };
 
         if self.record.is_empty() && self.alert.is_empty() {
             let msg = format!("rules \"{name}\" must have either record or alert field set");
             return err(&msg);
         }
         if !self.record.is_empty() && !self.alert.is_empty() {
-            let msg = format!("rules \"{name}\" should have either record or alert field set, not both");
+            let msg =
+                format!("rules \"{name}\" should have either record or alert field set, not both");
             return err(&msg);
         }
         if self.expr.is_empty() {
@@ -88,7 +89,13 @@ impl Display for RuleConfig {
         if !self.alert.is_empty() {
             rule_type = "alerting"
         }
-        write!(f, "{} rules {}; expr: {}", rule_type, self.name(), self.expr)?;
+        write!(
+            f,
+            "{} rules {}; expr: {}",
+            rule_type,
+            self.name(),
+            self.expr
+        )?;
         let mut keys = self.labels.keys().collect::<Vec<_>>();
         keys.sort();
 
@@ -127,7 +134,7 @@ pub struct GroupConfig {
     pub notifier_headers: Vec<Header>,
     /// eval_alignment will make the timestamp of group query requests be aligned with interval
     pub eval_alignment: Option<bool>,
-    pub disabled: bool // change to paused ????
+    pub disabled: bool, // change to paused ????
 }
 
 /// Header is a Key - Value struct for holding an HTTP header.
@@ -138,7 +145,11 @@ pub struct Header {
 }
 
 impl GroupConfig {
-    pub fn validate(&self, validate_tpl_fn: ValidateTplFn, validate_expressions: bool) -> AlertsResult<()> {
+    pub fn validate(
+        &self,
+        validate_tpl_fn: ValidateTplFn,
+        validate_expressions: bool,
+    ) -> AlertsResult<()> {
         fn err(msg: &str) -> AlertsResult<()> {
             Err(AlertsError::InvalidConfiguration(msg.to_string()))
         }
@@ -146,7 +157,7 @@ impl GroupConfig {
         if self.name.is_empty() {
             return err("group name must be set");
         }
-        
+
         if let (Some(offset), Some(interval)) = (&self.eval_offset, &self.interval) {
             if offset > interval {
                 let msg = format!("eval_offset should be smaller than interval; now eval_offset: {}, interval: {}",
@@ -161,30 +172,30 @@ impl GroupConfig {
             let rule_name = r.name();
             let id = r.id;
             if unique_rules.contains(&id) {
-                return Err(AlertsError::InvalidConfiguration(format!("{} is a duplicate in group", r)));
+                return Err(AlertsError::InvalidConfiguration(format!(
+                    "{} is a duplicate in group",
+                    r
+                )));
             }
             unique_rules.insert(id);
             r.validate()?;
 
             if validate_expressions {
-                validate_expr(&r.expr)
-                    .map_err(|err| {
-                        let msg = format!("invalid expression for rules {}: {:?}", rule_name, err);
-                        AlertsError::InvalidRule(msg)
-                    })?;
+                validate_expr(&r.expr).map_err(|err| {
+                    let msg = format!("invalid expression for rules {}: {:?}", rule_name, err);
+                    AlertsError::InvalidRule(msg)
+                })?;
             }
 
-            validate_tpl_fn(&r.annotations)
-                .map_err(|err| {
-                    let msg = format!("invalid annotations for rules {}: {:?}", rule_name, err);
-                    AlertsError::InvalidRule(msg)
-                })?;
+            validate_tpl_fn(&r.annotations).map_err(|err| {
+                let msg = format!("invalid annotations for rules {}: {:?}", rule_name, err);
+                AlertsError::InvalidRule(msg)
+            })?;
 
-            validate_tpl_fn(&r.labels)
-                .map_err(|err| {
-                    let msg = format!("invalid labels for rules {}: {:?}", rule_name, err);
-                    AlertsError::InvalidRule(msg)
-                })?;
+            validate_tpl_fn(&r.labels).map_err(|err| {
+                let msg = format!("invalid labels for rules {}: {:?}", rule_name, err);
+                AlertsError::InvalidRule(msg)
+            })?;
         }
         Ok(())
     }
@@ -193,7 +204,10 @@ impl GroupConfig {
 fn validate_expr(expr: &str) -> AlertsResult<()> {
     match metricsql_parser::parser::parse(expr) {
         Ok(_) => Ok(()),
-        Err(err) => Err(AlertsError::InvalidConfiguration(format!("invalid expression: {:?}", err)))
+        Err(err) => Err(AlertsError::InvalidConfiguration(format!(
+            "invalid expression: {:?}",
+            err
+        ))),
     }
 }
 

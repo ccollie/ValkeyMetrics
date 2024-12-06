@@ -1,7 +1,7 @@
-use crate::series::merge::merge_by_capacity;
 use crate::error::TsdbResult;
-use crate::series::{Chunk};
+use crate::series::merge::merge_by_capacity;
 use crate::series::time_series::TimeSeries;
+use crate::series::Chunk;
 
 pub fn defrag_series(series: &mut TimeSeries) -> TsdbResult<()> {
     series.trim()?;
@@ -29,12 +29,9 @@ pub fn defrag_series(series: &mut TimeSeries) -> TsdbResult<()> {
         }
 
         // while previous block has capacity merge into it
-        while let Some(deleted) = merge_by_capacity(
-            prev_chunk,
-            chunk,
-            min_timestamp,
-            Some(duplicate_policy),
-        )? {
+        while let Some(deleted) =
+            merge_by_capacity(prev_chunk, chunk, min_timestamp, Some(duplicate_policy))?
+        {
             deleted_count -= deleted;
             if chunk.is_empty() {
                 chunks_to_remove.push(i);

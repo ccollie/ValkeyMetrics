@@ -25,11 +25,17 @@ fn get_active_queries() -> ValkeyValue {
         map.insert("duration".into(), ValkeyValue::from(duration));
         map.insert("duration_secs".into(), ValkeyValue::from(duration_secs));
         map.insert("id".into(), ValkeyValue::from(aqe.qid as f64));
-        map.insert("remote_addr".into(), ValkeyValue::from(&aqe.quoted_remote_addr));
+        map.insert(
+            "remote_addr".into(),
+            ValkeyValue::from(&aqe.quoted_remote_addr),
+        );
         map.insert("query".into(), ValkeyValue::from(&aqe.q));
         map.insert("start".into(), ValkeyValue::from(aqe.start));
         map.insert("end".into(), ValkeyValue::from(aqe.end));
-        map.insert("step".into(), ValkeyValue::Integer(aqe.step.as_millis() as i64));
+        map.insert(
+            "step".into(),
+            ValkeyValue::Integer(aqe.step.as_millis() as i64),
+        );
         items.push(ValkeyValue::from(map));
     }
 

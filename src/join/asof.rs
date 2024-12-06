@@ -11,7 +11,10 @@ use valkey_module::ValkeyError;
 
 /// MergeAsOfMode describes the roll behavior of the asof merge
 #[derive(Clone, Copy)]
-pub enum MergeAsOfMode{ RollPrior, RollFollowing }
+pub enum MergeAsOfMode {
+    RollPrior,
+    RollFollowing,
+}
 
 #[derive(Debug, Default, Clone, Copy)]
 pub enum AsOfJoinStrategy {
@@ -57,28 +60,23 @@ pub fn merge_apply_asof<'a, TSample: SampleLike + Clone + Eq + Ord>(
     left_samples: &'a [TSample], // todo: take impl Iterator<Item=Sample>
     other_samples: &'a [TSample],
     tolerance: &Duration,
-    merge_mode: MergeAsOfMode) -> Vec<EitherOrBoth<&'a TSample, &'a TSample>>
-{
+    merge_mode: MergeAsOfMode,
+) -> Vec<EitherOrBoth<&'a TSample, &'a TSample>> {
     let tolerance_ms = tolerance.as_millis() as i64;
     let compare_func = match merge_mode {
         MergeAsOfMode::RollFollowing => Some(merge_asof_fwd(tolerance_ms)),
         MergeAsOfMode::RollPrior => Some(merge_asof_prior(tolerance_ms)),
     };
 
-    let other_idx_func:Option<Box<dyn Fn(usize)->usize>> = match merge_mode {
+    let other_idx_func: Option<Box<dyn Fn(usize) -> usize>> = match merge_mode {
         MergeAsOfMode::RollFollowing => {
             let other_len = other_samples.len();
             Some(Box::new(move |idx: usize| fwd_func(idx, other_len)))
-        },
+        }
         MergeAsOfMode::RollPrior => Some(Box::new(|idx: usize| prior_func(idx))),
     };
 
-    get_asof_merge_joined(
-        left_samples,
-        other_samples,
-        compare_func,
-        other_idx_func
-    )
+    get_asof_merge_joined(left_samples, other_samples, compare_func, other_idx_func)
 }
 
 fn prior_func(idx: usize) -> usize {
@@ -102,8 +100,8 @@ fn get_asof_merge_joined<'a, TSample: SampleLike + Clone>(
     left: &'a [TSample],
     right: &'a [TSample],
     compare_func: Option<Box<dyn Fn(&Timestamp, &Timestamp, &Timestamp) -> (cmp::Ordering, i64)>>,
-    other_idx_func: Option<Box<dyn Fn(usize) -> usize>>) -> Vec<EitherOrBoth<&'a TSample, &'a TSample>>
-{
+    other_idx_func: Option<Box<dyn Fn(usize) -> usize>>,
+) -> Vec<EitherOrBoth<&'a TSample, &'a TSample>> {
     #![allow(clippy::type_complexity)]
     let mut output: Vec<EitherOrBoth<&'a TSample, &'a TSample>> = Vec::new();
     let mut pos1: usize = 0;
@@ -111,12 +109,14 @@ fn get_asof_merge_joined<'a, TSample: SampleLike + Clone>(
 
     let comp_func = match compare_func {
         Some(func) => func,
-        None => Box::new(|this: &Timestamp, other: &Timestamp, _other_prior: &Timestamp| (this.cmp(other), 0)) // use built in ordinal compare if no override
+        None => Box::new(
+            |this: &Timestamp, other: &Timestamp, _other_prior: &Timestamp| (this.cmp(other), 0),
+        ), // use built in ordinal compare if no override
     };
 
     let cand_idx_func = match other_idx_func {
         Some(func) => func,
-        None => Box::new(|idx| idx)
+        None => Box::new(|idx| idx),
     };
 
     while pos1 < left.len() {
@@ -127,7 +127,7 @@ fn get_asof_merge_joined<'a, TSample: SampleLike + Clone>(
         let comp_res = comp_func(
             &first_ts,
             &second_ts,
-            &right[cand_idx_func(pos2)].timestamp()
+            &right[cand_idx_func(pos2)].timestamp(),
         );
         let offset = comp_res.1;
         match comp_res.0 {
@@ -150,7 +150,8 @@ fn get_asof_merge_joined<'a, TSample: SampleLike + Clone>(
                 } else {
                     output.push(EitherOrBoth::Left(first));
                 }
-                if first_ts.eq(&second_ts) && pos2 < (right.len() - 1) { // only incr if things are actually equal and you have room to run
+                if first_ts.eq(&second_ts) && pos2 < (right.len() - 1) {
+                    // only incr if things are actually equal and you have room to run
                     pos2 += 1;
                 }
                 pos1 += 1;
@@ -162,17 +163,27 @@ fn get_asof_merge_joined<'a, TSample: SampleLike + Clone>(
 
 pub type MergeAsOfCompareFn = Box<dyn Fn(&i64, &i64, &i64) -> (cmp::Ordering, i64)>;
 
-fn merge_asof_prior_impl(this: &i64, other: &i64, other_prior: &i64, lookback_ms: i64) -> (cmp::Ordering, i64) {
+fn merge_asof_prior_impl(
+    this: &i64,
+    other: &i64,
+    other_prior: &i64,
+    lookback_ms: i64,
+) -> (cmp::Ordering, i64) {
     let diff = this - other_prior;
     match diff {
         d if d < 0 && this != other => (cmp::Ordering::Less, 0),
         d if d > lookback_ms && this != other => (cmp::Ordering::Greater, 0),
         d if d <= lookback_ms && this != other => (cmp::Ordering::Equal, -1),
-        _ => (cmp::Ordering::Equal, 0)
+        _ => (cmp::Ordering::Equal, 0),
     }
 }
 
-fn merge_asof_fwd_impl(this: &i64, other: &i64, other_peak: &i64, lookback_ms: i64) -> (cmp::Ordering, i64) {
+fn merge_asof_fwd_impl(
+    this: &i64,
+    other: &i64,
+    other_peak: &i64,
+    lookback_ms: i64,
+) -> (cmp::Ordering, i64) {
     let diff1 = other_peak - this;
     let diff2 = other - this;
     let diff = cmp::min(diff1, cmp::max(diff2, 0));
@@ -181,14 +192,19 @@ fn merge_asof_fwd_impl(this: &i64, other: &i64, other_peak: &i64, lookback_ms: i
         d if d < 0 && this != other => (cmp::Ordering::Greater, 0),
         d if d > lookback_ms && this != other => (cmp::Ordering::Less, 0),
         d if d <= lookback_ms && this != other => (cmp::Ordering::Equal, offset),
-        _ => (cmp::Ordering::Equal, 0)
+        _ => (cmp::Ordering::Equal, 0),
     }
 }
 
 // todo: Nearest
 
-fn merge_asof_frontend(free_param: i64, func: fn(&i64, &i64, &i64, i64) -> (cmp::Ordering, i64)) -> MergeAsOfCompareFn {
-    Box::new(move |this: &i64, other: &i64, other_peak: &i64| func(this, other, other_peak, free_param))
+fn merge_asof_frontend(
+    free_param: i64,
+    func: fn(&i64, &i64, &i64, i64) -> (cmp::Ordering, i64),
+) -> MergeAsOfCompareFn {
+    Box::new(move |this: &i64, other: &i64, other_peak: &i64| {
+        func(this, other, other_peak, free_param)
+    })
 }
 
 /// Implementation for mergeasof for a given duration lookback for a pair of Timeseries that has a HashableIndex<i64>
@@ -204,13 +220,14 @@ fn merge_asof_fwd(look_fwd: i64) -> MergeAsOfCompareFn {
 mod tests {
     use super::{merge_apply_asof, MergeAsOfMode};
     use crate::common::types::Timestamp;
+    use crate::join::JoinValue;
     use joinkit::EitherOrBoth;
     use metricsql_runtime::types::Sample;
     use std::time::Duration;
-    use crate::join::JoinValue;
 
     fn create_samples(timestamps: &[Timestamp], values: &[f64]) -> Vec<Sample> {
-        timestamps.iter()
+        timestamps
+            .iter()
             .zip(values.iter())
             .map(|(t, v)| Sample::new(*t, *v))
             .collect()
@@ -222,7 +239,6 @@ mod tests {
 
     #[test]
     fn test_merge_asof_prior() {
-
         let values = vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
         let index = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         let ts = create_samples(&index, &values);
@@ -255,8 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_asof_forward(){
-
+    fn test_merge_asof_forward() {
         let values = vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
         let index = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         let ts = create_samples(&index, &values);
@@ -268,16 +283,18 @@ mod tests {
 
         let tolerance = Duration::from_millis(1);
 
-        let custom: Vec<_> = merge_apply_asof(&ts, &ts_join, &tolerance, MergeAsOfMode::RollFollowing)
-            .iter()
-            .map(convert_pair)
-            .collect();
+        let custom: Vec<_> =
+            merge_apply_asof(&ts, &ts_join, &tolerance, MergeAsOfMode::RollFollowing)
+                .iter()
+                .map(convert_pair)
+                .collect();
 
         let tolerance = Duration::from_millis(2);
-        let custom2: Vec<_> = merge_apply_asof(&ts, &ts_join, &tolerance, MergeAsOfMode::RollFollowing)
-            .iter()
-            .map(convert_pair)
-            .collect();
+        let custom2: Vec<_> =
+            merge_apply_asof(&ts, &ts_join, &tolerance, MergeAsOfMode::RollFollowing)
+                .iter()
+                .map(convert_pair)
+                .collect();
 
         let expected = vec![
             JoinValue::both(1, 1.0, 1.0),

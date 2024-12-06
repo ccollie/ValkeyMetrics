@@ -1,15 +1,16 @@
+use super::JoinValue;
 use crate::common::types::Sample;
 use joinkit::Joinkit;
-use super::JoinValue;
 
 pub struct JoinInnerIter<'a> {
-    iter: Box<dyn Iterator<Item=(&'a Sample, &'a Sample)> + 'a>
+    iter: Box<dyn Iterator<Item = (&'a Sample, &'a Sample)> + 'a>,
 }
 
 impl<'a> JoinInnerIter<'a> {
     // todo: accept imp Iterator<Item=Sample>
     pub fn new(left: &'a [Sample], right: &'a [Sample]) -> Self {
-        let iter = left.iter()
+        let iter = left
+            .iter()
             .merge_join_inner_by(right, |x, y| x.timestamp.cmp(&y.timestamp));
 
         Self {

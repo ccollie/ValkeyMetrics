@@ -1,4 +1,5 @@
-use crate::alerts::meta::{with_group_mut, with_group_manager};
+use crate::alerts::meta::{with_group_manager, with_group_mut};
+use crate::alerts::rules::validate_offset_and_interval;
 use crate::error_consts;
 use crate::error_consts::EVAL_OFFSET_EXCEEDS_INTERVAL;
 use crate::module::arg_parse::*;
@@ -6,22 +7,14 @@ use metricsql_parser::parser::is_valid_identifier;
 use std::collections::HashMap;
 use std::time::Duration;
 use valkey_module::{
-    Context,
-    NextArg,
-    NotifyEvent,
-    ValkeyError,
-    ValkeyResult,
-    ValkeyString,
-    VALKEY_OK
+    Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK,
 };
 use valkey_module_macros::command;
-use crate::alerts::rules::validate_offset_and_interval;
 
 const INTERVAL: &str = "INTERVAL";
 const EVAL_OFFSET: &str = "EVAL_OFFSET";
 const EVAL_DELAY: &str = "EVAL_DELAY";
 const EVAL_ALIGNMENT: &str = "EVAL_ALIGNMENT";
-
 
 #[derive(Default)]
 pub struct AlterGroupOptions {
@@ -67,14 +60,18 @@ pub fn alter_group_function(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRes
     if changed {
         update_group(ctx, &parsed_key, options)?;
     }
-    
+
     VALKEY_OK
 }
 
-pub fn parse_alter_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyString, AlterGroupOptions, bool)> {
+pub fn parse_alter_options(
+    args: Vec<ValkeyString>,
+) -> ValkeyResult<(ValkeyString, AlterGroupOptions, bool)> {
     let mut args = args.into_iter().skip(1).peekable();
 
-    let key = args.next().ok_or(ValkeyError::Str("Err missing key argument"))?;
+    let key = args
+        .next()
+        .ok_or(ValkeyError::Str("Err missing key argument"))?;
 
     const CREATE_TOKENS: [&str; 8] = [
         EVAL_ALIGNMENT,
@@ -84,13 +81,13 @@ pub fn parse_alter_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStrin
         CMD_ARG_LIMIT,
         CMD_ARG_LABELS,
         CMD_ARG_DISABLED,
-        CMD_ARG_NAME
+        CMD_ARG_NAME,
     ];
 
     fn is_command_keyword(arg: &str) -> bool {
         CREATE_TOKENS.contains(&arg)
     }
-    
+
     let mut config = AlterGroupOptions::default();
     let mut changed = false;
 
@@ -149,9 +146,11 @@ pub fn parse_alter_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStrin
     Ok((key, config, changed))
 }
 
-
-pub(crate) fn update_group(ctx: &Context, key: &ValkeyString, options: AlterGroupOptions) -> ValkeyResult<()> {
-    
+pub(crate) fn update_group(
+    ctx: &Context,
+    key: &ValkeyString,
+    options: AlterGroupOptions,
+) -> ValkeyResult<()> {
     let changed = with_group_mut(ctx, key, |group| {
         let mut changed = false;
         if let Some(name) = options.name {
@@ -160,7 +159,7 @@ pub(crate) fn update_group(ctx: &Context, key: &ValkeyString, options: AlterGrou
                 changed = true;
             }
         }
-        
+
         if options.eval_offset.is_some() || options.interval.is_some() {
             let offset = options.eval_offset.unwrap_or(group.eval_offset);
             let interval = options.interval.unwrap_or(group.interval);
@@ -173,14 +172,14 @@ pub(crate) fn update_group(ctx: &Context, key: &ValkeyString, options: AlterGrou
                 }
             }
         }
-        
+
         if let Some(eval_offset) = options.eval_offset {
             if group.eval_offset != eval_offset {
                 group.eval_offset = eval_offset;
                 changed = true;
             }
         }
-        
+
         if let Some(interval) = options.interval {
             group.interval = interval;
         }
@@ -199,22 +198,22 @@ pub(crate) fn update_group(ctx: &Context, key: &ValkeyString, options: AlterGrou
             }
         }
         if let Some(labels) = options.labels {
-            if group.labels!= labels {
+            if group.labels != labels {
                 group.labels = labels;
                 changed = true;
             }
         }
         if let Some(limit) = options.limit {
-            if group.limit!= limit {
+            if group.limit != limit {
                 group.limit = limit;
                 changed = true;
             }
         }
-        
+
         if changed {
             with_group_manager(ctx, |manager| manager.update_group(ctx, group, key));
         }
-        
+
         Ok(changed)
     })?;
 

@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use metricsql_common::label::Label;
-    use valkey_module::ValkeyString;
     use crate::series::index::TimeSeriesIndex;
     use crate::series::time_series::TimeSeries;
+    use metricsql_common::label::Label;
+    use valkey_module::ValkeyString;
     fn create_valkey_string(s: &str) -> ValkeyString {
         ValkeyString::create(None, s.as_bytes())
     }
@@ -109,14 +109,13 @@ mod tests {
 
         let values = index.get_label_values("region");
         assert_eq!(values.len(), 2);
-        assert!(values.contains(&"us-east-1".to_string()));
-        assert!(values.contains(&"us-east-2".to_string()));
+        assert!(values.contains("us-east-1"));
+        assert!(values.contains("us-east-2"));
 
         let values = index.get_label_values("env");
         assert_eq!(values.len(), 3);
-        assert!(values.contains(&"dev".to_string()));
-        assert!(values.contains(&"qa".to_string()));
-        assert!(values.contains(&"prod".to_string()));
-
+        assert!(values.contains("dev"));
+        assert!(values.contains("qa"));
+        assert!(values.contains("prod"));
     }
 }

@@ -10,7 +10,6 @@ pub fn init_runtime() {
     let _ = &TOKIO_RUNTIME;
 }
 
-
 fn create_runtime() -> Runtime {
     // todo: may need to change once we have rules/alerts, since they will run independent of
     // requests and can be parallelized

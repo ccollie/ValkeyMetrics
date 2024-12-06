@@ -9,6 +9,7 @@ use crate::alerts::{AlertsError, AlertsResult, ALERT_SETTINGS};
 use crate::common::types::{Label, MetricName, Sample, Timestamp, TimestampTrait};
 use crate::common::{current_time_millis, METRIC_NAME_LABEL};
 use crate::query::Querier;
+use crate::series::chunks::utils::make_series_key;
 use ahash::AHasher;
 use enquote::enquote;
 use get_size::GetSize;
@@ -18,20 +19,18 @@ use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use std::hash::{Hasher};
+use std::hash::Hasher;
 use std::ops::Sub;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tracing::debug;
 use valkey_module::{logging, Context, ValkeyError, ValkeyResult};
-use crate::series::chunks::utils::make_series_key;
 // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmalert/alerting.go#L612
 
 /// the duration for which a resolved alert instance is kept in memory state and consequently
 /// repeatedly sent to the AlertManager.
 // TODO: read from config
 const RESOLVED_RETENTION: Duration = Duration::from_micros(15 * 60 * 1000);
-
 
 #[derive(Debug, Default, Serialize, Deserialize, GetSize)]
 pub struct AlertingRuleMetrics {
@@ -137,7 +136,7 @@ impl AlertingRule {
     pub fn restore(
         &mut self,
         ctx: &Context,
-        querier: &Box<dyn Querier>,
+        querier: Box<dyn Querier>,
         ts: Timestamp,
         look_back: Duration,
     ) -> AlertsResult<()> {
@@ -277,7 +276,7 @@ impl AlertingRule {
         let res = exec_template(ctx, &self.annotations, tpl_data)?;
         Ok((ls, res))
     }
-    
+
     /// to_time_series creates `ALERTS` and `ALERTS_FOR_STATE` for active alerts
     fn to_time_series(&self, timestamp: Timestamp) -> Vec<RawTimeSeries> {
         self.alerts
@@ -446,7 +445,7 @@ impl AlertingRule {
         }
 
         prefix.push_str(message);
-        
+
         logging::log_debug(prefix);
     }
 }
@@ -584,7 +583,7 @@ impl Rule for AlertingRule {
 
         let mut to_delete = Vec::new();
         let keep_firing_for = self.keep_firing_for.as_millis() as i64;
-        
+
         let mut tss: Vec<RawTimeSeries> = Vec::new();
 
         for (h, alert) in alerts.iter_mut() {
@@ -593,7 +592,7 @@ impl Rule for AlertingRule {
                 if alert.state == AlertState::Pending {
                     // alert was in Pending state - it is not active anymore
                     // add stale time series
-                    tss.extend( pending_alert_stale_time_series(&alert.labels, ts, true) );
+                    tss.extend(pending_alert_stale_time_series(&alert.labels, ts, true));
 
                     to_delete.push(h);
                     self.log_debug(
@@ -613,7 +612,7 @@ impl Rule for AlertingRule {
                     if ts.sub(alert.keep_firing_since) > keep_firing_for {
                         alert.state = AlertState::Inactive;
                         alert.resolved_at = ts;
-                        
+
                         // add stale time series
                         tss.extend(firing_alert_stale_time_series(&alert.labels, ts));
 
@@ -622,7 +621,7 @@ impl Rule for AlertingRule {
                             Some(alert),
                             "FIRING => INACTIVE: is absent in current evaluation round",
                         );
-                        
+
                         continue;
                     }
                     if self.debug {
@@ -640,13 +639,13 @@ impl Rule for AlertingRule {
             if alert.state == AlertState::Pending && ts.sub(alert.active_at) >= for_duration {
                 alert.state = AlertState::Firing;
                 alert.start = ts;
-                
+
                 // alertsFired.Inc()
                 if !alert.r#for.is_zero() {
                     // add stale time series
                     tss.extend(pending_alert_stale_time_series(&alert.labels, ts, false));
                 }
-                
+
                 if self.debug {
                     let msg = format!(
                         "PENDING => FIRING: {}ms since becoming active at {}",
@@ -671,7 +670,7 @@ impl Rule for AlertingRule {
 
         self.state.add(cur_state);
         tss.extend(self.to_time_series(ts));
-        
+
         Ok(tss)
     }
 
@@ -817,7 +816,6 @@ fn hash_map(labels: &HashMap<String, String>) -> u64 {
     hasher.finish()
 }
 
-
 pub(crate) fn validate_alert_expr(expr: &str) -> ValkeyResult<()> {
     let expr = expr.trim();
     if expr.is_empty() {
@@ -876,8 +874,7 @@ fn alert_for_to_time_series(alert: &Alert, timestamp: Timestamp) -> RawTimeSerie
     }
 }
 
-
-/// returns stale `ALERTS` and `ALERTS_FOR_STATE` time series for alerts which changed their state 
+/// returns stale `ALERTS` and `ALERTS_FOR_STATE` time series for alerts which changed their state
 /// from Pending to Inactive or Firing.
 fn pending_alert_stale_time_series(
     labels: &HashMap<String, String>,
@@ -897,7 +894,7 @@ fn pending_alert_stale_time_series(
         name: ALERT_STATE_LABEL.to_string(),
         value: AlertState::Pending.to_string(),
     });
-    result.push( new_time_series(&[timestamp], &[f64::NAN], alerts_labels) );
+    result.push(new_time_series(&[timestamp], &[f64::NAN], alerts_labels));
 
     if include_alert_for_state {
         let mut alerts_for_state_labels = base_labels;
@@ -905,15 +902,17 @@ fn pending_alert_stale_time_series(
             name: METRIC_NAME_LABEL.to_string(),
             value: ALERT_FOR_STATE_METRIC_NAME.to_string(),
         });
-        result.push(
-            new_time_series(&[timestamp], &[f64::NAN], alerts_for_state_labels)
-        );
+        result.push(new_time_series(
+            &[timestamp],
+            &[f64::NAN],
+            alerts_for_state_labels,
+        ));
     }
 
     result
 }
 
-/// returns stale `ALERTS` and `ALERTS_FOR_STATE` time series for alerts which changed their state from 
+/// returns stale `ALERTS` and `ALERTS_FOR_STATE` time series for alerts which changed their state from
 /// `Firing` to `Inactive`.
 fn firing_alert_stale_time_series(
     labels: &HashMap<String, String>,
@@ -949,9 +948,14 @@ fn new_time_series(timestamps: &[Timestamp], values: &[f64], labels: Vec<Label>)
     let mut labels = labels;
     labels.sort();
     let key = make_series_key(&labels);
-    
-    let samples = timestamps.iter().zip(values.iter()) 
-        .map(|(ts, v)| Sample { timestamp: *ts, value: *v })
+
+    let samples = timestamps
+        .iter()
+        .zip(values.iter())
+        .map(|(ts, v)| Sample {
+            timestamp: *ts,
+            value: *v,
+        })
         .collect();
 
     RawTimeSeries {

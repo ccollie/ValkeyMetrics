@@ -1,13 +1,17 @@
-use std::hash::{Hash, Hasher};
+use crate::common::binary_search::*;
 use crate::common::types::{Label, Sample, Timestamp};
+use crate::common::METRIC_NAME_LABEL;
+use crate::series::types::ValueFilter;
 use enquote::enquote;
 use metricsql_common::hash::FastHasher;
-use crate::series::types::ValueFilter;
-use crate::common::binary_search::*;
-use crate::common::METRIC_NAME_LABEL;
+use std::hash::{Hash, Hasher};
 
 #[inline]
-pub(crate) fn filter_samples_by_date_range(samples: &mut Vec<Sample>, start: Timestamp, end: Timestamp) {
+pub(crate) fn filter_samples_by_date_range(
+    samples: &mut Vec<Sample>,
+    start: Timestamp,
+    end: Timestamp,
+) {
     samples.retain(|s| s.timestamp >= start && s.timestamp <= end)
 }
 
@@ -35,19 +39,37 @@ pub(crate) fn filter_samples_by_value(samples: &mut Vec<Sample>, value_filter: &
 ///
 /// The returned indices can be used to slice the original `timestamps` array
 /// to get the subset of timestamps within the specified range.
-pub(crate) fn get_timestamp_index_bounds(timestamps: &[i64], start_ts: Timestamp, end_ts: Timestamp) -> Option<(usize, usize)> {
+pub(crate) fn get_timestamp_index_bounds(
+    timestamps: &[i64],
+    start_ts: Timestamp,
+    end_ts: Timestamp,
+) -> Option<(usize, usize)> {
     get_index_bounds(timestamps, &start_ts, &end_ts)
 }
 
-pub(crate) fn get_sample_index_bounds(samples: &[Sample], start_ts: Timestamp, end_ts: Timestamp) -> Option<(usize, usize)> {
-
-    let start_sample = Sample { timestamp: start_ts, value: 0.0 };
-    let end_sample = Sample { timestamp: end_ts, value: 0.0 };
+pub(crate) fn get_sample_index_bounds(
+    samples: &[Sample],
+    start_ts: Timestamp,
+    end_ts: Timestamp,
+) -> Option<(usize, usize)> {
+    let start_sample = Sample {
+        timestamp: start_ts,
+        value: 0.0,
+    };
+    let end_sample = Sample {
+        timestamp: end_ts,
+        value: 0.0,
+    };
 
     get_index_bounds(samples, &start_sample, &end_sample)
 }
 
-pub fn trim_to_range_inclusive(timestamps: &mut Vec<i64>, values: &mut Vec<f64>, start_ts: Timestamp, end_ts: Timestamp) {
+pub fn trim_to_range_inclusive(
+    timestamps: &mut Vec<i64>,
+    values: &mut Vec<f64>,
+    start_ts: Timestamp,
+    end_ts: Timestamp,
+) {
     if let Some((start_idx, end_idx)) = get_timestamp_index_bounds(timestamps, start_ts, end_ts) {
         if start_idx == end_idx {
             // todo: get_unchecked
@@ -96,8 +118,11 @@ pub fn format_prometheus_metric_name_into(full_name: &mut String, name: &str, la
 
 // Note - assumes that labels is sorted
 pub fn format_prometheus_metric_name(name: &str, labels: &[Label]) -> String {
-    let size_hint = name.len() + labels.iter()
-        .map(|l| l.name.len() + l.value.len() + 3).sum::<usize>();
+    let size_hint = name.len()
+        + labels
+            .iter()
+            .map(|l| l.name.len() + l.value.len() + 3)
+            .sum::<usize>();
     let mut full_name: String = String::with_capacity(size_hint);
     format_prometheus_metric_name_into(&mut full_name, name, labels);
     full_name
@@ -179,5 +204,4 @@ mod tests {
         assert_eq!(timestamps, vec![3]);
         assert_eq!(values, vec![3.0]);
     }
-
 }

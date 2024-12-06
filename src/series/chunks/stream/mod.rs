@@ -18,19 +18,18 @@ impl Bit {
     }
 }
 
-
 /// Error
 ///
 /// Enum used to represent potential errors when interacting with a stream.
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    EOF,
+    Eof,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::EOF => write!(f, "Encountered the end of the stream"),
+            Error::Eof => write!(f, "Encountered the end of the stream"),
         }
     }
 }
@@ -38,7 +37,7 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn description(&self) -> &str {
         match *self {
-            Error::EOF => "Encountered the end of the stream",
+            Error::Eof => "Encountered the end of the stream",
         }
     }
 }
@@ -81,4 +80,6 @@ pub mod buffered_write;
 pub use self::buffered_write::BufferedWriter;
 
 pub mod buffered_read;
+mod encoder;
+
 pub use self::buffered_read::BufferedReader;

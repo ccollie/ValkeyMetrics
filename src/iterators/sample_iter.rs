@@ -37,7 +37,6 @@ impl<'a> SampleIter<'a> {
     }
 }
 
-
 impl Iterator for SampleIter<'_> {
     type Item = Sample;
 

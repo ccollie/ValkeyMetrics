@@ -1,13 +1,12 @@
-use std::f64;
-use std::fmt::Display;
 use get_size::GetSize;
 use rand_distr::num_traits::Pow;
+use std::f64;
+use std::fmt::Display;
 
 pub const MAX_SIGNIFICANT_DIGITS: u8 = 16;
 pub const MAX_DECIMAL_DIGITS: u8 = 16;
 
-#[derive(Clone, Debug, PartialEq, Copy)]
-#[derive(GetSize)]
+#[derive(Clone, Debug, PartialEq, Copy, GetSize)]
 pub enum RoundingStrategy {
     SignificantDigits(i32),
     DecimalDigits(i32),
@@ -25,12 +24,13 @@ impl RoundingStrategy {
 impl Display for RoundingStrategy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RoundingStrategy::SignificantDigits(digits) => write!(f, "significant_digits({})", digits),
+            RoundingStrategy::SignificantDigits(digits) => {
+                write!(f, "significant_digits({})", digits)
+            }
             RoundingStrategy::DecimalDigits(digits) => write!(f, "decimal_digits({})", digits),
         }
     }
 }
-
 
 /// rounds f to the given number of decimal digits after the point.
 ///
@@ -43,7 +43,6 @@ pub fn round_to_decimal_digits(f: f64, digits: i32) -> f64 {
     let mult = (f * multiplier).round();
     mult / multiplier
 }
-
 
 /// Rounds a floating-point value to a specified number of significant figures.
 ///
@@ -71,8 +70,8 @@ pub fn round_to_sig_figs(value: f64, digits: i32) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::test_helpers::approximately_equal;
     use super::*;
+    use crate::tests::test_helpers::approximately_equal;
 
     #[test]
     fn test_round_to_decimal_digits_extremely_large_positive_input() {
@@ -109,8 +108,6 @@ mod tests {
         assert_eq!(result, expected);
     }
 
-
-
     #[test]
     fn test_round_to_decimal_digits_negative_digits() {
         let f = 1234.5678;
@@ -128,7 +125,6 @@ mod tests {
         let result = round_to_decimal_digits(f, digits);
         assert!(approximately_equal(result, expected));
     }
-
 
     #[test]
     fn test_round_to_sig_figs_negative_value() {
@@ -230,5 +226,4 @@ mod tests {
         assert_eq!(round_to_sig_figs(123456789.0, 2), 120000000.0);
         assert_eq!(round_to_sig_figs(0.00000000000000000001, 18), 0.0);
     }
-
 }

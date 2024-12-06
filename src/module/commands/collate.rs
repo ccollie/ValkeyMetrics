@@ -1,18 +1,18 @@
 use crate::series::index::series_keys_by_matchers;
 use crate::aggregators::{AggOp, Aggregator};
 use crate::common::types::{IntMap, Matchers, Sample, Timestamp};
+use crate::error_consts;
 use crate::module::arg_parse::*;
 use crate::module::commands::range_utils::get_series_labels;
 use crate::module::result::sample_to_value;
 use crate::module::{get_series_iterator, VKM_SERIES_TYPE};
+use crate::series::index::with_timeseries_index;
 use crate::series::{TimeSeries, TimeseriesId, TimestampRange};
 use ahash::HashMapExt;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
-use crate::error_consts;
-use crate::series::index::with_timeseries_index;
 
 const REDUCER_KEY: &str = "__reducer__";
 const SOURCE_KEY: &str = "__source__";
@@ -49,7 +49,7 @@ type PerTimestampData = BTreeMap<Timestamp, IntMap<TimeseriesId, f64>>;
 struct SeriesSample {
     id: TimeseriesId,
     timestamp: Timestamp,
-    value: f64
+    value: f64,
 }
 
 impl SeriesSample {
@@ -57,13 +57,12 @@ impl SeriesSample {
         SeriesSample {
             id,
             timestamp,
-            value
+            value,
         }
     }
 }
 
 fn handle_collate(ctx: &Context, options: CollateOptions) -> ValkeyResult {
-
     with_timeseries_index(ctx, move |index| {
         let keys = series_keys_by_matchers(ctx, index, &options.matchers)?;
         if keys.is_empty() {
@@ -72,9 +71,12 @@ fn handle_collate(ctx: &Context, options: CollateOptions) -> ValkeyResult {
 
         let mut metas: Vec<SeriesMeta> = Vec::with_capacity(keys.len());
         let mut all_samples: Vec<SeriesSample> = Vec::with_capacity(keys.len() * 10);
-        
+
         for key in keys {
-            if let Some(series) = ctx.open_key(&key).get_value::<TimeSeries>(&VKM_SERIES_TYPE)? {
+            if let Some(series) = ctx
+                .open_key(&key)
+                .get_value::<TimeSeries>(&VKM_SERIES_TYPE)?
+            {
                 let samples = get_series_iterator(series, options.date_range, &None, &None)
                     .map(|s| SeriesSample::new(series.id, s.timestamp, s.value))
                     .collect::<Vec<_>>();
@@ -112,7 +114,8 @@ fn handle_collate(ctx: &Context, options: CollateOptions) -> ValkeyResult {
 fn get_base_output(metas: Vec<SeriesMeta>, data: PerTimestampData, count: usize) -> ValkeyValue {
     let mut count = count;
 
-    let mut series_data_map: IntMap<TimeseriesId, Vec<ValkeyValue>> = IntMap::with_capacity(metas.len());
+    let mut series_data_map: IntMap<TimeseriesId, Vec<ValkeyValue>> =
+        IntMap::with_capacity(metas.len());
 
     for (ts, series_data) in data.into_iter() {
         for meta in metas.iter() {
@@ -139,7 +142,10 @@ fn get_base_output(metas: Vec<SeriesMeta>, data: PerTimestampData, count: usize)
             // values is samples ordered by timestamp
             result.insert(
                 ValkeyValueKey::from(meta.key),
-                ValkeyValue::Array(vec![ValkeyValue::from(meta.labels), ValkeyValue::from(values)])
+                ValkeyValue::Array(vec![
+                    ValkeyValue::from(meta.labels),
+                    ValkeyValue::from(values),
+                ]),
             );
         }
     }
@@ -147,14 +153,13 @@ fn get_base_output(metas: Vec<SeriesMeta>, data: PerTimestampData, count: usize)
     ValkeyValue::from(result)
 }
 
-fn get_aggregation_output(metas: Vec<SeriesMeta>,
-                          data: PerTimestampData,
-                          aggregator: &mut Aggregator,
-                          count: usize) -> ValkeyValue {
-
-    let capacity = metas.iter()
-        .map(|meta| meta.key.len())
-        .sum::<usize>() + metas.len() - 1;
+fn get_aggregation_output(
+    metas: Vec<SeriesMeta>,
+    data: PerTimestampData,
+    aggregator: &mut Aggregator,
+    count: usize,
+) -> ValkeyValue {
+    let capacity = metas.iter().map(|meta| meta.key.len()).sum::<usize>() + metas.len() - 1;
 
     let mut sources = String::with_capacity(capacity);
 
@@ -166,19 +171,22 @@ fn get_aggregation_output(metas: Vec<SeriesMeta>,
     }
 
     let labels: Vec<ValkeyValue> = vec![
-        ValkeyValue::Array(vec![ValkeyValue::from(REDUCER_KEY), ValkeyValue::from(aggregator.name())]),
-        ValkeyValue::Array(vec![ValkeyValue::from(SOURCE_KEY), ValkeyValue::from(sources)]),
+        ValkeyValue::Array(vec![
+            ValkeyValue::from(REDUCER_KEY),
+            ValkeyValue::from(aggregator.name()),
+        ]),
+        ValkeyValue::Array(vec![
+            ValkeyValue::from(SOURCE_KEY),
+            ValkeyValue::from(sources),
+        ]),
     ];
 
     let samples = calculate_aggregates(data, aggregator, count);
 
-    let values = samples.into_iter()
-        .map(sample_to_value)
-        .collect::<Vec<_>>();
+    let values = samples.into_iter().map(sample_to_value).collect::<Vec<_>>();
 
     ValkeyValue::Array(vec![ValkeyValue::from(labels), ValkeyValue::from(values)])
 }
-
 
 fn parse_collate_options(args: &mut CommandArgIterator) -> ValkeyResult<CollateOptions> {
     const COMMAND_TOKENS: &[&str] = &[
@@ -186,7 +194,7 @@ fn parse_collate_options(args: &mut CommandArgIterator) -> ValkeyResult<CollateO
         CMD_ARG_AGGREGATION,
         CMD_ARG_FILTER,
         CMD_ARG_WITH_LABELS,
-        CMD_ARG_SELECTED_LABELS
+        CMD_ARG_SELECTED_LABELS,
     ];
 
     let date_range = parse_timestamp_range(args)?;
@@ -211,7 +219,8 @@ fn parse_collate_options(args: &mut CommandArgIterator) -> ValkeyResult<CollateO
                 options.matchers = parse_series_selector_list(args, is_command_keyword)?;
             }
             CMD_ARG_AGGREGATION => {
-                let agg_str = args.next_str()
+                let agg_str = args
+                    .next_str()
                     .map_err(|_e| ValkeyError::Str("ERR: Error parsing AGGREGATION"))?;
                 let aggregator = Aggregator::try_from(agg_str)?;
                 options.aggregator = Some(aggregator);
@@ -236,7 +245,6 @@ fn parse_collate_options(args: &mut CommandArgIterator) -> ValkeyResult<CollateO
     Ok(options)
 }
 
-
 fn get_series_meta(key: ValkeyString, series: &TimeSeries, options: &CollateOptions) -> SeriesMeta {
     let is_aggregation = options.aggregator.is_some();
 
@@ -254,7 +262,6 @@ fn get_series_meta(key: ValkeyString, series: &TimeSeries, options: &CollateOpti
 }
 
 fn collate_data(samples: Vec<SeriesSample>) -> PerTimestampData {
-
     let mut result: PerTimestampData = BTreeMap::new();
 
     for tagged in samples.iter() {
@@ -266,7 +273,11 @@ fn collate_data(samples: Vec<SeriesSample>) -> PerTimestampData {
     result
 }
 
-fn calculate_aggregates(data: PerTimestampData, aggregator: &mut Aggregator, count: usize) -> Vec<Sample> {
+fn calculate_aggregates(
+    data: PerTimestampData,
+    aggregator: &mut Aggregator,
+    count: usize,
+) -> Vec<Sample> {
     let mut result: Vec<Sample> = Vec::with_capacity(data.len());
 
     for (timestamp, sample_data) in data.iter() {
@@ -275,7 +286,10 @@ fn calculate_aggregates(data: PerTimestampData, aggregator: &mut Aggregator, cou
         }
         let value = aggregator.finalize();
         aggregator.reset();
-        result.push(Sample { timestamp: *timestamp, value });
+        result.push(Sample {
+            timestamp: *timestamp,
+            value,
+        });
         if result.len() == count {
             break;
         }

@@ -1,12 +1,14 @@
-use metricsql_common::label::Label;
-use metricsql_runtime::types::Timestamp;
 use crate::arg_parse::*;
+use crate::error_consts;
 use crate::module::commands::create_series;
 use crate::module::{get_timeseries_mut, VKM_SERIES_TYPE};
 use crate::series::{SampleAddResult, TimeSeriesOptions};
+use metricsql_common::label::Label;
+use metricsql_runtime::types::Timestamp;
 use valkey_module::key::ValkeyKeyWritable;
-use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
-use crate::error_consts;
+use valkey_module::{
+    Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue,
+};
 
 ///
 /// VM.ADD key timestamp value
@@ -22,7 +24,7 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         return Err(ValkeyError::WrongArity);
     }
 
-    let timestamp_str =  args[2].try_as_str()?;
+    let timestamp_str = args[2].try_as_str()?;
     let timestamp = parse_timestamp(timestamp_str)?;
     let value = args[3].parse_float()?;
 
@@ -34,10 +36,8 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
                 replicate_and_notify(ctx, args, timestamp);
                 Ok(ValkeyValue::Integer(ts))
             }
-            _ => {
-                Ok(ValkeyValue::Null)
-            }
-        }
+            _ => Ok(ValkeyValue::Null),
+        };
     }
 
     let original_args = args.clone();
@@ -45,7 +45,7 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
     let mut options = TimeSeriesOptions::default();
     let mut labels_set = false;
-    
+
     while let Ok(arg) = args.next_str() {
         match arg {
             arg if arg.eq_ignore_ascii_case(CMD_ARG_RETENTION) => {
@@ -106,15 +106,13 @@ pub fn add(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
     match ts.add(timestamp, value, None) {
         SampleAddResult::Ok(ts) | SampleAddResult::Ignored(ts) => {
-            let redis_key = ValkeyKeyWritable::open(ctx.ctx, &key);
+            let redis_key = ValkeyKeyWritable::open(ctx.ctx, key);
             redis_key.set_value(&VKM_SERIES_TYPE, ts)?;
 
             replicate_and_notify(ctx, original_args, Some(timestamp));
             Ok(ValkeyValue::Integer(ts))
         }
-        _ => {
-            Ok(ValkeyValue::Null)
-        }
+        _ => Ok(ValkeyValue::Null),
     }
 }
 
@@ -144,7 +142,7 @@ const TOKENS: [&str; 9] = [
     CMD_ARG_LABELS,
     CMD_ARG_SIGNIFICANT_DIGITS,
     CMD_ARG_DECIMAL_DIGITS,
-    CMD_ARG_COMPRESSION
+    CMD_ARG_COMPRESSION,
 ];
 
 fn is_cmd_token(token: &str) -> bool {

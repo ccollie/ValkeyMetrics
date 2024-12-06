@@ -2,11 +2,15 @@ use crate::common::binary_search::{find_last_ge_index, ExponentialSearch};
 use crate::common::types::Timestamp;
 use crate::error::{TsdbError, TsdbResult};
 use crate::iterators::SampleIter;
-use crate::series::chunks::pco::pco_utils::{compress_timestamps, compress_values, decompress_timestamps, decompress_values};
+use crate::series::chunks::pco::pco_utils::{
+    compress_timestamps, compress_values, decompress_timestamps, decompress_values,
+};
 use crate::series::chunks::pco::PcoSampleIterator;
-use crate::series::chunks::Chunk;
 use crate::series::chunks::utils::get_timestamp_index_bounds;
-use crate::series::{DuplicatePolicy, Sample, SampleAddResult, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
+use crate::series::chunks::Chunk;
+use crate::series::{
+    DuplicatePolicy, Sample, SampleAddResult, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE,
+};
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64, PooledVecF64, PooledVecI64};
 use serde::{Deserialize, Serialize};
@@ -17,8 +21,7 @@ use std::mem::size_of;
 pub(in crate::series) const COMPRESSION_PARALLELIZATION_THRESHOLD: usize = 1024;
 
 /// `CompressedBlock` holds information about location and time range of a block of compressed data.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[derive(GetSize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, GetSize)]
 pub struct PcoChunk {
     pub min_time: Timestamp,
     pub max_time: Timestamp,
@@ -154,7 +157,11 @@ impl PcoChunk {
         Ok(Some((timestamps, values)))
     }
 
-    fn decompress_internal(&self, timestamps: &mut Vec<Timestamp>, values: &mut Vec<f64>) -> TsdbResult<()> {
+    fn decompress_internal(
+        &self,
+        timestamps: &mut Vec<Timestamp>,
+        values: &mut Vec<f64>,
+    ) -> TsdbResult<()> {
         timestamps.reserve(self.count);
         values.reserve(self.count);
         // todo: dynamically calculate cutoff or just use chili
@@ -174,8 +181,13 @@ impl PcoChunk {
     #[cfg(test)]
     fn decompress_samples(&self) -> TsdbResult<Vec<Sample>> {
         if let Some((timestamps, values)) = self.decompress()? {
-            let samples = timestamps.iter().zip(values.iter())
-                .map(|(ts, value)| Sample { timestamp: *ts, value: *value })
+            let samples = timestamps
+                .iter()
+                .zip(values.iter())
+                .map(|(ts, value)| Sample {
+                    timestamp: *ts,
+                    value: *value,
+                })
                 .collect();
             Ok(samples)
         } else {
@@ -211,9 +223,7 @@ impl PcoChunk {
     }
 
     pub fn data_size(&self) -> usize {
-        self.timestamps.get_heap_size() +
-            self.values.get_heap_size() +
-            2 * VEC_BASE_SIZE
+        self.timestamps.get_heap_size() + self.values.get_heap_size() + 2 * VEC_BASE_SIZE
     }
 
     pub fn bytes_per_sample(&self) -> usize {
@@ -250,27 +260,22 @@ impl PcoChunk {
             Err(_) => {
                 // todo: log error
                 SampleIter::Empty
-            },
+            }
         }
     }
 
     pub fn range_iter(&self, start_ts: Timestamp, end_ts: Timestamp) -> SampleIter {
-        let iter = PcoSampleIterator::new_range(
-            &self.timestamps,
-            &self.values,
-            start_ts,
-            end_ts,
-        );
+        let iter = PcoSampleIterator::new_range(&self.timestamps, &self.values, start_ts, end_ts);
         match iter {
             Ok(iter) => iter.into(),
             Err(_) => {
                 // todo: log error
                 SampleIter::Empty
-            },
+            }
         }
     }
 
-    pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>>  {
+    pub fn samples_by_timestamps(&self, timestamps: &[Timestamp]) -> TsdbResult<Vec<Sample>> {
         if self.len() == 0 || timestamps.is_empty() {
             return Ok(vec![]);
         }
@@ -305,7 +310,6 @@ impl PcoChunk {
         Ok(samples)
     }
 }
-
 
 impl Chunk for PcoChunk {
     fn first_timestamp(&self) -> Timestamp {
@@ -369,28 +373,28 @@ impl Chunk for PcoChunk {
     fn get_range(&self, start: Timestamp, end: Timestamp) -> TsdbResult<Vec<Sample>> {
         // todo: use iterator instead
         if let Some((timestamps, values)) = self.decompress()? {
-            if let Some((start_index, end_index)) = get_timestamp_index_bounds(&timestamps, start, end) {
+            if let Some((start_index, end_index)) =
+                get_timestamp_index_bounds(&timestamps, start, end)
+            {
                 let stamps = &timestamps[start_index..=end_index];
                 let values = &values[start_index..=end_index];
-                return Ok(stamps.iter()
+                return Ok(stamps
+                    .iter()
                     .zip(values.iter())
-                    .map(|(timestamp, value)| Sample { timestamp: *timestamp, value: *value })
-                    .collect())
+                    .map(|(timestamp, value)| Sample {
+                        timestamp: *timestamp,
+                        value: *value,
+                    })
+                    .collect());
             }
         }
         Ok(vec![])
     }
 
-    fn upsert_sample(
-        &mut self,
-        sample: Sample,
-        dp_policy: DuplicatePolicy,
-    ) -> TsdbResult<usize> {
-
+    fn upsert_sample(&mut self, sample: Sample, dp_policy: DuplicatePolicy) -> TsdbResult<usize> {
         // we don't do streaming compression, so we have to accumulate all the samples
         // in a new chunk and then swap it with the old one
         if let Some((mut timestamps, mut values)) = self.decompress()? {
-
             let ts = sample.timestamp;
             let (pos, duplicate_found) = get_timestamp_index(&timestamps, ts, 0);
 
@@ -412,12 +416,11 @@ impl Chunk for PcoChunk {
         }
     }
 
-     fn merge_samples(
+    fn merge_samples(
         &mut self,
         samples: &[Sample],
         dp_policy: Option<DuplicatePolicy>,
     ) -> TsdbResult<Vec<SampleAddResult>> {
-
         let first = samples[0];
         let dp_policy = dp_policy.unwrap_or(DuplicatePolicy::Block);
 
@@ -436,7 +439,7 @@ impl Chunk for PcoChunk {
             }
 
             self.compress(&timestamps, &values)?;
-            return Ok(result)
+            return Ok(result);
         }
 
         if let Some((mut timestamps, mut values)) = self.decompress()? {
@@ -494,7 +497,7 @@ impl Chunk for PcoChunk {
         // this compression method does not do streaming compression, so we have to accumulate all the samples
         // in a new chunk and then swap it with the old
         if let Some((timestamps, mut values)) = self.decompress()? {
-            let (left_timestamps, right_timestamps)  = timestamps.split_at(mid);
+            let (left_timestamps, right_timestamps) = timestamps.split_at(mid);
             let (left_values, right_values) = values.split_at_mut(mid);
 
             let (res_a, res_b) = rayon::join(
@@ -516,7 +519,8 @@ fn get_timestamp_index(timestamps: &[Timestamp], ts: Timestamp, start_ofs: usize
     // intended for "cold" storage we can have larger than normal numbers of samples.
     // if we pass a threshold, see if we should use an exponential search
     let idx = if should_use_exponential_search(stamps, ts) {
-        stamps.exponential_search_by(|s| s.cmp(&ts))
+        stamps
+            .exponential_search_by(|s| s.cmp(&ts))
             .unwrap_or_else(|x| x.saturating_sub(1))
     } else {
         // binary search
@@ -552,8 +556,13 @@ fn remove_values_in_range(
     start_ts: Timestamp,
     end_ts: Timestamp,
 ) {
-    debug_assert_eq!(timestamps.len(), values.len(), "Timestamps and scores vectors must be of the same length");
-    if let Some((start_index, end_index)) = get_timestamp_index_bounds(timestamps, start_ts, end_ts) {
+    debug_assert_eq!(
+        timestamps.len(),
+        values.len(),
+        "Timestamps and scores vectors must be of the same length"
+    );
+    if let Some((start_index, end_index)) = get_timestamp_index_bounds(timestamps, start_ts, end_ts)
+    {
         timestamps.drain(start_index..=end_index);
         values.drain(start_index..=end_index);
     }
@@ -580,9 +589,7 @@ mod tests {
             for sample in samples {
                 match chunk.add_sample(&sample) {
                     Ok(_) => {}
-                    Err(TsdbError::CapacityFull(_)) => {
-                        break
-                    }
+                    Err(TsdbError::CapacityFull(_)) => break,
                     Err(e) => panic!("unexpected error: {:?}", e),
                 }
             }
@@ -594,7 +601,11 @@ mod tests {
         assert_eq!(chunk1.max_time, chunk2.max_time);
         assert_eq!(chunk1.max_size, chunk2.max_size);
         assert_eq!(chunk1.last_value, chunk2.last_value);
-        assert_eq!(chunk1.count, chunk2.count, "mismatched counts {} vs {}", chunk1.count, chunk2.count);
+        assert_eq!(
+            chunk1.count, chunk2.count,
+            "mismatched counts {} vs {}",
+            chunk1.count, chunk2.count
+        );
         assert_eq!(chunk1.timestamps, chunk2.timestamps);
         assert_eq!(chunk1.values, chunk2.values);
     }
@@ -609,8 +620,8 @@ mod tests {
         assert_eq!(chunk.min_time, data[0].timestamp);
         assert_eq!(chunk.max_time, data[data.len() - 1].timestamp);
         assert_eq!(chunk.last_value, data[data.len() - 1].value);
-        assert!(chunk.timestamps.len() > 0);
-        assert!(chunk.values.len() > 0);
+        assert!(!chunk.timestamps.is_empty());
+        assert!(!chunk.values.is_empty());
     }
 
     #[test]
@@ -646,7 +657,9 @@ mod tests {
 
             let data_len = data.len();
             for sample in data.into_iter() {
-                chunk.upsert_sample(sample, DuplicatePolicy::KeepLast).unwrap();
+                chunk
+                    .upsert_sample(sample, DuplicatePolicy::KeepLast)
+                    .unwrap();
             }
             assert_eq!(chunk.len(), data_len);
         }
@@ -665,7 +678,9 @@ mod tests {
             value: 1.0,
         };
 
-        assert!(chunk.upsert_sample(sample, DuplicatePolicy::KeepLast).is_err());
+        assert!(chunk
+            .upsert_sample(sample, DuplicatePolicy::KeepLast)
+            .is_err());
 
         // should update value for duplicate timestamp
         sample.timestamp = timestamp;
@@ -798,42 +813,108 @@ mod tests {
     }
 
     #[test]
-fn test_range_iter_partial_overlap() {
-    let samples = vec![
-        Sample { timestamp: 100, value: 1.0 },
-        Sample { timestamp: 200, value: 2.0 },
-        Sample { timestamp: 300, value: 3.0 },
-        Sample { timestamp: 400, value: 4.0 },
-        Sample { timestamp: 500, value: 5.0 },
-    ];
-    let chunk = PcoChunk::with_values(1000, &samples).unwrap();
+    fn test_range_iter_partial_overlap() {
+        let samples = vec![
+            Sample {
+                timestamp: 100,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 200,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 300,
+                value: 3.0,
+            },
+            Sample {
+                timestamp: 400,
+                value: 4.0,
+            },
+            Sample {
+                timestamp: 500,
+                value: 5.0,
+            },
+        ];
+        let chunk = PcoChunk::with_values(1000, &samples).unwrap();
 
-    let result: Vec<Sample> = chunk.range_iter(150, 450).collect();
+        let result: Vec<Sample> = chunk.range_iter(150, 450).collect();
 
-    assert_eq!(result.len(), 3);
-    assert_eq!(result[0], Sample { timestamp: 200, value: 2.0 });
-    assert_eq!(result[1], Sample { timestamp: 300, value: 3.0 });
-    assert_eq!(result[2], Sample { timestamp: 400, value: 4.0 });
-}
+        assert_eq!(result.len(), 3);
+        assert_eq!(
+            result[0],
+            Sample {
+                timestamp: 200,
+                value: 2.0
+            }
+        );
+        assert_eq!(
+            result[1],
+            Sample {
+                timestamp: 300,
+                value: 3.0
+            }
+        );
+        assert_eq!(
+            result[2],
+            Sample {
+                timestamp: 400,
+                value: 4.0
+            }
+        );
+    }
 
     #[test]
     fn test_range_iter_exact_boundaries() {
         let mut chunk = PcoChunk::default();
         let samples = vec![
-            Sample { timestamp: 100, value: 1.0 },
-            Sample { timestamp: 200, value: 2.0 },
-            Sample { timestamp: 300, value: 3.0 },
-            Sample { timestamp: 400, value: 4.0 },
-            Sample { timestamp: 500, value: 5.0 },
+            Sample {
+                timestamp: 100,
+                value: 1.0,
+            },
+            Sample {
+                timestamp: 200,
+                value: 2.0,
+            },
+            Sample {
+                timestamp: 300,
+                value: 3.0,
+            },
+            Sample {
+                timestamp: 400,
+                value: 4.0,
+            },
+            Sample {
+                timestamp: 500,
+                value: 5.0,
+            },
         ];
         chunk.set_data(&samples).unwrap();
 
         let result: Vec<Sample> = chunk.range_iter(200, 400).collect();
 
         assert_eq!(result.len(), 3);
-        assert_eq!(result[0], Sample { timestamp: 200, value: 2.0 });
-        assert_eq!(result[1], Sample { timestamp: 300, value: 3.0 });
-        assert_eq!(result[2], Sample { timestamp: 400, value: 4.0 });
+        assert_eq!(
+            result[0],
+            Sample {
+                timestamp: 200,
+                value: 2.0
+            }
+        );
+        assert_eq!(
+            result[1],
+            Sample {
+                timestamp: 300,
+                value: 3.0
+            }
+        );
+        assert_eq!(
+            result[2],
+            Sample {
+                timestamp: 400,
+                value: 4.0
+            }
+        );
     }
 
     #[test]
@@ -841,7 +922,10 @@ fn test_range_iter_partial_overlap() {
         let mut chunk = PcoChunk::default();
         let num_samples = 1_000_000;
         let samples: Vec<Sample> = (0..num_samples)
-            .map(|i| Sample { timestamp: i as i64, value: i as f64 })
+            .map(|i| Sample {
+                timestamp: i as i64,
+                value: i as f64,
+            })
             .collect();
         chunk.set_data(&samples).unwrap();
 
@@ -850,7 +934,11 @@ fn test_range_iter_partial_overlap() {
         let duration = start_time.elapsed();
 
         assert_eq!(range_samples.len(), 500_001);
-        assert!(duration.as_millis() < 1000, "Range iteration took too long: {:?}", duration);
+        assert!(
+            duration.as_millis() < 1000,
+            "Range iteration took too long: {:?}",
+            duration
+        );
     }
 
     #[test]
@@ -861,6 +949,9 @@ fn test_range_iter_partial_overlap() {
 
         let samples: Vec<Sample> = chunk.range_iter(start_ts, end_ts).collect();
 
-        assert!(samples.is_empty(), "Range iterator should return no samples for an empty chunk");
+        assert!(
+            samples.is_empty(),
+            "Range iterator should return no samples for an empty chunk"
+        );
     }
 }

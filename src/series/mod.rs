@@ -3,20 +3,22 @@ use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use valkey_module::{Context, RedisModuleTimerID};
 
+pub mod chunks;
 mod constants;
-pub mod time_series;
 mod defrag;
 pub mod index;
-pub mod chunks;
-pub mod types;
 mod merge;
-mod timestamp_range;
 pub mod serialization;
+pub mod time_series;
+mod timestamp_range;
+pub mod types;
 mod utils;
 
 use crate::common::rounding::RoundingStrategy;
 use crate::common::types::Sample;
-use crate::config::{get_series_settings, DEFAULT_CHUNK_SIZE_BYTES, DEFAULT_SERIES_WORKER_INTERVAL};
+use crate::config::{
+    get_series_settings, DEFAULT_CHUNK_SIZE_BYTES, DEFAULT_SERIES_WORKER_INTERVAL,
+};
 use crate::series::index::optimize_all_timeseries_indexes;
 pub(super) use chunks::*;
 pub(crate) use constants::*;
@@ -59,9 +61,9 @@ impl Default for SeriesSettings {
     }
 }
 
-pub static SERIES_SETTINGS: LazyLock<SeriesSettings>  = LazyLock::new(get_series_settings);
-static SERIES_WORKER_TIMER_ID: LazyLock<Mutex<RedisModuleTimerID>> = LazyLock::new(|| Mutex::new(0));
-
+pub static SERIES_SETTINGS: LazyLock<SeriesSettings> = LazyLock::new(get_series_settings);
+static SERIES_WORKER_TIMER_ID: LazyLock<Mutex<RedisModuleTimerID>> =
+    LazyLock::new(|| Mutex::new(0));
 
 pub(crate) fn start_series_background_worker() {
     let mut timer_id = SERIES_WORKER_TIMER_ID.lock().unwrap();
@@ -77,7 +79,10 @@ pub(crate) fn stop_series_background_worker() {
     if *timer_id != 0 {
         let ctx = valkey_module::MODULE_CONTEXT.lock();
         if ctx.stop_timer::<usize>(*timer_id).is_err() {
-            let msg = format!("Failed to stop series timer {}. Timer may not exist", *timer_id);
+            let msg = format!(
+                "Failed to stop series timer {}. Timer may not exist",
+                *timer_id
+            );
             ctx.log_debug(&msg);
         }
         *timer_id = 0;
@@ -87,7 +92,5 @@ pub(crate) fn stop_series_background_worker() {
 fn series_worker_callback(ctx: &Context, _ignore: usize) {
     ctx.log_debug("[series worker callback]: optimizing series indexes");
     // use rayon threadpool to run off the main thread
-    rayon::spawn(|| {
-        optimize_all_timeseries_indexes()
-    });
+    rayon::spawn(optimize_all_timeseries_indexes);
 }

@@ -1,21 +1,24 @@
-use std::iter::Peekable;
 use crate::common::types::Sample;
 use crate::iterators::SampleIter;
 use crate::series::DuplicatePolicy;
+use std::iter::Peekable;
 
 pub struct SampleMergeIterator<'a> {
     left: Peekable<SampleIter<'a>>,
     right: Peekable<SampleIter<'a>>,
-    duplicate_policy: DuplicatePolicy
+    duplicate_policy: DuplicatePolicy,
 }
 
-impl<'a> SampleMergeIterator<'a>
-{
-    pub(crate) fn new(left: SampleIter<'a>, right: SampleIter<'a>, duplicate_policy: DuplicatePolicy) -> Self {
+impl<'a> SampleMergeIterator<'a> {
+    pub(crate) fn new(
+        left: SampleIter<'a>,
+        right: SampleIter<'a>,
+        duplicate_policy: DuplicatePolicy,
+    ) -> Self {
         SampleMergeIterator {
             left: left.peekable(),
             right: right.peekable(),
-            duplicate_policy
+            duplicate_policy,
         }
     }
 
@@ -26,9 +29,15 @@ impl<'a> SampleMergeIterator<'a>
             (Some(&left), Some(&right)) => {
                 if left.timestamp == right.timestamp {
                     let ts = left.timestamp;
-                    if let Ok(val) = self.duplicate_policy.duplicate_value(ts, right.value, left.value) {
+                    if let Ok(val) =
+                        self.duplicate_policy
+                            .duplicate_value(ts, right.value, left.value)
+                    {
                         self.left.next();
-                        Some(Sample { timestamp: ts, value: val })
+                        Some(Sample {
+                            timestamp: ts,
+                            value: val,
+                        })
                     } else {
                         // block duplicate
                         blocked = true;
@@ -49,8 +58,7 @@ impl<'a> SampleMergeIterator<'a>
     }
 }
 
-impl Iterator for SampleMergeIterator<'_>
-{
+impl Iterator for SampleMergeIterator<'_> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -62,7 +70,7 @@ impl Iterator for SampleMergeIterator<'_>
                 Some(sample)
             } else {
                 None
-            }
+            };
         }
     }
 }

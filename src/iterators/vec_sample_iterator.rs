@@ -1,5 +1,5 @@
-use std::vec::IntoIter;
 use crate::common::types::Sample;
+use std::vec::IntoIter;
 
 pub struct VecSampleIterator {
     inner: IntoIter<Sample>,
@@ -7,9 +7,9 @@ pub struct VecSampleIterator {
 
 impl VecSampleIterator {
     pub fn new(samples: Vec<Sample>) -> Self {
-        let inner = samples.into_iter();  // slice iterator
+        let inner = samples.into_iter(); // slice iterator
         Self {
-            inner,  // slice iterator
+            inner, // slice iterator
         }
     }
 }

@@ -1,8 +1,5 @@
 use super::utils::{
-    btree_map_to_template_value,
-    get_hash_array_value,
-    get_hash_float_value,
-    get_hash_string_value
+    btree_map_to_template_value, get_hash_array_value, get_hash_float_value, get_hash_string_value,
 };
 use crate::common::types::Label;
 use crate::common::METRIC_NAME_LABEL;
@@ -30,12 +27,14 @@ impl Metric {
         Metric {
             labels,
             timestamp,
-            value
+            value,
         }
     }
 
     fn get_label(&self, key: &str) -> &str {
-        self.labels.iter().find(|x| x.name == key)
+        self.labels
+            .iter()
+            .find(|x| x.name == key)
             .map_or("", |l| l.value.as_str())
     }
 }
@@ -55,7 +54,10 @@ fn get_label_from_value(value: &Value) -> Option<Label> {
     };
     if let Some(Value::String(name)) = map.get("name") {
         if let Some(Value::String(value)) = map.get("value") {
-            return Some(Label { name: name.clone(), value: value.clone() });
+            return Some(Label {
+                name: name.clone(),
+                value: value.clone(),
+            });
         }
     }
     None
@@ -84,12 +86,18 @@ impl TryFrom<&Value> for Metric {
         match value {
             Value::Map(_) | Value::Object(_) => {
                 let label_values = get_hash_array_value(value, "labels", true)?.unwrap();
-                let labels: Vec<Label> = label_values.iter().filter_map(get_label_from_value).collect();
+                let labels: Vec<Label> = label_values
+                    .iter()
+                    .filter_map(get_label_from_value)
+                    .collect();
                 let timestamp = get_hash_float_value(value, "timestamp", true)?.unwrap();
                 let value = get_hash_float_value(value, "value", true)?.unwrap();
                 Ok(Metric::new(labels, timestamp as i64, value))
             }
-            _ => Err(FuncError::Generic(format!("expected object for metric, got {}", value)))
+            _ => Err(FuncError::Generic(format!(
+                "expected object for metric, got {}",
+                value
+            ))),
         }
     }
 }
@@ -101,7 +109,6 @@ impl TryFrom<Value> for Metric {
         Metric::try_from(&value)
     }
 }
-
 
 pub type KV = BTreeMap<String, String>;
 
@@ -123,7 +130,10 @@ impl From<&Alert> for Value {
         let mut m: HashMap<String, Value> = HashMap::new();
         m.insert("status".to_owned(), Value::from(&s.status));
         m.insert("labels".to_owned(), btree_map_to_template_value(&s.labels));
-        m.insert("annotations".to_owned(), btree_map_to_template_value(&s.annotations));
+        m.insert(
+            "annotations".to_owned(),
+            btree_map_to_template_value(&s.annotations),
+        );
         m.insert("starts_at".to_owned(), DateTimeModel(s.starts_at).into());
         m.insert("ends_at".to_owned(), DateTimeModel(s.starts_at).into());
         m.insert("generator_url".to_owned(), Value::from(&s.generator_url));
@@ -175,11 +185,13 @@ impl DurationModel {
         result.insert("minutes".to_owned(), Value::from(minutes));
         result.insert("seconds".to_owned(), Value::from(d.as_secs_f64()));
         result.insert("milliseconds".to_owned(), Value::from(milliseconds));
-        result.insert("nanoseconds".to_owned(), Value::from(d.subsec_nanos() as f64));
+        result.insert(
+            "nanoseconds".to_owned(),
+            Value::from(d.subsec_nanos() as f64),
+        );
         Value::Object(result)
     }
 }
-
 
 impl From<&DurationModel> for Value {
     fn from(d: &DurationModel) -> Self {
@@ -217,7 +229,10 @@ pub fn instant_result_to_value(query_result: &InstantQueryResult) -> Value {
 
     result.insert("label".to_string(), labels);
     result.insert("value".to_string(), Value::from(query_result.sample.value));
-    result.insert("timestamp".to_string(), Value::from(query_result.sample.timestamp));
+    result.insert(
+        "timestamp".to_string(),
+        Value::from(query_result.sample.timestamp),
+    );
 
     Value::Object(result)
 }
@@ -225,7 +240,10 @@ pub fn instant_result_to_value(query_result: &InstantQueryResult) -> Value {
 pub fn metric_name_to_value(metric_name: &MetricName) -> Value {
     let mut result = HashMap::new();
     if !metric_name.measurement.is_empty() {
-        result.insert(METRIC_NAME_LABEL.to_string(), Value::from(&metric_name.measurement));
+        result.insert(
+            METRIC_NAME_LABEL.to_string(),
+            Value::from(&metric_name.measurement),
+        );
     }
     for Label { name, value } in metric_name.labels.iter() {
         result.insert(name.clone(), Value::String(value.clone()));
@@ -256,13 +274,15 @@ pub fn label_to_template_value(label: &Label) -> Value {
 
 fn template_value_to_label(value: &Value) -> Result<Label, FuncError> {
     match value {
-        Value::Map(_) |
-        Value::Object(_) => {
+        Value::Map(_) | Value::Object(_) => {
             let name = get_hash_string_value(value, "name", true)?.unwrap();
             let value = get_hash_string_value(value, "value", true)?.unwrap();
             Ok(Label::new(name.to_string(), value.to_string()))
         }
-        _ => Err(FuncError::Generic(format!("expected object for label, got {}", value)))
+        _ => Err(FuncError::Generic(format!(
+            "expected object for label, got {}",
+            value
+        ))),
     }
 }
 
@@ -279,13 +299,17 @@ pub fn template_value_to_metric(value: &Value) -> Result<Metric, FuncError> {
     match value {
         Value::Object(_map) => {
             let label_values = get_hash_array_value(value, "labels", true)?.unwrap();
-            let labels = label_values.iter()
+            let labels = label_values
+                .iter()
                 .map(template_value_to_label)
                 .collect::<Result<Vec<Label>, FuncError>>()?;
             let timestamp = get_hash_float_value(value, "timestamp", true)?.unwrap();
             let value = get_hash_float_value(value, "value", true)?.unwrap();
             Ok(Metric::new(labels, timestamp as i64, value))
         }
-        _ => Err(FuncError::Generic(format!("expected object for metric, got {}", value)))
+        _ => Err(FuncError::Generic(format!(
+            "expected object for metric, got {}",
+            value
+        ))),
     }
 }

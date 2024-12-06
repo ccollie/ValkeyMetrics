@@ -1,16 +1,19 @@
 use crate::common::types::{Sample, Timestamp};
+use crate::config::SPLIT_FACTOR;
 use crate::error::TsdbResult;
 use crate::iterators::SampleIter;
-use crate::series::types::ValueFilter;
 use crate::series::chunks::utils::{filter_samples_by_date_range, filter_samples_by_value};
-use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, SampleAddResult, UncompressedChunk};
+use crate::series::types::ValueFilter;
+use crate::series::{
+    Chunk, ChunkCompression, DuplicatePolicy, GorillaChunk, PcoChunk, SampleAddResult,
+    UncompressedChunk,
+};
 use core::mem::size_of;
 use get_size::GetSize;
 use crate::series::chunks::compressed_vec::CompressedVecChunk;
 use crate::config::SPLIT_FACTOR;
 
-#[derive(Debug, Clone, PartialEq)]
-#[derive(GetSize)]
+#[derive(Debug, Clone, PartialEq, GetSize)]
 pub enum TimeSeriesChunk {
     Uncompressed(UncompressedChunk),
     Gorilla(GorillaChunk),
@@ -20,8 +23,8 @@ pub enum TimeSeriesChunk {
 
 impl TimeSeriesChunk {
     pub fn new(compression: ChunkCompression, chunk_size: usize) -> Self {
-        use TimeSeriesChunk::*;
         use crate::series::{GorillaChunk, PcoChunk, UncompressedChunk};
+        use TimeSeriesChunk::*;
         match compression {
             ChunkCompression::Uncompressed => {
                 let chunk = UncompressedChunk::with_max_size(chunk_size);
@@ -114,15 +117,11 @@ impl TimeSeriesChunk {
         }
     }
 
-    pub fn range_iter(
-        &self,
-        start: Timestamp,
-        end: Timestamp,
-    ) -> SampleIter {
+    pub fn range_iter(&self, start: Timestamp, end: Timestamp) -> SampleIter {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.range_iter(start, end),
-            Gorilla( chunk) => chunk.range_iter(start, end),
+            Gorilla(chunk) => chunk.range_iter(start, end),
             Pco(chunk) => chunk.range_iter(start, end),
             CompressedVec(chunk) => chunk.range_iter(start, end),
         }
@@ -145,12 +144,16 @@ impl TimeSeriesChunk {
         start_timestamp: Timestamp,
         end_timestamp: Timestamp,
         timestamp_filter: &Option<Vec<Timestamp>>,
-        value_filter: &Option<ValueFilter>
+        value_filter: &Option<ValueFilter>,
     ) -> Vec<Sample> {
-
-        fn get_by_range(chunk: &TimeSeriesChunk, start_timestamp: Timestamp, end_timestamp: Timestamp) -> Vec<Sample> {
+        fn get_by_range(
+            chunk: &TimeSeriesChunk,
+            start_timestamp: Timestamp,
+            end_timestamp: Timestamp,
+        ) -> Vec<Sample> {
             // todo: raise error
-            chunk.get_range(start_timestamp, end_timestamp)
+            chunk
+                .get_range(start_timestamp, end_timestamp)
                 .unwrap_or_default()
                 .into_iter()
                 .collect()
@@ -158,7 +161,8 @@ impl TimeSeriesChunk {
 
         match (timestamp_filter, value_filter) {
             (Some(ts_filter), Some(value_filter)) => {
-                let mut samples = self.samples_by_timestamps(ts_filter)
+                let mut samples = self
+                    .samples_by_timestamps(ts_filter)
                     .unwrap_or_default()
                     .into_iter()
                     .collect();
@@ -173,7 +177,8 @@ impl TimeSeriesChunk {
                 samples
             }
             (Some(ts_filter), None) => {
-                let mut samples = self.samples_by_timestamps(ts_filter)
+                let mut samples = self
+                    .samples_by_timestamps(ts_filter)
                     .unwrap_or_default()
                     .into_iter()
                     .collect();
@@ -181,9 +186,7 @@ impl TimeSeriesChunk {
                 filter_samples_by_date_range(&mut samples, start_timestamp, end_timestamp);
                 samples
             }
-            (None, None) => {
-                get_by_range(self, start_timestamp, end_timestamp)
-            }
+            (None, None) => get_by_range(self, start_timestamp, end_timestamp),
         }
     }
 
@@ -203,9 +206,11 @@ impl TimeSeriesChunk {
     /// Samples with timestamps before `retention_threshold` will be ignored, whether
     /// they fall with the given range [start_ts..end_ts].
     /// Returns the number of samples merged.
-    pub fn merge_range(&mut self,
-                       sample_iter: impl Iterator<Item=Sample>,
-                       duplicate_policy: Option<DuplicatePolicy>) -> TsdbResult<usize> {
+    pub fn merge_range(
+        &mut self,
+        sample_iter: impl Iterator<Item = Sample>,
+        duplicate_policy: Option<DuplicatePolicy>,
+    ) -> TsdbResult<usize> {
         if self.is_full() {
             return Ok(0);
         }
@@ -216,15 +221,18 @@ impl TimeSeriesChunk {
     }
 
     pub fn memory_usage(&self) -> usize {
-        size_of::<Self>() +
-            self.get_heap_size()
+        size_of::<Self>() + self.get_heap_size()
     }
 
     pub fn should_split(&self) -> bool {
         self.utilization() > SPLIT_FACTOR
     }
 
-    pub(crate) fn upsert(&mut self, sample: Sample, dp_policy: DuplicatePolicy) -> TsdbResult<(usize, Option<TimeSeriesChunk>)> {
+    pub(crate) fn upsert(
+        &mut self,
+        sample: Sample,
+        dp_policy: DuplicatePolicy,
+    ) -> TsdbResult<(usize, Option<TimeSeriesChunk>)> {
         if self.should_split() {
             let mut new_chunk = self.split()?;
             let size = new_chunk.upsert_sample(sample, dp_policy)?;
@@ -234,7 +242,6 @@ impl TimeSeriesChunk {
             Ok((size, None))
         }
     }
-
 }
 
 impl Chunk for TimeSeriesChunk {
@@ -328,11 +335,7 @@ impl Chunk for TimeSeriesChunk {
         }
     }
 
-    fn upsert_sample(
-        &mut self,
-        sample:  Sample,
-        dp_policy: DuplicatePolicy,
-    ) -> TsdbResult<usize> {
+    fn upsert_sample(&mut self, sample: Sample, dp_policy: DuplicatePolicy) -> TsdbResult<usize> {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => chunk.upsert_sample(sample, dp_policy),
@@ -342,7 +345,7 @@ impl Chunk for TimeSeriesChunk {
         }
     }
 
-     fn merge_samples(
+    fn merge_samples(
         &mut self,
         samples: &[Sample],
         dp_policy: Option<DuplicatePolicy>,
@@ -379,5 +382,4 @@ impl Chunk for TimeSeriesChunk {
             CompressedVec(chunk) => Ok(CompressedVec(chunk.split()?)),
         }
     }
-    
 }

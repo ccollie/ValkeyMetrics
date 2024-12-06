@@ -1,8 +1,8 @@
 use crate::module::commands::parse_create_options;
 use crate::module::with_timeseries_mut;
+use crate::series::index::with_timeseries_index;
 use crate::series::{TimeSeries, TimeSeriesOptions};
 use valkey_module::{Context, NotifyEvent, ValkeyResult, ValkeyString, VALKEY_OK};
-use crate::series::index::with_timeseries_index;
 
 pub fn alter_series(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let (parsed_key, options) = parse_create_options(args)?;

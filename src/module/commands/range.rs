@@ -14,7 +14,10 @@ pub fn range(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
     with_timeseries(ctx, &key, |series| {
         let samples = get_range(series, &options, false);
-        let result = samples.into_iter().map(sample_to_value).collect::<Vec<ValkeyValue>>();
+        let result = samples
+            .into_iter()
+            .map(sample_to_value)
+            .collect::<Vec<ValkeyValue>>();
 
         Ok(ValkeyValue::from(result))
     })

@@ -1,4 +1,10 @@
+use crate::alerts::templates::{
+    clone_template, funcs_with_query, get_template, get_with_funcs, DurationModel,
+    TemplateQueryContext,
+};
+use crate::alerts::{AlertsError, AlertsResult, ErrorGroup};
 use crate::common::types::Timestamp;
+use get_size::GetSize;
 use gtmpl::{Context, Template};
 use gtmpl_derive::Gtmpl;
 use serde::{Deserialize, Serialize};
@@ -6,20 +12,9 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
-use get_size::GetSize;
-use crate::alerts::templates::{
-    clone_template,
-    funcs_with_query,
-    get_template,
-    get_with_funcs,
-    DurationModel,
-    TemplateQueryContext
-};
-use crate::alerts::{AlertsError, AlertsResult, ErrorGroup};
 
 /// AlertState is the state of an alert.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, Eq)]
-#[derive(GetSize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, Eq, GetSize)]
 pub enum AlertState {
     #[default]
     /// `Inactive` is the state of an alert that is neither firing nor pending.
@@ -61,8 +56,7 @@ impl FromStr for AlertState {
 
 /// the triggered alert
 // TODO: Looks like alert name isn't unique
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
-#[derive(GetSize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize, GetSize)]
 pub struct Alert {
     /// id is the unique identifier for the Alert
     pub id: u64,
@@ -121,7 +115,6 @@ const TPL_HEADERS: &str = r#"
 {{ $activeAt := .active_id }}
 {{ $for := .for }}"#;
 
-
 impl Alert {
     /// exec_template executes the Alert template for given map of annotations.
     /// Every alert could have a different provider, so function requires a queryFunction
@@ -158,7 +151,7 @@ impl Alert {
     //     labels.sort();
     //     labels
     // }
-    
+
     pub fn needs_sending(&self, ts: Timestamp, resend_delay: i64) -> bool {
         if self.state == AlertState::Pending {
             return false;
@@ -174,7 +167,7 @@ impl Alert {
         match self.state {
             AlertState::Inactive => self.resolved_at,
             AlertState::Pending => self.active_at,
-            AlertState::Firing => self.start
+            AlertState::Firing => self.start,
         }
     }
 }
@@ -230,7 +223,7 @@ fn template_annotations(
             Ok(text) => {
                 r.insert(key.to_string(), text.to_string());
             }
-            Err(err) => err_group.push(err)
+            Err(err) => err_group.push(err),
         }
     }
 
@@ -242,9 +235,8 @@ fn template_annotations(
 
 fn template_annotation(text: &str, data: &AlertTplData, tmpl: &Template) -> AlertsResult<String> {
     let mut tpl = clone_template(tmpl)?; // ??????
-    tpl.parse(text).map_err(|err| {
-        AlertsError::TemplateParseError(format!("{:?}", err))
-    })?;
+    tpl.parse(text)
+        .map_err(|err| AlertsError::TemplateParseError(format!("{:?}", err)))?;
 
     let context = Context::from(data.clone());
     tpl.render(&context).map_err(|err| {

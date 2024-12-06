@@ -1,7 +1,7 @@
 use std::boxed::Box;
 
-use super::Write;
 use super::Bit;
+use super::Write;
 
 /// BufferedWriter
 ///
@@ -110,9 +110,9 @@ impl Write for BufferedWriter {
 
 #[cfg(test)]
 mod tests {
+    use super::Bit;
     use super::BufferedWriter;
     use super::Write;
-    use super::Bit;
 
     #[test]
     fn write_bit() {

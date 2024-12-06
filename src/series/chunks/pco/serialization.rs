@@ -1,6 +1,6 @@
-use valkey_module::{raw, ValkeyResult};
 use crate::common::serialization::{rdb_load_usize, rdb_save_usize};
 use crate::series::PcoChunk;
+use valkey_module::{raw, ValkeyResult};
 
 pub fn rdb_save_pco_chunk(chunk: &PcoChunk, rdb: *mut raw::RedisModuleIO) {
     raw::save_signed(rdb, chunk.min_time);

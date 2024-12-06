@@ -13,7 +13,6 @@ pub fn write_uvarint<W: std::io::Write>(value: u64, writer: &mut W) -> std::io::
     Ok(())
 }
 
-
 /// Parses a Golang uvarint.
 pub fn read_uvarint(input: &[u8]) -> IResult<&[u8], u64> {
     let mut input_pointer = input;
@@ -47,8 +46,8 @@ pub fn read_uvarint(input: &[u8]) -> IResult<&[u8], u64> {
 
 #[cfg(test)]
 mod tests {
-    use rand::{Rng, SeedableRng};
     use super::*;
+    use rand::{Rng, SeedableRng};
 
     #[test]
     fn test_with_boring_values() {

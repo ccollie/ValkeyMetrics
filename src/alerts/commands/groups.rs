@@ -1,5 +1,5 @@
-use crate::alerts::meta::with_rule_groups;
 use crate::alerts::commands::api::group_to_api;
+use crate::alerts::meta::with_rule_groups;
 use crate::alerts::rules::{RuleType, RulesFilter};
 use crate::error_consts;
 use crate::module::arg_parse::parse_label_list;
@@ -87,8 +87,12 @@ pub fn parse_alert_rules_filter(args: Vec<ValkeyString>) -> ValkeyResult<RulesFi
             arg if arg.eq_ignore_ascii_case(CMD_ARG_RULE_TYPE) => {
                 let rule_type = args.next_str()?;
                 match rule_type {
-                    arg if arg.eq_ignore_ascii_case("alert") => filter.rule_type = Some(RuleType::Alerting),
-                    arg if arg.eq_ignore_ascii_case("record") => filter.rule_type = Some(RuleType::Recording),
+                    arg if arg.eq_ignore_ascii_case("alert") => {
+                        filter.rule_type = Some(RuleType::Alerting)
+                    }
+                    arg if arg.eq_ignore_ascii_case("record") => {
+                        filter.rule_type = Some(RuleType::Recording)
+                    }
                     _ => return Err(ValkeyError::Str("ERR invalid rule type")),
                 }
             }

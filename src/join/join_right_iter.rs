@@ -1,12 +1,12 @@
 use crate::common::types::Sample;
+use crate::join::JoinValue;
 use joinkit::{EitherOrBoth, Joinkit};
 use std::collections::VecDeque;
-use crate::join::JoinValue;
 // todo: this seems inefficient
 
 pub struct JoinRightIter<'a> {
     buf: VecDeque<JoinValue>,
-    inner: Box<dyn Iterator<Item=EitherOrBoth<&'a Sample, Vec<&'a Sample>>> + 'a>,
+    inner: Box<dyn Iterator<Item = EitherOrBoth<&'a Sample, Vec<&'a Sample>>> + 'a>,
 }
 
 impl<'a> JoinRightIter<'a> {
@@ -14,9 +14,7 @@ impl<'a> JoinRightIter<'a> {
     pub(crate) fn new(left: &'a [Sample], right: &'a [Sample]) -> Self {
         let left_iter = left.iter().map(|sample| (sample.timestamp, sample));
         let right_iter = right.iter().map(|sample| (sample.timestamp, sample));
-        let iter =  left_iter
-            .into_iter()
-            .hash_join_right_outer(right_iter);
+        let iter = left_iter.into_iter().hash_join_right_outer(right_iter);
 
         Self {
             buf: Default::default(),
@@ -28,22 +26,24 @@ impl<'a> JoinRightIter<'a> {
         self.buf.pop_front()
     }
 
-    fn process_item(&mut self, item: EitherOrBoth<&'a Sample, Vec<&'a Sample>>) -> Option<JoinValue> {
+    fn process_item(
+        &mut self,
+        item: EitherOrBoth<&'a Sample, Vec<&'a Sample>>,
+    ) -> Option<JoinValue> {
         match item {
             EitherOrBoth::Left(_) => {
                 // should not happen
                 None
-            },
+            }
             EitherOrBoth::Right(r) => {
                 let items = &r[0..];
                 if r.len() == 1 {
                     let sample = items[0];
-                    return Some(JoinValue::right(sample.timestamp, sample.value))
+                    return Some(JoinValue::right(sample.timestamp, sample.value));
                 }
                 for row in r.iter() {
-                    self.buf.push_back(
-                        JoinValue::right(row.timestamp, row.value)
-                    )
+                    self.buf
+                        .push_back(JoinValue::right(row.timestamp, row.value))
                 }
                 self.next_from_buf()
             }
@@ -66,9 +66,7 @@ impl Iterator for JoinRightIter<'_> {
         let item = self.inner.next();
         match item {
             None => self.next_from_buf(),
-            Some(value) => {
-                self.process_item(value)
-            }
+            Some(value) => self.process_item(value),
         }
     }
 }

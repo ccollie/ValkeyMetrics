@@ -1,9 +1,9 @@
 use crate::module::arg_parse::parse_duration;
+use crate::query::get_query_context;
 use metricsql_common::humanize::humanize_duration;
 use std::collections::HashMap;
 use std::time::Duration;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
-use crate::query::get_query_context;
 
 const CMD_ARG_TOP_K: &str = "TOP_K";
 const CMD_ARG_MAX_LIFETIME: &str = "MAX_LIFETIME";
@@ -41,24 +41,26 @@ pub fn top_queries(_ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     Ok(get_query_stats(top_k, max_lifetime))
 }
 
-fn get_query_stats(
-    top_n: usize,
-    max_lifetime: Duration,
-) -> ValkeyValue {
+fn get_query_stats(top_n: usize, max_lifetime: Duration) -> ValkeyValue {
     let ctx = get_query_context();
     let mut res: HashMap<String, ValkeyValue> = HashMap::new();
 
     let last_queries_count = ctx.query_stats.get_last_queries_count();
-    let duration: Duration = ctx.query_stats
-        .get_min_query_duration();
+    let duration: Duration = ctx.query_stats.get_min_query_duration();
 
     let min_duration = humanize_duration(&duration);
 
     res.insert("topK".into(), ValkeyValue::from(top_n));
-    res.insert("maxLifetime".into(), ValkeyValue::from(humanize_duration(&max_lifetime)));
-    res.insert("lastQueriesCount".into(), ValkeyValue::from(last_queries_count));
+    res.insert(
+        "maxLifetime".into(),
+        ValkeyValue::from(humanize_duration(&max_lifetime)),
+    );
+    res.insert(
+        "lastQueriesCount".into(),
+        ValkeyValue::from(last_queries_count),
+    );
     res.insert("minQueryDuration".into(), ValkeyValue::from(min_duration));
-    
+
     let mut items: Vec<ValkeyValue> = Vec::new();
     let top_by_count = ctx.query_stats.get_top_by_count(top_n, max_lifetime);
     for r in top_by_count.iter() {
@@ -69,7 +71,6 @@ fn get_query_stats(
         items.push(ValkeyValue::from(map));
     }
     res.insert("topByCount".into(), ValkeyValue::from(items));
-
 
     let mut items = Vec::new();
     let top_by_avg_duration = ctx.query_stats.get_top_by_avg_duration(top_n, max_lifetime);

@@ -1,11 +1,11 @@
-use std::ops::Range;
+use crate::tests::generators::create_rng;
+use crate::tests::generators::mackey_glass::mackey_glass;
 use rand::distributions::Uniform;
 use rand::prelude::StdRng;
 use rand::Rng;
-use rand_distr::StandardNormal;
 use rand_distr::Distribution;
-use crate::tests::generators::create_rng;
-use crate::tests::generators::mackey_glass::mackey_glass;
+use rand_distr::StandardNormal;
+use std::ops::Range;
 
 pub struct RandomGenerator {
     rng: StdRng,
@@ -29,7 +29,6 @@ impl Iterator for RandomGenerator {
         Some(self.rng.gen_range(self.range.start..self.range.end))
     }
 }
-
 
 fn get_value_in_range(rng: &mut StdRng, r: &Range<f64>) -> f64 {
     r.start + (r.end - r.start) * rng.gen::<f64>()
@@ -62,19 +61,15 @@ impl Iterator for StdNormalGenerator {
     }
 }
 
-
 pub struct UniformGenerator {
     rng: StdRng,
-    uniform: Uniform<f64>
+    uniform: Uniform<f64>,
 }
 impl UniformGenerator {
     pub fn new(seed: Option<u64>, range: &Range<f64>) -> Result<Self, String> {
         let rng = create_rng(seed)?;
         let uniform = Uniform::new(range.start, range.end);
-        Ok(Self {
-            rng,
-            uniform,
-        })
+        Ok(Self { rng, uniform })
     }
 }
 
@@ -85,7 +80,6 @@ impl Iterator for UniformGenerator {
         Some(self.uniform.sample(&mut self.rng))
     }
 }
-
 
 pub struct DerivativeGenerator {
     p: f64,
@@ -135,7 +129,7 @@ impl MackeyGlassGenerator {
             tau,
             seed,
             index: 0,
-            range: range.clone()
+            range: range.clone(),
         }
     }
 }
@@ -168,10 +162,15 @@ impl Iterator for MackeyGlassGenerator {
 mod tests {
     use std::ops::Range;
 
-    fn validate_range(iter: impl Iterator<Item=f64>, r: &Range<f64>) {
+    fn validate_range(iter: impl Iterator<Item = f64>, r: &Range<f64>) {
         let values = iter.take(1000).collect::<Vec<f64>>();
         for v in values {
-            assert!(v >= r.start && v < r.end, "value {} not in range {:?}", v, r);
+            assert!(
+                v >= r.start && v < r.end,
+                "value {} not in range {:?}",
+                v,
+                r
+            );
         }
     }
 

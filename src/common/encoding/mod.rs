@@ -1,7 +1,7 @@
-mod varint;
 mod uvarint;
+mod varint;
 
 pub type NomBitInput<'a> = (&'a [u8], usize);
 
-pub use varint::*;
 pub use uvarint::*;
+pub use varint::*;

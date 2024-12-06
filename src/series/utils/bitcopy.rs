@@ -7,12 +7,11 @@ pub struct BitCopyError;
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum BitValue {
     Zero,
-    One
+    One,
 }
 
-fn bitmask_lower(bits: usize) -> Result<u8, BitCopyError>
-{
-    let word_size_bits = size_of::<u8>() * 8;
+fn bitmask_lower(bits: usize) -> Result<u8, BitCopyError> {
+    let word_size_bits = (u8::BITS * 8) as usize;
 
     if bits > word_size_bits {
         return Err(BitCopyError);
@@ -25,34 +24,51 @@ fn bitmask_lower(bits: usize) -> Result<u8, BitCopyError>
     }
 }
 
-pub fn write_bit(dst_buf: &mut [u8], dst_off_bits: usize, bit: BitValue) -> Result<(), BitCopyError> {
+pub fn write_bit(
+    dst_buf: &mut [u8],
+    dst_off_bits: usize,
+    bit: BitValue,
+) -> Result<(), BitCopyError> {
     let bit_byte = match bit {
         BitValue::One => [0x01u8],
-        BitValue::Zero => [0x00u8]
+        BitValue::Zero => [0x00u8],
     };
 
-    copy(dst_buf, &bit_byte, 1, dst_off_bits, (size_of::<u8>() * 8) - 1)
+    copy(
+        dst_buf,
+        &bit_byte,
+        1,
+        dst_off_bits,
+        ((u8::BITS * 8) - 1) as usize,
+    )
 }
 
 pub fn read_bit(src_buf: &[u8], src_offbits: usize) -> Result<BitValue, BitCopyError> {
     let mut bit_byte = [0u8];
 
-    match copy(&mut bit_byte, src_buf, 1, (size_of::<u8>() * 8) - 1, src_offbits) {
+    match copy(
+        &mut bit_byte,
+        src_buf,
+        1,
+        ((u8::BITS * 8) - 1) as usize,
+        src_offbits,
+    ) {
         Err(e) => Err(e),
-        Ok(()) => {
-            match bit_byte[0] {
-                0x01 => Ok(BitValue::One),
-                _ => Ok(BitValue::Zero)
-            }
-        }
+        Ok(()) => match bit_byte[0] {
+            0x01 => Ok(BitValue::One),
+            _ => Ok(BitValue::Zero),
+        },
     }
 }
 
 // TODO: make generic, ie. would be more efficient with u64 word copies
-pub fn copy(dst_buf: &mut [u8], src_buf: &[u8], nbits: usize,
-            dst_off_bits: usize, src_off_bits: usize) -> Result<(), BitCopyError>
-{
-
+pub fn copy(
+    dst_buf: &mut [u8],
+    src_buf: &[u8],
+    nbits: usize,
+    dst_off_bits: usize,
+    src_off_bits: usize,
+) -> Result<(), BitCopyError> {
     let mut dst_offbits = dst_off_bits;
     let mut src_offbits = src_off_bits;
     let mut nbits = nbits;
@@ -79,7 +95,7 @@ pub fn copy(dst_buf: &mut [u8], src_buf: &[u8], nbits: usize,
         let src_idx = src_offbits / copy_bit_size;
 
         if src_idx >= src_buf.len() {
-            return Err(BitCopyError{});
+            return Err(BitCopyError {});
         }
 
         // We may mask more bits than we need
@@ -99,26 +115,26 @@ pub fn copy(dst_buf: &mut [u8], src_buf: &[u8], nbits: usize,
         let dst_idx = dst_offbits / copy_bit_size;
 
         if dst_idx >= dst_buf.len() {
-            return Err(BitCopyError{});
+            return Err(BitCopyError {});
         }
 
         let byte_mask = bitmask_lower(dst_copy_bits)?;
 
         if dst_copy_bits <= dst_bits {
             if dst_idx >= dst_buf.len() {
-                return Err(BitCopyError{});
+                return Err(BitCopyError {});
             }
 
-            dst_buf[dst_idx] = (dst_buf[dst_idx] & !bitmask_lower(dst_bits)?) |
-                ((byte & byte_mask) << (dst_bits - dst_copy_bits));
+            dst_buf[dst_idx] = (dst_buf[dst_idx] & !bitmask_lower(dst_bits)?)
+                | ((byte & byte_mask) << (dst_bits - dst_copy_bits));
         } else {
             // We'll copy two words here
             if (dst_idx + 1) >= dst_buf.len() {
-                return Err(BitCopyError{});
+                return Err(BitCopyError {});
             }
 
-            dst_buf[dst_idx] = (dst_buf[dst_idx] & !bitmask_lower(dst_bits)?) |
-                ((byte & byte_mask) >> (dst_copy_bits - dst_bits));
+            dst_buf[dst_idx] = (dst_buf[dst_idx] & !bitmask_lower(dst_bits)?)
+                | ((byte & byte_mask) >> (dst_copy_bits - dst_bits));
 
             // Move the remaining bits into the top of the next word
             dst_copy_bits -= dst_bits;
@@ -148,17 +164,26 @@ mod tests {
 
         in_byte[0] = 18;
 
-        for i in 0..offset_bits {
-            assert_eq!(write_bit(&mut buf, dst_offbits, BitValue::One).ok(), Some(()));
+        for _ in 0..offset_bits {
+            assert_eq!(
+                write_bit(&mut buf, dst_offbits, BitValue::One).ok(),
+                Some(())
+            );
             dst_offbits += 1;
         }
-        assert_eq!(copy(&mut buf, &in_byte, 6, dst_offbits, 8 - 6).ok(), Some(()));
+        assert_eq!(
+            copy(&mut buf, &in_byte, 6, dst_offbits, 8 - 6).ok(),
+            Some(())
+        );
 
-        for i in 0..offset_bits {
+        for _ in 0..offset_bits {
             assert_eq!(read_bit(&buf, src_offbits).ok(), Some(BitValue::One));
             src_offbits += 1;
         }
-        assert_eq!(copy(&mut out_byte, &buf, 6, 8 - 6, src_offbits).ok(), Some(()));
+        assert_eq!(
+            copy(&mut out_byte, &buf, 6, 8 - 6, src_offbits).ok(),
+            Some(())
+        );
 
         assert_eq!(out_byte[0], in_byte[0]);
     }
@@ -168,8 +193,7 @@ mod tests {
         const COUNT: usize = 10;
         let mut buf = [0u8; COUNT];
 
-        let mut dst_off = 0;
-        for i in 0..(COUNT * 8) {
+        for (dst_off, i) in (0..(COUNT * 8)).enumerate() {
             let mut b = [0u8];
 
             if (i % 2) != 0 {
@@ -178,12 +202,9 @@ mod tests {
 
             let r = copy(&mut buf, &b, 1, dst_off, 0);
             assert_eq!(r.ok(), Some(()));
-
-            dst_off += 1;
         }
 
-        let mut src_off = 0;
-        for i in 0..(COUNT * 8) {
+        for (src_off, i) in (0..(COUNT * 8)).enumerate() {
             let mut b = [0u8];
 
             let r = copy(&mut b, &buf, 1, 0, src_off);
@@ -194,27 +215,129 @@ mod tests {
             } else {
                 assert_eq!(b[0], 0u8);
             }
-
-            src_off += 1;
         }
     }
 
     #[test]
     fn test_bit_copy() {
-        verify_varint_copy(&[0, 1, 2048, 16384, 1 << 16, 1 << 24, 1 << 32, 1 << 48, 1 << 63], None);
-        verify_varint_copy(&[0, 1, 2048, 16384, 1 << 16, 1 << 24, 1 << 32, 1 << 48, 1 << 63], Some(1));
-        verify_varint_copy(&[0, 1, 2048, 16384, 1 << 16, 1 << 24, 1 << 32, 1 << 48, 1 << 63], Some(2));
-        verify_varint_copy(&[0, 1, 2048, 16384, 1 << 16, 1 << 24, 1 << 32, 1 << 48, 1 << 63], Some(3));
-        verify_varint_copy(&[0, 1, 2048, 16384, 1 << 16, 1 << 24, 1 << 32, 1 << 48, 1 << 63], Some(4));
-        verify_varint_copy(&[0, 1, 2048, 16384, 1 << 16, 1 << 24, 1 << 32, 1 << 48, 1 << 63], Some(5));
-        verify_varint_copy(&[0, 1, 2048, 16384, 1 << 16, 1 << 24, 1 << 32, 1 << 48, 1 << 63], Some(6));
-        verify_varint_copy(&[0, 1, 2048, 16384, 1 << 16, 1 << 24, 1 << 32, 1 << 48, 1 << 63], Some(7));
+        verify_varint_copy(
+            &[
+                0,
+                1,
+                2048,
+                16384,
+                1 << 16,
+                1 << 24,
+                1 << 32,
+                1 << 48,
+                1 << 63,
+            ],
+            None,
+        );
+        verify_varint_copy(
+            &[
+                0,
+                1,
+                2048,
+                16384,
+                1 << 16,
+                1 << 24,
+                1 << 32,
+                1 << 48,
+                1 << 63,
+            ],
+            Some(1),
+        );
+        verify_varint_copy(
+            &[
+                0,
+                1,
+                2048,
+                16384,
+                1 << 16,
+                1 << 24,
+                1 << 32,
+                1 << 48,
+                1 << 63,
+            ],
+            Some(2),
+        );
+        verify_varint_copy(
+            &[
+                0,
+                1,
+                2048,
+                16384,
+                1 << 16,
+                1 << 24,
+                1 << 32,
+                1 << 48,
+                1 << 63,
+            ],
+            Some(3),
+        );
+        verify_varint_copy(
+            &[
+                0,
+                1,
+                2048,
+                16384,
+                1 << 16,
+                1 << 24,
+                1 << 32,
+                1 << 48,
+                1 << 63,
+            ],
+            Some(4),
+        );
+        verify_varint_copy(
+            &[
+                0,
+                1,
+                2048,
+                16384,
+                1 << 16,
+                1 << 24,
+                1 << 32,
+                1 << 48,
+                1 << 63,
+            ],
+            Some(5),
+        );
+        verify_varint_copy(
+            &[
+                0,
+                1,
+                2048,
+                16384,
+                1 << 16,
+                1 << 24,
+                1 << 32,
+                1 << 48,
+                1 << 63,
+            ],
+            Some(6),
+        );
+        verify_varint_copy(
+            &[
+                0,
+                1,
+                2048,
+                16384,
+                1 << 16,
+                1 << 24,
+                1 << 32,
+                1 << 48,
+                1 << 63,
+            ],
+            Some(7),
+        );
     }
 
     fn verify_varint_copy(values: &[u64], weave_bits: Option<usize>) {
         let weave_size = match weave_bits {
             None => 0,
-            Some(n) => (values.len() * n) / 8 + 1
+            Some(n) => (values.len() * n) / 8 + 1,
         };
         let mut buf = vec![0; (values.len() * 10) + weave_size].into_boxed_slice();
         let mut int_buf: [u8; 10] = [0; 10];
@@ -225,30 +348,28 @@ mod tests {
             let sz = encode(*value, &mut int_buf).unwrap();
 
             encoded.push((*value, sz));
-            match copy(&mut buf, &int_buf, sz * 8, dst_offbits, 0) {
-                Err(e) => assert!(false),
-                Ok(()) => assert!(true)
+            if let Err(e) = copy(&mut buf, &int_buf, sz * 8, dst_offbits, 0) {
+                panic!("Error copying: {:?}", e)
             };
 
             dst_offbits += sz * 8;
 
-            match weave_bits {
-                Some(num) => {
-                    for _ in 0..num {
-                        assert_eq!(write_bit(&mut buf, dst_offbits, BitValue::One).ok(), Some(()));
-                        dst_offbits += 1;
-                    }
-                },
-                None => {}
+            if let Some(num) = weave_bits {
+                for _ in 0..num {
+                    assert_eq!(
+                        write_bit(&mut buf, dst_offbits, BitValue::One).ok(),
+                        Some(())
+                    );
+                    dst_offbits += 1;
+                }
             }
         }
 
         println!("decoding");
         let mut src_offbits = 0;
         for (value, sz) in encoded {
-
             match copy(&mut int_buf, &buf, sz * 8, 0, src_offbits) {
-                Err(e) => assert!(false),
+                Err(e) => panic!("Error decoding: {:?}", e),
                 Ok(()) => {
                     assert_eq!(decode(&int_buf).ok(), Some((value, sz)))
                 }
@@ -256,14 +377,11 @@ mod tests {
 
             src_offbits += sz * 8;
 
-            match weave_bits {
-                Some(num) => {
-                    for _ in 0..num {
-                        assert_eq!(read_bit(&buf, src_offbits).ok(), Some(BitValue::One));
-                        src_offbits += 1;
-                    }
-                },
-                None => {}
+            if let Some(num) = weave_bits {
+                for _ in 0..num {
+                    assert_eq!(read_bit(&buf, src_offbits).ok(), Some(BitValue::One));
+                    src_offbits += 1;
+                }
             }
         }
     }

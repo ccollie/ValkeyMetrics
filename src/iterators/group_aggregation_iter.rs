@@ -1,7 +1,7 @@
 use crate::aggregators::{AggOp, Aggregator};
 use crate::common::types::{Sample, Timestamp};
-use crate::iterators::MultiSeriesSampleIter;
 use crate::iterators::sample_iter::SampleIter;
+use crate::iterators::MultiSeriesSampleIter;
 
 pub struct GroupAggregationIter<'a> {
     last_sample: Sample,
@@ -15,8 +15,11 @@ impl<'a> GroupAggregationIter<'a> {
         Self {
             aggregator,
             bucket_count: 0,
-            last_sample: Sample { timestamp: i64::MIN, value: 0.0 },
-            inner_iter: MultiSeriesSampleIter::new(series)
+            last_sample: Sample {
+                timestamp: i64::MIN,
+                value: 0.0,
+            },
+            inner_iter: MultiSeriesSampleIter::new(series),
         }
     }
 

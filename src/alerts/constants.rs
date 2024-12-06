@@ -15,4 +15,4 @@ pub static ALERT_GROUP_NAME_LABEL: &str = "alertgroup";
 
 // todo: better name
 // todo: have global configurable key prefix
-pub const STREAM_NOTIFIER_KEY_PREFIX: &str = "x-alert-stream"; 
+pub const STREAM_NOTIFIER_KEY_PREFIX: &str = "x-alert-stream";

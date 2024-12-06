@@ -1,5 +1,5 @@
-use nom::IResult;
 use crate::common::{read_uvarint, write_uvarint};
+use nom::IResult;
 
 /// Parses a Golang varint.
 pub fn read_varint(input: &[u8]) -> IResult<&[u8], i64> {
@@ -13,7 +13,6 @@ pub fn read_varint(input: &[u8]) -> IResult<&[u8], i64> {
     }
 }
 
-
 /// Write an i64 as a Golang varint.
 pub fn write_varint<W: std::io::Write>(value: i64, writer: &mut W) -> std::io::Result<()> {
     let x = value;
@@ -26,8 +25,8 @@ pub fn write_varint<W: std::io::Write>(value: i64, writer: &mut W) -> std::io::R
 
 #[cfg(test)]
 mod tests {
-    use rand::{Rng, SeedableRng};
     use super::*;
+    use rand::{Rng, SeedableRng};
 
     #[test]
     fn test_with_boring_values() {

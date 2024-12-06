@@ -1,12 +1,14 @@
-use valkey_module::{Context, RedisModule_GetSelectedDb, RedisModule_Milliseconds, RedisModule_SelectDb, Status};
+use valkey_module::{
+    Context, RedisModule_GetSelectedDb, RedisModule_Milliseconds, RedisModule_SelectDb, Status,
+};
+pub mod async_runtime;
+pub mod binary_search;
+pub mod bitwriter;
+mod encoding;
+pub mod rounding;
+pub mod serialization;
 pub mod types;
 mod utils;
-pub mod rounding;
-mod encoding;
-pub mod bitwriter;
-pub mod binary_search;
-pub mod async_runtime;
-pub mod serialization;
 
 pub use utils::*;
 
@@ -20,11 +22,11 @@ pub fn get_current_db(ctx: &Context) -> i32 {
 }
 
 pub fn set_current_db(ctx: &Context, db: i32) -> Status {
-    unsafe { 
+    unsafe {
         match RedisModule_SelectDb.unwrap()(ctx.ctx, db) {
             0 => Status::Ok,
             _ => Status::Err,
-        } 
+        }
     }
 }
 

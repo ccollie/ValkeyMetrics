@@ -5,32 +5,27 @@ use std::time::Duration;
 
 use crate::common::types::Timestamp;
 use crate::query::{
-    create_query_context,
-    run_instant_query_internal,
-    run_range_query_internal,
-    InstantResult,
-    Querier,
-    QuerierBuilder,
-    QuerierParams,
-    RangeResult,
-    SeriesQuerier
+    create_query_context, run_instant_query_internal, run_range_query_internal, InstantResult,
+    Querier, QuerierBuilder, QuerierParams, RangeResult, SeriesQuerier,
 };
 
 use metricsql_runtime::prelude::Context as QueryContext;
 
-pub(crate) static ALERT_QUERY_CONTEXT: LazyLock<QueryContext> = LazyLock::new(create_alert_query_context);
+pub(crate) static ALERT_QUERY_CONTEXT: LazyLock<QueryContext> =
+    LazyLock::new(create_alert_query_context);
 
 fn create_alert_query_context() -> QueryContext {
-    let query_context = create_query_context();
-    // TODO
+    // TODO: get settings from config
+    // let query_context = create_query_context();
     // query_context.config.max_lookback = ALERT_SETTINGS.look_back;
-    query_context
+    // query_context
+    create_query_context()
 }
 
 /// AlertDatasource represents entity with ability to read and write metrics
 #[derive(Debug, Copy, Clone, Default, GetSize)]
 pub struct AlertDatasource {
-    querier: SeriesQuerier
+    querier: SeriesQuerier,
 }
 
 impl AlertDatasource {
@@ -59,11 +54,18 @@ impl Querier for AlertDatasource {
     /// `query_range` executes the given query on the given time range.
     /// For Prometheus type see https://prometheus.io/docs/prometheus/latest/querying/api/#range-queries
     /// Graphite type isn't supported.
-    fn query_range(&self, query: &str, from: Timestamp, to: Timestamp) -> AlertsResult<RangeResult> {
-        let params = self.querier.get_range_req_params(query.to_string(), from, to);
+    fn query_range(
+        &self,
+        query: &str,
+        from: Timestamp,
+        to: Timestamp,
+    ) -> AlertsResult<RangeResult> {
+        let params = self
+            .querier
+            .get_range_req_params(query.to_string(), from, to);
         let query_result = run_range_query_internal(&ALERT_QUERY_CONTEXT, &params)
             .map_err(|_e| AlertsError::QueryExecutionError(query.to_string()))?;
-        Ok(RangeResult{ data: query_result })
+        Ok(RangeResult { data: query_result })
     }
 }
 

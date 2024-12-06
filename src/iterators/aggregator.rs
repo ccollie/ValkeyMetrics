@@ -17,7 +17,11 @@ pub(crate) struct AggrIterator {
 impl AggrIterator {
     pub(crate) const DEFAULT_COUNT: usize = usize::MAX - 1;
 
-    pub(crate) fn new(options: &AggregationOptions, aligned_timestamp: Timestamp, count: Option<usize>) -> Self {
+    pub(crate) fn new(
+        options: &AggregationOptions,
+        aligned_timestamp: Timestamp,
+        count: Option<usize>,
+    ) -> Self {
         AggrIterator {
             aligned_timestamp,
             report_empty: options.empty,
@@ -30,11 +34,19 @@ impl AggrIterator {
         }
     }
 
-    fn add_empty_buckets(&self, samples: &mut Vec<Sample>, first_bucket_ts: Timestamp, end_bucket_ts: Timestamp) {
+    fn add_empty_buckets(
+        &self,
+        samples: &mut Vec<Sample>,
+        first_bucket_ts: Timestamp,
+        end_bucket_ts: Timestamp,
+    ) {
         let empty_bucket_count = self.calculate_empty_bucket_count(first_bucket_ts, end_bucket_ts);
         let value = self.aggregator.empty_value();
         for _ in 0..empty_bucket_count {
-            samples.push(Sample { timestamp: end_bucket_ts, value });
+            samples.push(Sample {
+                timestamp: end_bucket_ts,
+                value,
+            });
         }
     }
 
@@ -42,14 +54,19 @@ impl AggrIterator {
         (((end_ts - start_ts) / self.time_delta) + 1) as usize
     }
 
-    fn calculate_empty_bucket_count(&self, first_bucket_ts: Timestamp, end_bucket_ts: Timestamp) -> usize {
+    fn calculate_empty_bucket_count(
+        &self,
+        first_bucket_ts: Timestamp,
+        end_bucket_ts: Timestamp,
+    ) -> usize {
         let total_empty_buckets = self.buckets_in_range(first_bucket_ts, end_bucket_ts);
         let remaining_capacity = self.count - total_empty_buckets;
         total_empty_buckets.min(remaining_capacity)
     }
 
     fn calculate_bucket_start(&self) -> Timestamp {
-        self.bucket_ts.calculate(self.last_timestamp, self.time_delta)
+        self.bucket_ts
+            .calculate(self.last_timestamp, self.time_delta)
     }
 
     fn finalize_current_bucket(&mut self) -> Sample {
@@ -59,7 +76,7 @@ impl AggrIterator {
         Sample { timestamp, value }
     }
 
-    pub fn calculate(&mut self, iterator: impl Iterator<Item=Sample>) -> Vec<Sample> {
+    pub fn calculate(&mut self, iterator: impl Iterator<Item = Sample>) -> Vec<Sample> {
         let mut buckets = Vec::new();
         let mut iterator = iterator;
 
@@ -113,10 +130,12 @@ impl AggrIterator {
     }
 }
 
-pub fn aggregate(options: &AggregationOptions,
-                 aligned_timestamp: Timestamp,
-                 iter: impl Iterator<Item=Sample>,
-                 count: Option<usize>) -> Vec<Sample> {
+pub fn aggregate(
+    options: &AggregationOptions,
+    aligned_timestamp: Timestamp,
+    iter: impl Iterator<Item = Sample>,
+    count: Option<usize>,
+) -> Vec<Sample> {
     let mut aggr_iter = AggrIterator::new(options, aligned_timestamp, count);
     aggr_iter.calculate(iter)
 }

@@ -1,16 +1,16 @@
 use crate::common::types::{Sample, Timestamp};
 use crate::iterators::aggregator::aggregate;
+use crate::join::asof::AsOfJoinStrategy;
+use crate::join::{JoinIterator, JoinOptions, JoinType, JoinValue};
 use crate::module::arg_parse::*;
 use crate::module::result::sample_to_value;
 use crate::module::{invalid_series_key_error, VKM_SERIES_TYPE};
+use crate::series::get_series_range_filtered;
 use crate::series::time_series::TimeSeries;
 use joinkit::EitherOrBoth;
 use metricsql_parser::binaryop::BinopFunc;
 use std::time::Duration;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
-use crate::join::{JoinIterator, JoinOptions, JoinType, JoinValue};
-use crate::join::asof::AsOfJoinStrategy;
-use crate::series::get_series_range_filtered;
 
 const CMD_ARG_COUNT: &str = "COUNT";
 const CMD_ARG_LEFT: &str = "LEFT";
@@ -22,7 +22,6 @@ const CMD_ARG_PRIOR: &str = "PRIOR";
 const CMD_ARG_NEXT: &str = "NEXT";
 const CMD_ARG_EXCLUSIVE: &str = "EXCLUSIVE";
 const CMD_ARG_REDUCE: &str = "REDUCE";
-
 
 /// VM.JOIN key1 key2 fromTimestamp toTimestamp
 ///   [[INNER] | [FULL] | [LEFT [EXCLUSIVE]] | [RIGHT [EXCLUSIVE]] | [ASOF [PRIOR | NEXT] tolerance]]
@@ -60,15 +59,9 @@ pub fn join(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
         (Some(left_series), Some(right_series)) => {
             Ok(process_join(left_series, right_series, &options))
         }
-        (Some(_), None) => {
-            Err(invalid_series_key_error(&right_key))
-        }
-        (None, Some(_)) => {
-            Err(invalid_series_key_error(&left_key))
-        }
-        _ => {
-            Err(ValkeyError::Str("VM: Invalid JOIN key"))
-        }
+        (Some(_), None) => Err(invalid_series_key_error(&right_key)),
+        (None, Some(_)) => Err(invalid_series_key_error(&left_key)),
+        _ => Err(ValkeyError::Str("VM: Invalid JOIN key")),
     }
 }
 
@@ -131,7 +124,7 @@ fn parse_join_args(args: &mut CommandArgIterator, options: &mut JoinOptions) -> 
             CMD_ARG_INNER,
             CMD_ARG_FULL,
             CMD_ARG_ASOF,
-            CMD_ARG_REDUCE
+            CMD_ARG_REDUCE,
         ];
         VALID_ARGS.contains(&arg)
     }
@@ -174,9 +167,7 @@ fn parse_join_args(args: &mut CommandArgIterator, options: &mut JoinOptions) -> 
                 let arg = args.next_str()?;
                 options.reducer = Some(parse_operator(arg)?);
             }
-            CMD_ARG_AGGREGATION => {
-                options.aggregation = Some(parse_aggregation_options(args)?)
-            }
+            CMD_ARG_AGGREGATION => options.aggregation = Some(parse_aggregation_options(args)?),
             _ => return Err(ValkeyError::Str("ERR: invalid JOIN command argument")),
         }
     }
@@ -189,24 +180,25 @@ fn parse_join_args(args: &mut CommandArgIterator, options: &mut JoinOptions) -> 
     Ok(())
 }
 
-fn process_join(left_series: &TimeSeries, right_series: &TimeSeries, options: &JoinOptions) -> ValkeyValue {
+fn process_join(
+    left_series: &TimeSeries,
+    right_series: &TimeSeries,
+    options: &JoinOptions,
+) -> ValkeyValue {
     let (left_samples, right_samples) = chili::Scope::global().join(
         |_| fetch_samples(left_series, options),
-        |_| fetch_samples(right_series, options)
+        |_| fetch_samples(right_series, options),
     );
     join_internal(&left_samples, &right_samples, options)
 }
 
 fn join_internal(left: &[Sample], right: &[Sample], options: &JoinOptions) -> ValkeyValue {
-
     let join_iter = JoinIterator::new(left, right, options.join_type);
 
     if let Some(op) = options.reducer {
         let transform = op.get_handler();
 
-        let iter = join_iter.map(|x| {
-            transform_join_value_to_sample(&x, transform)
-        });
+        let iter = join_iter.map(|x| transform_join_value_to_sample(&x, transform));
 
         return if let Some(aggr_options) = &options.aggregation {
             // Aggregation is valid only for transforms (all other options return multiple values per row)
@@ -215,7 +207,8 @@ fn join_internal(left: &[Sample], right: &[Sample], options: &JoinOptions) -> Va
             let start_timestamp = l_min.min(r_min);
             let end_timestamp = l_max.max(r_max);
 
-            let aligned_timestamp = aggr_options.alignment
+            let aligned_timestamp = aggr_options
+                .alignment
                 .get_aligned_timestamp(start_timestamp, end_timestamp);
 
             let result = aggregate(aggr_options, aligned_timestamp, iter, options.count)
@@ -227,7 +220,7 @@ fn join_internal(left: &[Sample], right: &[Sample], options: &JoinOptions) -> Va
         } else {
             let result = iter.map(sample_to_value).collect::<Vec<_>>();
             ValkeyValue::Array(result)
-        }
+        };
     }
 
     let count = options.count.unwrap_or(usize::MAX);
@@ -257,7 +250,12 @@ fn join_value_to_valkey_value(row: JoinValue, is_transform: bool) -> ValkeyValue
             let r_value = ValkeyValue::from(right);
             let l_value = ValkeyValue::from(left);
             let res = if let Some(other_timestamp) = row.other_timestamp {
-                vec![timestamp, ValkeyValue::from(other_timestamp), l_value, r_value]
+                vec![
+                    timestamp,
+                    ValkeyValue::from(other_timestamp),
+                    l_value,
+                    r_value,
+                ]
             } else {
                 vec![timestamp, l_value, r_value]
             };
@@ -268,12 +266,14 @@ fn join_value_to_valkey_value(row: JoinValue, is_transform: bool) -> ValkeyValue
             if is_transform {
                 ValkeyValue::Array(vec![timestamp, value])
             } else {
-                ValkeyValue::Array(vec![timestamp, value, ValkeyValue::Null ])
+                ValkeyValue::Array(vec![timestamp, value, ValkeyValue::Null])
             }
         }
-        EitherOrBoth::Right(right) => {
-            ValkeyValue::Array(vec![timestamp, ValkeyValue::Null, ValkeyValue::Float(right)])
-        }
+        EitherOrBoth::Right(right) => ValkeyValue::Array(vec![
+            timestamp,
+            ValkeyValue::Null,
+            ValkeyValue::Float(right),
+        ]),
     }
 }
 
@@ -287,14 +287,18 @@ pub(super) fn transform_join_value_to_sample(item: &JoinValue, f: BinopFunc) -> 
 
 fn fetch_samples(ts: &TimeSeries, options: &JoinOptions) -> Vec<Sample> {
     let (start, end) = options.date_range.get_series_range(ts, true);
-    let mut samples = get_series_range_filtered(ts, start, end, &options.timestamp_filter, &options.value_filter);
+    let mut samples = get_series_range_filtered(
+        ts,
+        start,
+        end,
+        &options.timestamp_filter,
+        &options.value_filter,
+    );
     if let Some(count) = &options.count {
         samples.truncate(*count);
     }
     samples
 }
 
-
 #[cfg(test)]
-mod tests {
-}
+mod tests {}

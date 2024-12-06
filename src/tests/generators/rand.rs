@@ -1,12 +1,9 @@
 use crate::common::current_time_millis;
-use crate::common::rounding::{round_to_sig_figs};
+use crate::common::rounding::round_to_sig_figs;
 use crate::common::types::{Sample, Timestamp};
-use crate::tests::generators::generators::{
-    DerivativeGenerator,
-    MackeyGlassGenerator,
-    RandomGenerator,
-    StdNormalGenerator,
-    UniformGenerator
+use crate::tests::generators::generator::{
+    DerivativeGenerator, MackeyGlassGenerator, RandomGenerator, StdNormalGenerator,
+    UniformGenerator,
 };
 use std::ops::Range;
 use std::time::Duration;
@@ -47,10 +44,12 @@ impl GeneratorOptions {
         if end <= start {
             return Err("Bad time range".to_string());
         }
-        let mut res = GeneratorOptions::default();
-        res.start = start;
-        res.end = Some(end);
-        res.samples = samples;
+        let res = GeneratorOptions {
+            start,
+            end: Some(end),
+            samples,
+            ..Default::default()
+        };
         Ok(res)
     }
 
@@ -86,24 +85,22 @@ impl Default for GeneratorOptions {
     }
 }
 
-
 fn get_generator_impl(
     typ: RandAlgo,
     seed: Option<u64>,
     range: &Range<f64>,
-) -> Result<Box<dyn Iterator<Item=f64>>, String> {
+) -> Result<Box<dyn Iterator<Item = f64>>, String> {
     match typ {
         RandAlgo::Rand => Ok(Box::new(RandomGenerator::new(seed, range)?)),
         RandAlgo::StdNorm => Ok(Box::new(StdNormalGenerator::new(seed, range)?)),
         RandAlgo::Deriv => Ok(Box::new(DerivativeGenerator::new(seed, range)?)),
         RandAlgo::Uniform => Ok(Box::new(UniformGenerator::new(seed, range)?)),
-        RandAlgo::MackeyGlass => Ok(Box::new(MackeyGlassGenerator::new(17, seed, range)))
+        RandAlgo::MackeyGlass => Ok(Box::new(MackeyGlassGenerator::new(17, seed, range))),
     }
 }
 
 // Generates time series data from the given type.
 pub fn generate_series_data(options: &GeneratorOptions) -> Result<Vec<Sample>, String> {
-
     let interval = if let Some(interval) = options.interval {
         interval.as_millis() as i64
     } else {
@@ -119,7 +116,11 @@ pub fn generate_series_data(options: &GeneratorOptions) -> Result<Vec<Sample>, S
     let generator = get_generator_impl(options.typ, options.seed, &options.range)?;
 
     let mut values = generator.take(options.samples).collect::<Vec<f64>>();
-    let timestamps = generate_timestamps(options.samples, options.start, Duration::from_millis(interval as u64));
+    let timestamps = generate_timestamps(
+        options.samples,
+        options.start,
+        Duration::from_millis(interval as u64),
+    );
 
     if let Some(significant_digits) = options.significant_digits {
         for v in values.iter_mut() {
@@ -128,16 +129,23 @@ pub fn generate_series_data(options: &GeneratorOptions) -> Result<Vec<Sample>, S
         }
     }
 
-    let samples = timestamps.iter()
+    let samples = timestamps
+        .iter()
         .zip(values.iter_mut())
-        .map(|(timestamp, value)| {
-            Sample { timestamp: *timestamp, value: *value }
-        }).collect::<Vec<Sample>>();
+        .map(|(timestamp, value)| Sample {
+            timestamp: *timestamp,
+            value: *value,
+        })
+        .collect::<Vec<Sample>>();
 
     Ok(samples)
 }
 
-pub fn generate_timestamps_in_range(start: Timestamp, end: Timestamp, interval: Duration) -> Vec<Timestamp> {
+pub fn generate_timestamps_in_range(
+    start: Timestamp,
+    end: Timestamp,
+    interval: Duration,
+) -> Vec<Timestamp> {
     let interval_millis = interval.as_millis() as i64;
     let capacity = ((end - start) / interval_millis) as usize;
     let mut res = Vec::with_capacity(capacity);

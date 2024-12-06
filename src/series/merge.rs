@@ -10,7 +10,8 @@ pub fn merge_samples<'a, F, STATE>(
     state: &mut STATE,
     mut f: F,
 ) -> TsdbResult<()>
-where F: FnMut(&mut STATE, Sample, bool) -> TsdbResult<()>
+where
+    F: FnMut(&mut STATE, Sample, bool) -> TsdbResult<()>,
 {
     let dp_policy = dp_policy.unwrap_or(DuplicatePolicy::KeepLast);
 
@@ -20,7 +21,7 @@ where F: FnMut(&mut STATE, Sample, bool) -> TsdbResult<()>
         if let Some((sample, blocked)) = merge_iterator.next_internal() {
             f(state, sample, blocked)?;
         } else {
-            return Ok(())
+            return Ok(());
         }
     }
 }
@@ -51,10 +52,7 @@ pub(crate) fn merge_by_capacity(
         // do a partial merge
         let samples = src.get_range(first_ts, src.last_timestamp())?;
         let (left, right) = samples.split_at(remaining_capacity);
-        let res = dest.merge_samples(
-            left,
-            duplicate_policy,
-        )?;
+        let res = dest.merge_samples(left, duplicate_policy)?;
         src.set_data(right)?;
         let count = res.iter().filter(|s| s.is_ok()).count();
         return Ok(Some(count));
