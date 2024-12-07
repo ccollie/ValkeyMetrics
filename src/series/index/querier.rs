@@ -1,164 +1,115 @@
-use std::cmp::Ordering;
-use std::collections::HashMap;
+use crate::error::{TsdbError, TsdbResult};
+use crate::series::index::IdBitmap;
+use crate::series::TimeseriesId;
 use metricsql_common::hash::FastHashSet;
 use metricsql_parser::label::{LabelFilterOp, Matcher};
 use metricsql_runtime::RuntimeResult;
+use smallvec::SmallVec;
+use std::cmp::Ordering;
+use crate::error_consts;
 
-// IndexReader provides read access to index data.
+pub type SeriesRef = TimeseriesId;
+pub type Postings = IdBitmap;
+
+
+/// `IndexReader` provides read access to index data.
 pub trait IndexReader {
-    /// Symbols return an iterator over sorted string symbols that may occur in
-    /// series' labels and indices. It is not safe to use the returned strings
-    /// beyond the lifetime of the index reader.
-    fn symbols(&self) -> StringIter;
+    fn all_postings(&self) -> Postings;
 
-    /// sorted_label_values returns sorted possible label values.
-    fn sorted_label_values(&self, name: &str, matchers: &[Matcher]) -> RuntimeResult<Vec<String>>;
-
-    /// label_values returns possible label values which may not be sorted.
+    /// `label_values` returns possible label values which may not be sorted.
     fn label_values(&self, name: &str, matchers: &[Matcher]) -> RuntimeResult<Vec<String>>;
 
-    /// Postings returns the postings list iterator for the label pairs.
+    /// `postings` returns the postings list iterator for the label pairs.
     /// The Postings here contain the ids to the series inside the index.
     /// Found IDs are not strictly required to point to a valid Series, e.g.
     /// during background garbage collections.
     fn postings(&self, name: &str, values: &[String]) -> RuntimeResult<Postings>;
 
-    /// `postings_for_label_matching` returns a sorted iterator over postings having a label with the given name
-    /// and a value for which match returns true. If no postings are found having at least one matching label,
+    /// `postings_for_label_matching` returns postings having a label with the given name and a value
+    /// for which match returns true. If no postings are found having at least one matching label,
     /// an empty iterator is returned.
     fn postings_for_label_matching(&self, name: &str, match_fn: fn(value: &str) -> bool) -> Postings;
 
-    /// postings_for_all_label_values returns a sorted iterator over all postings having a label with the given name.
+    /// `postings_for_all_label_values` returns a sorted iterator over all postings having a label with the given name.
     /// If no postings are found with the label in question, an empty iterator is returned.
     fn postings_for_all_label_values(&self, name: &str) -> Postings;
 
-    /// `sorted_postings` returns a postings list that is reordered to be sorted
-    /// by the label set of the underlying series.
-    fn sorted_postings(&self, postings: Postings) -> Postings;
-
-    /// label_names returns all the unique label names present in the index in sorted order.
+    /// `label_names` returns all the unique label names present in the index in sorted order.
     fn label_names(&self, matchers: &[Matcher]) -> RuntimeResult<Vec<String>>;
 
-    /// label_value_for returns label value for the given label name in the series referred to by ID.
+    /// `label_value_for` returns label value for the given label name in the series referred to by ID.
     /// If the series couldn't be found or the series doesn't have the requested label a
     /// storage.ErrNotFound is returned as error.
     fn label_value_for(&self, id: SeriesRef, label: &str) -> RuntimeResult<String>;
 
-    /// label_names_for returns all the label names for the series referred to by the postings.
+    /// `label_names_for` returns all the label names for the series referred to by the postings.
     /// The names returned are sorted.
     fn label_names_for(&self, postings: Postings) -> RuntimeResult<Vec<String>>;
 }
 
-struct BlockBaseQuerier {
-    block_id: String,
-    index: IndexReader,
-    mint: i64,
-    maxt: i64,
-}
 
-impl BlockBaseQuerier {
-    fn new(b: &BlockReader, mint: i64, maxt: i64) -> Result<Self, Error> {
-        let indexr = b.index()?;
-        let chunkr = b.chunks()?;
-
-        Ok(Self {
-            block_id: b.meta().ulid.clone(),
-            mint,
-            maxt,
-            index: indexr,
-            chunks: chunkr,
-        })
-    }
-
-    fn label_values(&self, name: &str, matchers: &[Matcher]) -> Result<Vec<String>, Error> {
-        let res = self.index.sorted_label_values(name, matchers)?;
-        Ok(res)
-    }
-
-    fn label_names(&self, matchers: &[Matcher]) -> Result<Vec<String>, Error> {
-        let res = self.index.label_names(matchers)?;
-        Ok(res)
-    }
-}
-
-struct BlockQuerier {
-    block_base_querier: BlockBaseQuerier,
-}
-
-impl BlockQuerier {
-    fn select(&self, sort_series: bool, hints: &SelectHints, ms: &[Matcher]) -> SeriesSet {
-        select_series_set(sort_series, hints, ms, self.block_base_querier.mint, self.block_base_querier.maxt)
-    }
-}
-
-fn select_series_set(sort_series: bool, hints: &SelectHints, ms: &[Matcher], index: &impl IndexReader, mint: i64, maxt: i64) -> SeriesSet {
-    let disable_trimming = false;
-
-    let p = postings_for_matchers(ctx, index, ms)?;
-    if sort_series {
-        p = index.sorted_postings(p);
-    }
-
-    new_block_series_set(index, chunks, p, mint, maxt, disable_trimming)
-}
-
-struct BlockChunkQuerier {
-    block_base_querier: BlockBaseQuerier,
-}
-
-// PostingsForMatchers assembles a single postings iterator against the index reader
+// `postings_for_matchers` assembles a single postings iterator against the index reader
 // based on the given matchers. The resulting postings are not ordered by series.
-fn get_postings_for_matchers(ix: &impl IndexReader, ms: &[Matcher]) -> (index.Postings, error) {
+pub fn postings_for_matchers(ix: &impl IndexReader, ms: &[Matcher]) -> TsdbResult<Postings> {
     if ms.len() == 1 && ms[0].label == "" && ms[0].value == "" {
-        k, v := index.AllPostingsKey()
-        return ix.postings(ctx, k, v)
+        return Ok(ix.all_postings())
     }
 
-    var its, notIts []index.Postings
+    let mut sorted_matchers: SmallVec::<(&Matcher, bool, bool), 4> = SmallVec::new();
+    let mut not_its= Postings::new();
+
+    let mut has_subtracting_matchers = false;
+    let mut has_intersecting_matchers = false;
+
     // See which label must be non-empty.
     // Optimization for case like {l=~".", l!="1"}.
-    let label_must_be_set = HashSet<String>::with_capacity(ms.len());
+    let mut label_must_be_set: FastHashSet<String> = FastHashSet::with_capacity(ms.len());
     for m in ms {
-        if !m.matches("") {
-            label_must_be_set.add(m.label);
+        let matches_empty = m.matches("");
+        if !matches_empty {
+            label_must_be_set.insert(m.label.clone());
         }
+        let is_subtracting = is_subtracting_matcher(m, &label_must_be_set);
+
+        has_subtracting_matchers |= is_subtracting;
+        has_intersecting_matchers |= !is_subtracting;
+
+        sorted_matchers.push((&m, matches_empty, is_subtracting))
     }
 
-    let has_subtracting_matchers = ms.iter().any(|m| is_subtracting_matcher(m, &label_must_be_set));
-    let has_intersecting_matchers = ms.iter().any(|m| !is_subtracting_matcher(m, &label_must_be_set));
-
-    if has_subtracting_matchers && !has_intersecting_matchers {
-        // If there's nothing to subtract from, add in everything and remove the notIts later.
-        // We prefer to get AllPostings so that the base of subtraction (i.e. allPostings)
+    let mut its = if has_subtracting_matchers && !has_intersecting_matchers {
+        // If there's nothing to subtract from, add in everything and remove the not_its later.
+        // We prefer to get AllPostings so that the base of subtraction (i.e. all_postings)
         // doesn't include series that may be added to the index reader during this function call.
-        k, v = index.AllPostingsKey()
-        let allPostings = ix.postings(k, v)?;
-        its.push(allPostings)
-    }
+        ix.all_postings()
+    } else {
+        Postings::new()
+    };
 
     // Sort matchers to have the intersecting matchers first.
-    // This way the base for subtraction is smaller and
-    // there is no chance that the set we subtract from
-    // contains postings of series that didn't exist when
-    // we constructed the set we subtract by.
-    slices.SortStableFunc(ms, func(i, j *labels.Matcher) int {
-        if !isSubtractingMatcher(i) && isSubtractingMatcher(j) {
-            return -1
+    // This way the base for subtraction is smaller and there is no chance that the set we subtract
+    // from contains postings of series that didn't exist when we constructed the set we subtract by.
+    sorted_matchers.sort_by(|i, j|-> Ordering {
+        let is_i_subtracting = i.2;
+        let is_j_subtracting = j.2;
+        if !is_i_subtracting && is_j_subtracting {
+            return Ordering::Less;
         }
 
-        return +1
-    })
+        // i.cmp(&j)
+        return Ordering::Greater;
+    });
 
-    for m in ms {
+    for (m, matches_empty) in sorted_matchers {
         let value = &m.value;
         let name = &m.label;
         let typ = m.op;
 
         if name.is_empty() && value.is_empty() {
-            // If the matchers for a labelname selects an empty value, it selects all
+            // If the matchers for a label name selects an empty value, it selects all
             // the series which don't have the label name set too. See:
             //
-            return Err(errors.New("unexpected all postings"))
+            return Err(TsdbError::General(error_consts::MISSING_FILTER)) // todo: better error
         }
 
         if typ == LabelFilterOp::RegexEqual && value == ".*" {
@@ -167,136 +118,75 @@ fn get_postings_for_matchers(ix: &impl IndexReader, ms: &[Matcher]) -> (index.Po
         }
 
         if typ == LabelFilterOp::RegexNotEqual && value == ".*" {
-            return Ok(index.ErrEmptyPostings())
+            return Ok(Postings::default())
         }
 
         if typ == LabelFilterOp::RegexEqual && value == ".+" {
-            /// .+ regexp matches any non-empty string: get postings for all label values.
-            let it = ix.postings_for_all_label_values(ctx, m.label)
-            if index.IsEmptyPostingsType(it) {
-                return Ok(index.EmptyPostings())
+            // .+ regexp matches any non-empty string: get postings for all label values.
+            let it = ix.postings_for_all_label_values(&m.label);
+            if it.is_empty() {
+                return Ok(Postings::default())
             }
-            its.push(it)
+            its &= it;
         } else if typ == LabelFilterOp::RegexNotEqual && value == ".+" {
             // .+ regexp matches any non-empty string: get postings for all label values and remove them.
-            its = append(notIts, ix.postings_for_all_label_values(name))
-        } else if label_must_be_set.has(name) {
+            its = append(not_its, ix.postings_for_all_label_values(name))
+        } else if label_must_be_set.contains(name) {
             // If this matcher must be non-empty, we can be smarter.
-            let matchesEmpty = m.Matches("")
-            let isNot = m.op == labels.NotEqual || m.op == labels.MatchNotRegexp;
+            let is_not = typ == LabelFilterOp::NotEqual || m.op == LabelFilterOp::RegexNotEqual;
 
-            if isNot {
+            if is_not {
                 let inverse = m.inverse()?;
                 // If the label can't be empty and is a Not, then subtract it out at the end.
-                if matchesEmpty { // l!="foo"
+                if matches_empty { // l!="foo"
                     // If the label can't be empty and is a Not and the inner matcher
                     // doesn't match empty, then subtract it out at the end.
                     let it = postings_for_matcher(ix, inverse)?;
-                    not_its.push(it);
+                    not_its |= it;
                 } else {
                     // If the label can't be empty and is a Not, but the inner matcher can
                     // be empty we need to use inverse_postings_for_matcher.
                     let it = inverse_postings_for_matcher(ix, inverse)?;
-                    if index.is_empty_postings_type(it) {
-                        return Ok(index.EmptyPostings());
+                    if it.is_empty() {
+                        return Ok(Postings::new())
                     }
-                    its.push(it);
+                    its &= it;
                 }
             } else {
                 // l="a", l=~"a|b", l=~"a.b", etc.
-                // Non-Not matcher, use normal postingsForMatcher.
+                // Non-Not matcher, use normal `postings_for_matcher`.
                 let it = postings_for_matcher(ix, m)?;
-                if index.IsEmptyPostingsType(it) {
-                    return Err(index.EmptyPostings())
+                if it.is_empty() {
+                    return Ok(Postings::new())
                 }
-                its.push(it);
+                its &= it;
             }
 
         } else { // l!=""
-            // If the matchers for a labelname selects an empty value, it selects all
+            // If the matchers for a label name selects an empty value, it selects all
             // the series which don't have the label name set too. See:
             // https://github.com/prometheus/prometheus/issues/3575 and
             // https://github.com/prometheus/prometheus/pull/3578#issuecomment-351653555
-            let it = inverse_postings_for_matcher(ctx, ix, m)?;
-            not_its.push(it);
+            let it = inverse_postings_for_matcher(ix, m)?;
+            not_its |= it;
         }
     }
 
-    let mut it = index.Intersect(its...)
-
-    for n in notIts {
-        it = index.Without(it, n)
-    }
-
-    it
+    its -= &not_its;
+    Ok(its)
 }
 
 
-fn postings_for_matchers(ix: &impl IndexReader, ms: &[Matcher]) -> Result<Postings, Error> {
-    let mut its = Vec::new();
-    let mut not_its = Vec::new();
-    let mut label_must_be_set = FastHashSet::with_capacity(ms.len() * 2); // todo: be more precise
-
-    for m in ms {
-        if !m.matches("") {
-            label_must_be_set.insert(m.label.clone());
-        }
-    }
-
-    let has_subtracting_matchers = ms.iter().any(|m| is_subtracting_matcher(m, &label_must_be_set));
-    let has_intersecting_matchers = ms.iter().any(|m| !is_subtracting_matcher(m, &label_must_be_set));
-
-    if has_subtracting_matchers && !has_intersecting_matchers {
-        let all_postings = ix.postings( "", "")?;
-        its.push(all_postings);
-    }
-
-
-    // Sort matchers to have the intersecting matchers first.
-    // This way the base for subtraction is smaller and
-    // there is no chance that the set we subtract from
-    // contains postings of series that didn't exist when
-    // we constructed the set we subtract by.
-    ms.sort_by(|i, j|-> {
-        if !is_subtracting_matcher(i, &label_must_be_set) && is_subtracting_matcher(j, &label_must_be_set) {
-            return Ordering::Less;
-        }
-
-        // i.cmp(&j)
-        return Ordering::Greater;
-    })
-
-    for m in ms {
-
-        match m.label.as_str() {
-            "" if m.value == "" => return Err(Error::new("unexpected all postings")),
-            _ => {
-                let it = match m.label.as_str() {
-                    "" => postings_for_matcher(ctx, ix, m)?,
-                    _ => inverse_postings_for_matcher(ctx, ix, m)?,
-                };
-                not_its.push(it);
-            }
-        }
-    }
-
-    let it = intersect(&its);
-    Ok(it)
-}
-
-fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &HashSet<String>) -> bool {
+fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<String>) -> bool {
     if !label_must_be_set.has(&m.label) {
         return true;
     }
-    match m.op {
-        LabelFilterOp::NotEqual | LabelFilterOp::RegexNotEqual => m.is_match(""),
-        _ => false,
-    }
+    matches!(m.op, LabelFilterOp::NotEqual | LabelFilterOp::RegexNotEqual if m.is_match(""))
 }
 
-fn postings_for_matcher(ix: &impl IndexReader, m: &Matcher) -> Result<Postings, Error> {
+fn postings_for_matcher(ix: &impl IndexReader, m: &Matcher) -> Postings {
     if m.op == LabelFilterOp::Equal {
-        return ix.postings(&m.label, &[m.value]);
+        return ix.postings_for_label_value(&m.label, &m.value);
     }
     if m.op == LabelFilterOp::RegexEqual {
         let set_matches = m.set_matches();
@@ -305,11 +195,10 @@ fn postings_for_matcher(ix: &impl IndexReader, m: &Matcher) -> Result<Postings, 
         }
     }
 
-    let it = ix.postings_for_label_matching(&m.label, |s| m.matches(s));
-    Ok(it)
+    ix.postings_for_label_matching(&m.label, |s| m.matches(s))
 }
 
-fn inverse_postings_for_matcher(ix: &impl IndexReader, m: &Matcher) -> Result<Postings, Error> {
+fn inverse_postings_for_matcher(ix: &impl IndexReader, m: &Matcher) -> Postings {
     if m.op == LabelFilterOp::RegexNotEqual {
         let set_matches = m.set_matches();
         if !set_matches.is_empty() {
@@ -322,12 +211,10 @@ fn inverse_postings_for_matcher(ix: &impl IndexReader, m: &Matcher) -> Result<Po
     }
 
     if m.value.is_empty() && (m.op == LabelFilterOp::RegexEqual || m.op == LabelFilterOp::Equal) {
-        let it = ix.postings_for_all_label_values(&m.label);
-        return Ok(it);
+        return ix.postings_for_all_label_values(&m.label);
     }
 
-    let it = ix.postings_for_label_matching(&m.label, |s| !m.matches(s));
-    Ok(it)
+    ix.postings_for_label_matching(&m.label, |s| !m.matches(s))
 }
 
 fn label_values_with_matchers(r: &impl IndexReader, name: &str, matchers: &[Matcher]) -> Result<Vec<String>, Error> {
@@ -345,7 +232,10 @@ fn label_values_with_matchers(r: &impl IndexReader, name: &str, matchers: &[Matc
     }
 
     let p = postings_for_matchers(r, matchers)?;
-    let values_postings = filtered_values.iter().map(|value| r.postings(ctx, name, value)).collect::<Result<Vec<_>, _>>()?;
+    let values_postings = filtered_values.iter()
+        .map(|value| r.postings(name, value))
+        .collect::<Result<Vec<_>, _>>()?;
+
     let indexes = intersect(&values_postings);
 
     let mut values = Vec::new();
@@ -359,82 +249,4 @@ fn label_values_with_matchers(r: &impl IndexReader, name: &str, matchers: &[Matc
 fn label_names_with_matchers(r: &impl IndexReader, matchers: &[Matcher]) -> Result<Vec<String>, Error> {
     let p = postings_for_matchers(r, matchers)?;
     r.label_names_for(p)
-}
-
-struct SeriesData {
-    chks: Vec<ChunkMeta>,
-    intervals: Vec<Interval>,
-    labels: Labels,
-}
-
-impl SeriesData {
-    fn labels(&self) -> &Labels {
-        &self.labels
-    }
-}
-
-struct BlockBaseSeriesSet {
-    p: Postings,
-    index: IndexReader,
-    mint: i64,
-    maxt: i64,
-    curr: SeriesData,
-    err: Option<Error>,
-}
-
-impl BlockBaseSeriesSet {
-    fn next(&mut self) -> bool {
-        while self.p.next() {
-            if let Err(e) = self.index.series(self.p.at(), &mut self.builder, &mut self.buf_chks) {
-                if e.is_not_found() {
-                    continue;
-                }
-                self.err = Some(e);
-                return false;
-            }
-
-            if self.buf_chks.is_empty() {
-                continue;
-            }
-
-            let intervals = self.tombstones.get(self.p.at())?;
-
-            let mut trim_front = false;
-            let mut trim_back = false;
-
-            let mut chks = Vec::new();
-            for chk in &self.buf_chks {
-                if chk.max_time < self.mint || chk.min_time > self.maxt {
-                    continue;
-                }
-                if Interval { mint: chk.min_time, maxt: chk.max_time }.is_subrange(&intervals)
-                {
-                    continue;
-                }
-                chks.push(chk.clone());
-            }
-
-            if chks.is_empty() {
-                continue;
-            }
-
-            if trim_front {
-                intervals.push(Interval { mint: i64::MIN, maxt: self.mint - 1 });
-            }
-            if trim_back {
-                intervals.push(Interval { mint: self.maxt + 1, maxt: i64::MAX });
-            }
-
-            self.curr.labels = self.builder.labels();
-            self.curr.intervals = intervals;
-            return true;
-        }
-        false
-    }
-
-    fn err(&self) -> Option<Error> {
-        self.err.or_else(|| self.p.err())
-    }
-
-    fn warnings(&self) -> Vec<Annotation> {}
 }

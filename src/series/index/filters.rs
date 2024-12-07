@@ -1,11 +1,10 @@
-use ahash::AHashSet;
+use super::{ARTBitmap, IdBitmap};
+use crate::common::types::{LabelFilterOp, Matchers, StringMatchHandler, TagFilter};
 use crate::series::index::index_key::format_key_for_label_prefix;
 use crate::series::index::timeseries_index::SetOperation;
-use super::{ARTBitmap, IdBitmap};
 use blart::AsBytes;
 use metricsql_common::hash::FastHashSet;
 use metricsql_parser::label::Matcher;
-use crate::common::types::{LabelFilterOp, Matchers, StringMatchHandler, TagFilter};
 use metricsql_runtime::{create_label_filter_matchers, LabelFilterVec};
 
 

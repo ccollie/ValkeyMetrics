@@ -3,16 +3,16 @@ use crate::common::types::{IntMap, Label, LabelFilter, LabelFilterOp, Matchers, 
 use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
 use crate::module::{with_timeseries, VKM_SERIES_TYPE};
+use crate::series::chunks::utils::format_prometheus_metric_name;
 use crate::series::index::filters::{get_ids_by_matchers_optimized, process_equals_match, process_iterator};
 use crate::series::time_series::{TimeSeries, TimeseriesId};
-use crate::series::chunks::utils::format_prometheus_metric_name;
 use cfg_if::cfg_if;
 use rand::Rng;
 use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 use std::ops::ControlFlow::Continue;
-use std::sync::{RwLock, RwLockReadGuard};
 use std::sync::atomic::AtomicU64;
+use std::sync::{RwLock, RwLockReadGuard};
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::{logging, Context, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
@@ -210,7 +210,56 @@ impl IndexInner {
         // todo: rayon ??
     }
 
-    fn process_label_values<T, CONTEXT, F, PRED>(
+    pub fn postings_for_all_label_values(&self, label_name: &str) -> IdBitmap {
+        let prefix = get_key_for_label_prefix(label_name);
+        let mut result = IdBitmap::new();
+        for (_, map) in self.label_index.prefix(prefix.as_bytes()) {
+            result.or_inplace(map);
+        }
+        result
+    }
+
+    pub fn all_postings(&self) -> IdBitmap {
+        let mut result = IdBitmap::new();
+        // use chunks to minimize ffi calls
+        let mut id_chunk: [u64; 64] = [0; 64];
+        let mut len = 0;
+        for id in self.id_to_key.keys().copied() {
+            id_chunk[len] = id;
+            len += 1;
+            if len % 64 == 0 {
+                result.add_many(&id_chunk);
+                len = 0;
+            }
+        }
+        if len > 0 {
+            result.add_many(&id_chunk[0..len]);
+        }
+        result
+    }
+
+    /// `postings` returns the postings list iterator for the label pairs.
+    /// The Postings here contain the ids to the series inside the index.
+    /// Found IDs are not strictly required to point to a valid Series, e.g.
+    /// during background garbage collections.
+    pub fn postings(&self, name: &str, values: &[String]) -> IdBitmap {
+        let mut result = IdBitmap::new();
+        for value in values {
+            let key = IndexKey::for_label_value(name, value);
+            if let Some(bmp) = self.label_index.get(&key) {
+                result.or_inplace(bmp);
+            }
+        }
+        result
+    }
+
+    pub fn postings_for_label_value(&self, name: &str, value: &str) -> IdBitmap {
+        let key = IndexKey::for_label_value(name, value);
+        self.label_index.get(&key).cloned().unwrap_or_default()
+    }
+
+
+    pub fn process_label_values<T, CONTEXT, F, PRED>(
         &self,
         label: &str,
         ctx: &mut CONTEXT,
@@ -399,14 +448,11 @@ impl TimeSeriesIndex {
     }
 
     pub fn get_key_by_name_and_labels(&self, metric: &str, labels: &[Label]) -> ValkeyResult<Option<KeyType>> {
-        let possible_id = self.get_id_by_name_and_labels(metric, labels)?;
-        match possible_id {
-            Some(id) => {
-                let inner = self.inner.read()?;
-                Ok(inner.id_to_key.get(&id).cloned())
-            }
-            None => Ok(None)
+        if let Some(id)  = self.get_id_by_name_and_labels(metric, labels)? {
+            let inner = self.inner.read()?;
+            return Ok(inner.id_to_key.get(&id).cloned())
         }
+        Ok(None)
     }
 
     pub(crate) fn get_ids_by_metric_name(&self, metric: &str) -> IdBitmap {
@@ -725,6 +771,14 @@ fn generate_unique_id(ts: &TimeSeries, id_to_key: &IntMap<TimeseriesId, KeyType>
         return Ok(id)
     }
 }
+
+fn chunked<I>(iter: impl IntoIterator<Item = I>, chunk_size: usize) -> impl Iterator<Item = Vec<I>> {
+    let mut iter = iter.into_iter();
+    std::iter::from_fn(move || {
+        Some(iter.by_ref().take(chunk_size).collect()).filter(|chunk| !chunk.is_empty())
+    })
+}
+
 
 #[cfg(test)]
 mod tests {
