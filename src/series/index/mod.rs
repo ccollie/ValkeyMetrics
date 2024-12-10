@@ -6,6 +6,7 @@ mod filters;
 mod index_key;
 pub mod serialization;
 mod querier;
+mod querier_tests;
 
 use crate::common::get_current_db;
 use crate::module::VKM_SERIES_TYPE;

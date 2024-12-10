@@ -130,7 +130,9 @@ pub fn postings_for_matchers(ix: &impl IndexReader, ms: &[Matcher]) -> TsdbResul
             its &= it;
         } else if typ == LabelFilterOp::RegexNotEqual && value == ".+" {
             // .+ regexp matches any non-empty string: get postings for all label values and remove them.
-            its = append(not_its, ix.postings_for_all_label_values(name))
+            let it = ix.postings_for_all_label_values(name);
+            not_its |= it;
+            //its = append(not_its, it)
         } else if label_must_be_set.contains(name) {
             // If this matcher must be non-empty, we can be smarter.
             let is_not = typ == LabelFilterOp::NotEqual || m.op == LabelFilterOp::RegexNotEqual;
@@ -217,7 +219,7 @@ fn inverse_postings_for_matcher(ix: &impl IndexReader, m: &Matcher) -> Postings 
     ix.postings_for_label_matching(&m.label, |s| !m.matches(s))
 }
 
-fn label_values_with_matchers(r: &impl IndexReader, name: &str, matchers: &[Matcher]) -> Result<Vec<String>, Error> {
+fn label_values_with_matchers(r: &impl IndexReader, name: &str, matchers: &[Matcher]) -> TsdbResult<Vec<String>> {
     let all_values = r.label_values(name)?;
 
     let mut filtered_values = Vec::new();
@@ -249,4 +251,9 @@ fn label_values_with_matchers(r: &impl IndexReader, name: &str, matchers: &[Matc
 fn label_names_with_matchers(r: &impl IndexReader, matchers: &[Matcher]) -> Result<Vec<String>, Error> {
     let p = postings_for_matchers(r, matchers)?;
     r.label_names_for(p)
+}
+
+#[cfg(test)]
+mod tests {
+
 }

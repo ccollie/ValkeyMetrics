@@ -127,7 +127,7 @@ impl IndexInner {
         self.label_index.prefix(prefix.as_bytes()).next().is_some()
     }
 
-    fn add_or_insert(&mut self, label: &str, value: &str, ts_id: TimeseriesId) -> bool {
+    pub fn add_label_value(&mut self, label: &str, value: &str, ts_id: TimeseriesId) -> bool {
         let key = IndexKey::for_label_value(label, value);
         let result = if let Some(bmp) = self.label_index.get_mut(&key) {
             bmp.add(ts_id);
@@ -148,8 +148,8 @@ impl IndexInner {
         result
     }
 
-    fn index_series_by_label(&mut self, ts_id: TimeseriesId, label: &str, value: &str) {
-        self.add_or_insert(label, value, ts_id);
+    pub fn index_series_by_label(&mut self, ts_id: TimeseriesId, label: &str, value: &str) {
+        self.add_label_value(label, value, ts_id);
     }
 
     fn remove_label_value(&mut self, label: &str, value: &str, ts_id: TimeseriesId) {
@@ -220,14 +220,15 @@ impl IndexInner {
     }
 
     pub fn all_postings(&self) -> IdBitmap {
+        const BUFFER_SIZE: usize = 64;
         let mut result = IdBitmap::new();
         // use chunks to minimize ffi calls
-        let mut id_chunk: [u64; 64] = [0; 64];
+        let mut id_chunk: [u64; BUFFER_SIZE] = [0; BUFFER_SIZE];
         let mut len = 0;
         for id in self.id_to_key.keys().copied() {
             id_chunk[len] = id;
             len += 1;
-            if len % 64 == 0 {
+            if len % BUFFER_SIZE == 0 {
                 result.add_many(&id_chunk);
                 len = 0;
             }
@@ -258,6 +259,18 @@ impl IndexInner {
         self.label_index.get(&key).cloned().unwrap_or_default()
     }
 
+    pub fn postings_for_label_matching(&self, name: &str, match_fn: fn(&str) -> bool) -> IdBitmap {
+        let prefix = get_key_for_label_prefix(name);
+        let start_pos = prefix.len();
+        let mut result = IdBitmap::new();
+        for (key, map) in self.label_index.prefix(prefix.as_bytes()) {
+            let value = key.sub_string(start_pos);
+            if match_fn(value) {
+                result.or_inplace(map);
+            }
+        }
+        result
+    }
 
     pub fn process_label_values<T, CONTEXT, F, PRED>(
         &self,
