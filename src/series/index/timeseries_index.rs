@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use super::index_key::*;
 use crate::common::types::{IntMap, Label, LabelFilter, LabelFilterOp, Matchers, Timestamp};
 use crate::common::METRIC_NAME_LABEL;
@@ -13,8 +14,13 @@ use std::ops::ControlFlow;
 use std::ops::ControlFlow::Continue;
 use std::sync::atomic::AtomicU64;
 use std::sync::{RwLock, RwLockReadGuard};
+use metricsql_common::hash::FastHashSet;
+use metricsql_parser::label::Matcher;
+use smallvec::SmallVec;
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::{logging, Context, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
+use crate::error_consts;
+use crate::series::index::querier::Postings;
 
 // todo: move to config
 pub const OPTIMIZE_CHANGE_THRESHOLD: usize = 1000;
@@ -210,6 +216,136 @@ impl IndexInner {
         // todo: rayon ??
     }
 
+    // `postings_for_matchers` assembles a single postings iterator against the index
+    // based on the given matchers. The resulting postings are not ordered by series.
+    pub fn postings_for_matchers(&self, ms: &[Matcher]) -> TsdbResult<IdBitmap> {
+        if ms.len() == 1 && ms[0].label == "" && ms[0].value == "" {
+            return Ok(self.all_postings())
+        }
+
+        let mut sorted_matchers: SmallVec::<(&Matcher, bool, bool), 4> = SmallVec::new();
+        let mut not_its= Postings::new();
+
+        let mut has_subtracting_matchers = false;
+        let mut has_intersecting_matchers = false;
+
+        // See which label must be non-empty.
+        // Optimization for case like {l=~".", l!="1"}.
+        let mut label_must_be_set: FastHashSet<String> = FastHashSet::with_capacity(ms.len());
+        for m in ms {
+            let matches_empty = m.matches("");
+            if !matches_empty {
+                label_must_be_set.insert(m.label.clone());
+            }
+            let is_subtracting = is_subtracting_matcher(m, &label_must_be_set);
+
+            has_subtracting_matchers |= is_subtracting;
+            has_intersecting_matchers |= !is_subtracting;
+
+            sorted_matchers.push((&m, matches_empty, is_subtracting))
+        }
+
+        let mut its = if has_subtracting_matchers && !has_intersecting_matchers {
+            // If there's nothing to subtract from, add in everything and remove the not_its later.
+            // We prefer to get AllPostings so that the base of subtraction (i.e. all_postings)
+            // doesn't include series that may be added to the index reader during this function call.
+            self.all_postings()
+        } else {
+            IdBitmap::new()
+        };
+
+        // Sort matchers to have the intersecting matchers first.
+        // This way the base for subtraction is smaller and there is no chance that the set we subtract
+        // from contains postings of series that didn't exist when we constructed the set we subtract by.
+        sorted_matchers.sort_by(|i, j|-> Ordering {
+            let is_i_subtracting = i.2;
+            let is_j_subtracting = j.2;
+            if !is_i_subtracting && is_j_subtracting {
+                return Ordering::Less;
+            }
+
+            // i.cmp(&j)
+            return Ordering::Greater;
+        });
+
+        for (m, matches_empty) in sorted_matchers {
+            let value = &m.value;
+            let name = &m.label;
+            let typ = m.op;
+
+            if name.is_empty() && value.is_empty() {
+                // If the matchers for a label name selects an empty value, it selects all
+                // the series which don't have the label name set too. See:
+                //
+                return Err(TsdbError::General(error_consts::MISSING_FILTER)) // todo: better error
+            }
+
+            if typ == LabelFilterOp::RegexEqual && value == ".*" {
+                // .* regexp matches any string: do nothing.
+                continue;
+            }
+
+            if typ == LabelFilterOp::RegexNotEqual && value == ".*" {
+                return Ok(IdBitmap::default())
+            }
+
+            if typ == LabelFilterOp::RegexEqual && value == ".+" {
+                // .+ regexp matches any non-empty string: get postings for all label values.
+                let it = self.postings_for_all_label_values(&m.label);
+                if it.is_empty() {
+                    return Ok(IdBitmap::default())
+                }
+                its &= it;
+            } else if typ == LabelFilterOp::RegexNotEqual && value == ".+" {
+                // .+ regexp matches any non-empty string: get postings for all label values and remove them.
+                let it = self.postings_for_all_label_values(name);
+                not_its |= it;
+                //its = append(not_its, it)
+            } else if label_must_be_set.contains(name) {
+                // If this matcher must be non-empty, we can be smarter.
+                let is_not = typ == LabelFilterOp::NotEqual || m.op == LabelFilterOp::RegexNotEqual;
+
+                if is_not {
+                    let inverse = m.inverse()?;
+                    // If the label can't be empty and is a Not, then subtract it out at the end.
+                    if matches_empty { // l!="foo"
+                        // If the label can't be empty and is a Not and the inner matcher
+                        // doesn't match empty, then subtract it out at the end.
+                        let it = self.postings_for_matcher(inverse);
+                        not_its |= it;
+                    } else {
+                        // If the label can't be empty and is a Not, but the inner matcher can
+                        // be empty we need to use inverse_postings_for_matcher.
+                        let it = self.inverse_postings_for_matcher(inverse);
+                        if it.is_empty() {
+                            return Ok(IdBitmap::new())
+                        }
+                        its &= it;
+                    }
+                } else {
+                    // l="a", l=~"a|b", l=~"a.b", etc.
+                    // Non-Not matcher, use normal `postings_for_matcher`.
+                    let it = self.postings_for_matcher(m);
+                    if it.is_empty() {
+                        return Ok(IdBitmap::new())
+                    }
+                    its &= it;
+                }
+
+            } else { // l!=""
+                // If the matchers for a label name selects an empty value, it selects all
+                // the series which don't have the label name set too. See:
+                // https://github.com/prometheus/prometheus/issues/3575 and
+                // https://github.com/prometheus/prometheus/pull/3578#issuecomment-351653555
+                let it = self.inverse_postings_for_matcher(m);
+                not_its |= it;
+            }
+        }
+
+        its -= &not_its;
+        Ok(its)
+    }
+
     pub fn postings_for_all_label_values(&self, label_name: &str) -> IdBitmap {
         let prefix = get_key_for_label_prefix(label_name);
         let mut result = IdBitmap::new();
@@ -223,7 +359,7 @@ impl IndexInner {
         const BUFFER_SIZE: usize = 64;
         let mut result = IdBitmap::new();
         // use chunks to minimize ffi calls
-        let mut id_chunk: [u64; BUFFER_SIZE] = [0; BUFFER_SIZE];
+        let mut id_chunk: [TimeseriesId; BUFFER_SIZE] = [0; BUFFER_SIZE];
         let mut len = 0;
         for id in self.id_to_key.keys().copied() {
             id_chunk[len] = id;
@@ -272,6 +408,39 @@ impl IndexInner {
         result
     }
 
+    pub fn postings_for_matcher(&self, m: &Matcher) -> IdBitmap {
+        if m.op == LabelFilterOp::Equal {
+            return self.postings_for_label_value(&m.label, &m.value);
+        }
+        if m.op == LabelFilterOp::RegexEqual {
+            let set_matches = m.set_matches();
+            if !set_matches.is_empty() {
+                return self.postings(&m.label, &set_matches);
+            }
+        }
+
+        self.postings_for_label_matching(&m.label, |s| m.matches(s))
+    }
+
+    fn inverse_postings_for_matcher(&self, m: &Matcher) -> IdBitmap {
+        if m.op == LabelFilterOp::RegexNotEqual {
+            let set_matches = m.set_matches();
+            if !set_matches.is_empty() {
+                return self.postings(&m.label, &set_matches);
+            }
+        }
+
+        if m.op == LabelFilterOp::NotEqual {
+            return self.postings(&m.label, &m.value);
+        }
+
+        if m.value.is_empty() && (m.op == LabelFilterOp::RegexEqual || m.op == LabelFilterOp::Equal) {
+            return self.postings_for_all_label_values(&m.label);
+        }
+
+        self.postings_for_label_matching(&m.label, |s| !m.matches(s))
+    }
+
     pub fn process_label_values<T, CONTEXT, F, PRED>(
         &self,
         label: &str,
@@ -297,6 +466,13 @@ impl IndexInner {
         }
         None
     }
+}
+
+fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<String>) -> bool {
+    if !label_must_be_set.has(&m.label) {
+        return true;
+    }
+    matches!(m.op, LabelFilterOp::NotEqual | LabelFilterOp::RegexNotEqual if m.is_match(""))
 }
 
 /// Index for quick access to timeseries by label, label value or metric name.

@@ -184,7 +184,7 @@ fn exec_filter_list(label_index: &ARTBitmap, filters: &[TagFilter], dest: &mut I
 }
 
 fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<String>) -> bool {
-    if !label_must_be_set.has(&m.label) {
+    if !label_must_be_set.contains(&m.label) {
         return true;
     }
     match m.op {
