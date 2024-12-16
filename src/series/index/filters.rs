@@ -1,9 +1,7 @@
-use super::{ARTBitmap, IdBitmap};
-use crate::common::types::{LabelFilterOp, Matchers, StringMatchHandler, TagFilter};
+use super::{ARTBitmap, IdBitmap, SetOperation};
+use crate::common::types::{LabelFilterOp, StringMatchHandler, TagFilter};
 use crate::series::index::index_key::format_key_for_label_prefix;
-use crate::series::index::timeseries_index::SetOperation;
 use blart::AsBytes;
-use metricsql_runtime::{create_label_filter_matchers, LabelFilterVec};
 
 
 pub fn process_equals_match(label_index: &ARTBitmap, key: &String, dest: &mut IdBitmap, op: SetOperation) {
@@ -137,46 +135,6 @@ pub fn process_iterator<'a>(mut iter: impl Iterator<Item = &'a IdBitmap>, dest: 
             for map in iter {
                 dest.and_inplace(map);
             }
-        }
-    }
-}
-
-
-// Compiles the given matchers to optimized matchers. Incurs some setup overhead, so use this in the following cases:
-// * you are going to use the matchers multiple times
-// * if the matchers are complex.
-// * labels have high cardinality
-pub fn get_ids_by_matchers_optimized(
-    label_index: &ARTBitmap,
-    matchers: &Matchers,
-    dest: &mut IdBitmap
-) {
-    let mut key_buf = String::with_capacity(64);
-
-    // todo: remove unwrap
-    let filters = create_label_filter_matchers(matchers).unwrap();
-    exec_label_matches(label_index, &filters, dest, &mut key_buf);
-}
-
-pub fn exec_label_matches(label_index: &ARTBitmap,
-                    matchers: &LabelFilterVec,
-                    dest: &mut IdBitmap,
-                    key_buf: &mut String) {
-    let mut intersects = IdBitmap::new();
-    for filters in matchers.iter() {
-        exec_filter_list(label_index, filters, &mut intersects, key_buf);
-        dest.or_inplace(&intersects);
-        intersects.clear();
-    }
-}
-
-// execute ANDed list of filters
-#[inline]
-fn exec_filter_list(label_index: &ARTBitmap, filters: &[TagFilter], dest: &mut IdBitmap, key_buf: &mut String) {
-    for filter in filters.iter() {
-        process_filter(label_index, filter, dest, SetOperation::Intersection, key_buf);
-        if dest.is_empty() {
-            return;
         }
     }
 }

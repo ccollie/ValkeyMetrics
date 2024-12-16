@@ -1,4 +1,4 @@
-use crate::series::index::{with_timeseries_index, IndexInner, TimeSeriesIndex};
+use crate::series::index::{with_timeseries_index, Postings, TimeSeriesIndex};
 use crate::module::arg_parse::parse_integer_arg;
 use std::collections::HashMap;
 use std::sync::RwLockReadGuard;
@@ -91,7 +91,7 @@ fn get_series_count_by_metric_name(index: &TimeSeriesIndex, limit: usize) -> Val
     ValkeyValue::Array(arr)
 }
 
-fn get_label_value_count_by_label_name(inner: &RwLockReadGuard<IndexInner>, limit: usize) -> ValkeyValue {
+fn get_label_value_count_by_label_name(inner: &RwLockReadGuard<Postings>, limit: usize) -> ValkeyValue {
     let items = inner.label_index
         .iter()
         .filter_map(|(key,  _)| {
@@ -122,7 +122,7 @@ fn get_label_value_count_by_label_name(inner: &RwLockReadGuard<IndexInner>, limi
     ValkeyValue::Array(arr)
 }
 
-fn get_series_count_by_label_pair(inner: &RwLockReadGuard<IndexInner>, limit: usize) -> ValkeyValue {
+fn get_series_count_by_label_pair(inner: &RwLockReadGuard<Postings>, limit: usize) -> ValkeyValue {
     let items: Vec<_> = inner.label_index
         .iter()
         .filter_map(|(key,  map)| {
@@ -143,7 +143,7 @@ fn get_series_count_by_label_pair(inner: &RwLockReadGuard<IndexInner>, limit: us
     ValkeyValue::Array(arr)
 }
 
-fn get_memory_in_bytes_by_label_pair(inner: &RwLockReadGuard<IndexInner>, limit: usize) -> ValkeyValue {
+fn get_memory_in_bytes_by_label_pair(inner: &RwLockReadGuard<Postings>, limit: usize) -> ValkeyValue {
     let items = inner.label_index
         .iter()
         .filter_map(|(key,  map)| {

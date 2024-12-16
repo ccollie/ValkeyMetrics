@@ -14,13 +14,18 @@
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use ahash::AHashSet;
     use metricsql_parser::label::{LabelFilterOp, Label, Matcher};
-    use crate::series::index::IndexInner;
+    use crate::series::index::postings::Postings;
     use crate::series::index::querier::SeriesRef;
     use rand::distributions::{Alphanumeric, DistString};
 
     fn random_string(len: usize) -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), len)
+    }
+
+    fn hash_labels(labels: &[Label]) -> AHashSet<String> {
+        labels.iter().map(|l| l.to_string()).collect()
     }
 
     fn labels_from_strings<S: Into<String> + Clone>(ss: &[S]) -> Vec<Label> {
@@ -39,7 +44,7 @@ mod tests {
         labels
     }
 
-    fn add_series(ix: &mut IndexInner, series_ref: SeriesRef, labels: &Vec<Label>) {
+    fn add_series(ix: &mut Postings, series_ref: SeriesRef, labels: &Vec<Label>) {
         for Label { name, value } in labels {
             ix.index_series_by_label(series_ref, name.as_str(), value.as_str());
         }
@@ -52,10 +57,25 @@ mod tests {
         labels.iter().cloned().flatten().collect()
     }
 
+    fn get_labels_by_matcher(ix: &Postings,
+                             matchers: &[Matcher],
+                             series_data: &HashMap<SeriesRef, Vec<Label>>) -> Vec<Label> {
+        let p = ix.postings_for_matchers(matchers).unwrap();
+        let mut actual: Vec<_> = p
+            .iter()
+            .filter_map(|series_ref| series_data.get(&series_ref))
+            .cloned()
+            .flatten()
+            .collect();
+
+        actual.sort();
+        actual
+    }
+
     #[test]
     fn test_postings_for_matchers() {
         use LabelFilterOp::*;
-        let mut ix = IndexInner::new();
+        let mut ix = Postings::new();
 
         let series_data = HashMap::from([
             (1, labels_from_strings(&["n", "1"])),
@@ -476,15 +496,7 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            let p = ix.postings_for_matchers(&case.matchers).unwrap();
-            let mut actual: Vec<_> = p
-                .iter()
-                .filter_map(|series_ref| series_data.get(&series_ref))
-                .cloned()
-                .flatten()
-                .collect();
-
-            actual.sort();
+            let actual = get_labels_by_matcher(&ix, &case.matchers, &series_data);
             let mut expected = case.exp.clone();
             expected.sort();
 

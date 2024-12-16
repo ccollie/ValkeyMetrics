@@ -8,6 +8,7 @@ mod querier;
 mod index_tests;
 #[cfg(test)]
 mod test_queries;
+mod postings;
 
 use crate::common::get_current_db;
 use crate::module::VKM_SERIES_TYPE;
@@ -18,6 +19,7 @@ use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::sync::LazyLock;
 use ahash::AHashSet;
 pub use timeseries_index::*;
+pub use postings::*;
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
 
 /// Map from db to TimeseriesIndex

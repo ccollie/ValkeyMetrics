@@ -2,7 +2,7 @@ use std::sync::RwLock;
 use crate::common::serialization::{rdb_load_usize, rdb_save_usize};
 use crate::common::types::IntMap;
 use crate::series::index::index_key::IndexKey;
-use crate::series::index::timeseries_index::IndexInner;
+use crate::series::index::postings::Postings;
 use crate::series::index::{ARTBitmap, IdBitmap, KeyType, TimeSeriesIndex, TIMESERIES_INDEX};
 use crate::series::TimeseriesId;
 use crate::server_events::is_async_loading_in_progress;
@@ -78,20 +78,20 @@ fn deserialize_int_key_map(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<IntMap<
     Ok(map)
 }
 
-fn serialize_index_inner(rdb: *mut raw::RedisModuleIO, inner: &IndexInner) {
+fn serialize_index_inner(rdb: *mut raw::RedisModuleIO, inner: &Postings) {
     rdb_save_usize(rdb, inner.label_count);
     serialize_art_bitmap(rdb, &inner.label_index);
     serialize_int_key_map(rdb, &inner.id_to_key);
     raw::save_unsigned(rdb, inner.changes_since_last_optimize as u64);
 }
 
-fn deserialize_index_inner(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<IndexInner> {
+fn deserialize_index_inner(rdb: *mut raw::RedisModuleIO) -> ValkeyResult<Postings> {
     let label_count = rdb_load_usize(rdb)?;
     let label_index = deserialize_art_bitmap(rdb)?;
     let id_to_key = deserialize_int_key_map(rdb)?;
     let changes_since_last_optimize = raw::load_unsigned(rdb)? as usize;
     
-    Ok(IndexInner {
+    Ok(Postings {
         label_count,
         label_index,
         id_to_key,
