@@ -286,6 +286,7 @@ impl Chunk for CompressedVecChunk {
         for sample in iter.by_ref().filter(|s| s.timestamp < ts) {
             append_internal(&mut values, &mut timestamps, &sample)?;
         }
+
         if let Some(sample) = iter.next() {
             current = sample;
             if current.timestamp == ts {
