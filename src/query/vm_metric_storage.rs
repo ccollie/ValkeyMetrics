@@ -4,6 +4,7 @@ use crate::series::index::{with_timeseries_index, TimeSeriesIndex};
 use crate::series::time_series::TimeSeries;
 use async_trait::async_trait;
 use metricsql_runtime::prelude::{Deadline, MetricStorage, QueryResult, QueryResults, RuntimeResult, SearchQuery};
+use metricsql_runtime::RuntimeError;
 use metricsql_runtime::types::MetricName;
 use valkey_module::{Context, ValkeyString};
 
@@ -96,7 +97,12 @@ impl VMMetricStorage {
         index: &TimeSeriesIndex,
         search_query: SearchQuery,
     ) -> RuntimeResult<Vec<QueryResult>> {
-        let map = index.series_keys_by_matchers(ctx, &[search_query.matchers]);
+        let map = index.series_keys_by_matchers(ctx, &search_query.matchers)
+            .map_err(|e| {
+                ctx.log_warning(&format!("ERR: {:?}", e));
+                // TODO. 1. on the lib side, use a better enum variant
+                RuntimeError::General("Error getting series keys".to_string())
+            })?;
         let mut results: Vec<QueryResult> = Vec::with_capacity(map.len());
         let start_ts = search_query.start;
         let end_ts = search_query.end;

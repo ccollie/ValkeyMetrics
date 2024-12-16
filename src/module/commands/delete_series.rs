@@ -3,7 +3,7 @@ use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::TimeSeries;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 use crate::error_consts;
-use crate::series::index::with_timeseries_index;
+use crate::series::index::{series_keys_by_matchers, with_timeseries_index};
 
 ///
 /// VM.DELETE-SERIES selector..
@@ -21,10 +21,12 @@ pub fn delete_series(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
     // todo: with_matched_series
     let res = with_timeseries_index(ctx, move |index| {
-        let keys = index.series_keys_by_matchers(ctx, &matchers);
+        let keys = series_keys_by_matchers(ctx, index, &matchers)?;
+
         if keys.is_empty() {
             return Err(ValkeyError::Str(error_consts::NO_SERIES_FOUND));
         }
+
         let mut deleted: usize = 0;
         for key in keys {
             let redis_key = ctx.open_key_writable(&key);

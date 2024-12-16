@@ -1,26 +1,25 @@
-use std::cmp::Ordering;
 use super::index_key::*;
-use crate::common::types::{IntMap, Label, LabelFilter, LabelFilterOp, Matchers, Timestamp};
+use crate::common::types::{IntMap, Label, LabelFilter, LabelFilterOp, Matchers};
 use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
+use crate::error_consts;
 use crate::module::{with_timeseries, VKM_SERIES_TYPE};
 use crate::series::chunks::utils::format_prometheus_metric_name;
-use crate::series::index::filters::{get_ids_by_matchers_optimized, process_equals_match, process_iterator};
+use crate::series::index::querier::Postings;
 use crate::series::time_series::{TimeSeries, TimeseriesId};
 use cfg_if::cfg_if;
-use rand::Rng;
-use std::collections::BTreeSet;
-use std::ops::ControlFlow;
-use std::ops::ControlFlow::Continue;
-use std::sync::atomic::AtomicU64;
-use std::sync::{RwLock, RwLockReadGuard};
 use metricsql_common::hash::FastHashSet;
 use metricsql_parser::label::Matcher;
+use rand::Rng;
 use smallvec::SmallVec;
+use std::borrow::Cow;
+use std::cmp::Ordering;
+use std::collections::BTreeSet;
+use std::ops::ControlFlow;
+use std::sync::atomic::AtomicU64;
+use std::sync::{LazyLock, RwLock, RwLockReadGuard};
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::{logging, Context, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
-use crate::error_consts;
-use crate::series::index::querier::Postings;
 
 // todo: move to config
 pub const OPTIMIZE_CHANGE_THRESHOLD: usize = 1000;
@@ -43,6 +42,7 @@ pub type KeyType = Box<[u8]>;
 // label=value
 pub type ARTBitmap = blart::TreeMap<IndexKey, IdBitmap>;
 
+const EMPTY_BITMAP: LazyLock<IdBitmap> = LazyLock::new(|| IdBitmap::new());
 
 #[derive(Clone, Copy)]
 pub(crate) enum SetOperation {
@@ -172,37 +172,29 @@ impl IndexInner {
         }
     }
 
-    /// Returns a list of all series matching `matchers` while having samples in the range
-    /// [`start`, `end`]
-    fn series_ids_by_matchers(&self, matchers: &[Matchers]) -> IdBitmap {
-        if matchers.is_empty() {
-            return Default::default();
+    /// Returns a list of all series matching `matchers`
+    fn series_ids_by_matchers(&self, matchers: &Matchers) -> TsdbResult<Cow<IdBitmap>> {
+        if !matchers.matchers.is_empty() {
+            return self.postings_for_matchers(&matchers.matchers);
         }
 
-        let mut dest = IdBitmap::new();
-
-        if matchers.len() == 1 {
-            let filter = &matchers[0];
-            find_ids_by_matchers(&self.label_index, filter, &mut dest);
-            return dest;
+        if !matchers.or_matchers.is_empty() {
+            let parallelize = should_parallelize_matchers(matchers);
+            if parallelize {
+                run_or_matchers_parallel(self, &matchers.or_matchers)
+            } else {
+                let mut acc = IdBitmap::new();
+                for filter in matchers.or_matchers.iter() {
+                    let postings = self.postings_for_matchers(filter)?;
+                    acc.or_inplace(&*postings);
+                }
+                Ok(Cow::Owned(acc))
+            }
+        } else {
+            Ok(Cow::Owned(IdBitmap::new()))
         }
-
-        // todo: if we get a None from get_series_by_id, we should log an error
-        // and remove the id from the index
-
-        // todo: determine if we should use rayon here. Some ideas
-        // - look at label cardinality for each filter in matcher
-        // - look at complexity of matchers (regex vs no regex)
-        let mut dest = IdBitmap::new();
-        let mut acc = IdBitmap::new();
-        for matcher in matchers.iter() {
-            find_ids_by_matchers(&self.label_index, matcher, &mut acc);
-            dest.or_inplace(&acc);
-            acc.clear();
-        }
-
-        dest
     }
+
 
     /// Optimize the bitmap indexes
     fn optimize(&mut self, force: bool) {
@@ -218,12 +210,15 @@ impl IndexInner {
 
     // `postings_for_matchers` assembles a single postings iterator against the index
     // based on the given matchers. The resulting postings are not ordered by series.
-    pub fn postings_for_matchers(&self, ms: &[Matcher]) -> TsdbResult<IdBitmap> {
-        if ms.len() == 1 && ms[0].label == "" && ms[0].value == "" {
-            return Ok(self.all_postings())
+    pub fn postings_for_matchers(&self, ms: &[Matcher]) -> TsdbResult<Cow<IdBitmap>> {
+        if ms.len() == 1 {
+            let m = &ms[0];
+            if m.label.is_empty() && m.label.is_empty() {
+                return Ok(Cow::Owned(self.all_postings()));
+            }
         }
 
-        let mut sorted_matchers: SmallVec::<(&Matcher, bool, bool), 4> = SmallVec::new();
+        let mut sorted_matchers: SmallVec<(&Matcher, bool, bool), 4> = SmallVec::new();
         let mut not_its= Postings::new();
 
         let mut has_subtracting_matchers = false;
@@ -233,7 +228,7 @@ impl IndexInner {
         // Optimization for case like {l=~".", l!="1"}.
         let mut label_must_be_set: FastHashSet<String> = FastHashSet::with_capacity(ms.len());
         for m in ms {
-            let matches_empty = m.matches("");
+            let matches_empty = m.is_match("");
             if !matches_empty {
                 label_must_be_set.insert(m.label.clone());
             }
@@ -268,7 +263,7 @@ impl IndexInner {
             return Ordering::Greater;
         });
 
-        for (m, matches_empty) in sorted_matchers {
+        for (m, matches_empty, _is_subtracting) in sorted_matchers {
             let value = &m.value;
             let name = &m.label;
             let typ = m.op;
@@ -277,7 +272,7 @@ impl IndexInner {
                 // If the matchers for a label name selects an empty value, it selects all
                 // the series which don't have the label name set too. See:
                 //
-                return Err(TsdbError::General(error_consts::MISSING_FILTER)) // todo: better error
+                return Err(TsdbError::General(error_consts::MISSING_FILTER.into())) // todo: better error
             }
 
             if typ == LabelFilterOp::RegexEqual && value == ".*" {
@@ -286,14 +281,14 @@ impl IndexInner {
             }
 
             if typ == LabelFilterOp::RegexNotEqual && value == ".*" {
-                return Ok(IdBitmap::default())
+                return Ok(Cow::Owned(IdBitmap::default()))
             }
 
             if typ == LabelFilterOp::RegexEqual && value == ".+" {
                 // .+ regexp matches any non-empty string: get postings for all label values.
                 let it = self.postings_for_all_label_values(&m.label);
                 if it.is_empty() {
-                    return Ok(IdBitmap::default())
+                    return Ok(Cow::Owned(it))
                 }
                 its &= it;
             } else if typ == LabelFilterOp::RegexNotEqual && value == ".+" {
@@ -306,44 +301,48 @@ impl IndexInner {
                 let is_not = typ == LabelFilterOp::NotEqual || m.op == LabelFilterOp::RegexNotEqual;
 
                 if is_not {
-                    let inverse = m.inverse()?;
+                    // a failure here should probably panic
+                    let inverse = m.inverse()
+                        .map_err(|_| TsdbError::General(error_consts::INVALID_MATCHER.to_string()))?;
+
                     // If the label can't be empty and is a Not, then subtract it out at the end.
                     if matches_empty { // l!="foo"
                         // If the label can't be empty and is a Not and the inner matcher
                         // doesn't match empty, then subtract it out at the end.
-                        let it = self.postings_for_matcher(inverse);
-                        not_its |= it;
+                        let it = self.postings_for_matcher(&inverse);
+                        not_its.or_inplace(&*it);
                     } else {
+                        // l!=""
                         // If the label can't be empty and is a Not, but the inner matcher can
                         // be empty we need to use inverse_postings_for_matcher.
-                        let it = self.inverse_postings_for_matcher(inverse);
+                        let it = self.inverse_postings_for_matcher(&inverse);
                         if it.is_empty() {
-                            return Ok(IdBitmap::new())
+                            return Ok(it);
                         }
-                        its &= it;
+                        intersect(&mut its, &it);
                     }
                 } else {
                     // l="a", l=~"a|b", l=~"a.b", etc.
                     // Non-Not matcher, use normal `postings_for_matcher`.
                     let it = self.postings_for_matcher(m);
                     if it.is_empty() {
-                        return Ok(IdBitmap::new())
+                        return Ok(it);
                     }
-                    its &= it;
+                    intersect(&mut its, &it);
                 }
 
-            } else { // l!=""
+            } else { // l=""
                 // If the matchers for a label name selects an empty value, it selects all
                 // the series which don't have the label name set too. See:
                 // https://github.com/prometheus/prometheus/issues/3575 and
                 // https://github.com/prometheus/prometheus/pull/3578#issuecomment-351653555
                 let it = self.inverse_postings_for_matcher(m);
-                not_its |= it;
+                not_its.or_inplace(&*it);
             }
         }
 
         its -= &not_its;
-        Ok(its)
+        Ok(Cow::Owned(its))
     }
 
     pub fn postings_for_all_label_values(&self, label_name: &str) -> IdBitmap {
@@ -376,7 +375,7 @@ impl IndexInner {
     }
 
     /// `postings` returns the postings list iterator for the label pairs.
-    /// The Postings here contain the ids to the series inside the index.
+    /// The postings here contain the ids to the series inside the index.
     /// Found IDs are not strictly required to point to a valid Series, e.g.
     /// during background garbage collections.
     pub fn postings(&self, name: &str, values: &[String]) -> IdBitmap {
@@ -390,9 +389,13 @@ impl IndexInner {
         result
     }
 
-    pub fn postings_for_label_value(&self, name: &str, value: &str) -> IdBitmap {
+    pub fn postings_for_label_value<'a>(&'a self, name: &str, value: &str) -> Cow<'a, IdBitmap> {
         let key = IndexKey::for_label_value(name, value);
-        self.label_index.get(&key).cloned().unwrap_or_default()
+        if let Some(bmp) = self.label_index.get(&key) {
+            Cow::Borrowed(bmp)
+        } else {
+            Cow::Owned(IdBitmap::default())
+        }
     }
 
     pub fn postings_for_label_matching(&self, name: &str, match_fn: fn(&str) -> bool) -> IdBitmap {
@@ -408,37 +411,56 @@ impl IndexInner {
         result
     }
 
-    pub fn postings_for_matcher(&self, m: &Matcher) -> IdBitmap {
+    fn postings_for_matcher_internal(&self, matcher: &Matcher) -> IdBitmap {
+        let mut result = IdBitmap::new();
+        let prefix = get_key_for_label_prefix(&matcher.label);
+        let start_pos = prefix.len();
+        for (key, map) in self.label_index.prefix(prefix.as_bytes()) {
+            let value = key.sub_string(start_pos);
+            if matcher.is_match(value) {
+                result.or_inplace(map);
+            }
+        }
+        result
+    }
+
+    pub fn postings_for_matcher(&self, m: &Matcher) -> Cow<IdBitmap> {
+        if m.label.is_empty() && m.value.is_empty() {
+            return Cow::Owned(self.all_postings());
+        }
         if m.op == LabelFilterOp::Equal {
             return self.postings_for_label_value(&m.label, &m.value);
         }
         if m.op == LabelFilterOp::RegexEqual {
             let set_matches = m.set_matches();
             if !set_matches.is_empty() {
-                return self.postings(&m.label, &set_matches);
+                if set_matches.len() == 1 {
+                    return self.postings_for_label_value(&m.label, &set_matches[0]);
+                }
+                return Cow::Owned(self.postings(&m.label, &set_matches));
             }
         }
 
-        self.postings_for_label_matching(&m.label, |s| m.matches(s))
+        Cow::Owned(self.postings_for_matcher_internal(m))
     }
 
-    fn inverse_postings_for_matcher(&self, m: &Matcher) -> IdBitmap {
+    fn inverse_postings_for_matcher(&self, m: &Matcher) -> Cow<IdBitmap> {
         if m.op == LabelFilterOp::RegexNotEqual {
             let set_matches = m.set_matches();
             if !set_matches.is_empty() {
-                return self.postings(&m.label, &set_matches);
+                return Cow::Owned(self.postings(&m.label, &set_matches));
             }
         }
 
         if m.op == LabelFilterOp::NotEqual {
-            return self.postings(&m.label, &m.value);
+            return self.postings_for_label_value(&m.label, &m.value);
         }
 
         if m.value.is_empty() && (m.op == LabelFilterOp::RegexEqual || m.op == LabelFilterOp::Equal) {
-            return self.postings_for_all_label_values(&m.label);
+            return Cow::Owned(self.postings_for_all_label_values(&m.label));
         }
 
-        self.postings_for_label_matching(&m.label, |s| !m.matches(s))
+        Cow::Owned(self.postings_for_matcher_internal(m))
     }
 
     pub fn process_label_values<T, CONTEXT, F, PRED>(
@@ -460,7 +482,7 @@ impl IndexInner {
                     ControlFlow::Break(v) => {
                         return v;
                     },
-                    Continue(_) => continue,
+                    ControlFlow::Continue(_) => continue,
                 }
             }
         }
@@ -468,8 +490,17 @@ impl IndexInner {
     }
 }
 
+#[inline]
+fn intersect(dest: &mut IdBitmap, other: &IdBitmap) {
+    if dest.is_empty() {
+        dest.or_inplace(other);
+    } else {
+        dest.and_inplace(other);
+    }
+}
+
 fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<String>) -> bool {
-    if !label_must_be_set.has(&m.label) {
+    if !label_must_be_set.contains(&m.label) {
         return true;
     }
     matches!(m.op, LabelFilterOp::NotEqual | LabelFilterOp::RegexNotEqual if m.is_match(""))
@@ -677,7 +708,7 @@ impl TimeSeriesIndex {
         let mut bitmap = IdBitmap::new();
         self.process_label_values(label, &mut bitmap, predicate, |ctx, _value, map| {
             ctx.or_inplace(map);
-            Continue::<Option<()>>(())
+            ControlFlow::Continue::<Option<()>>(())
         });
         bitmap
     }
@@ -708,17 +739,10 @@ impl TimeSeriesIndex {
         inner.label_index.contains_key(key.as_bytes())
     }
 
-    /// Returns a list of all series matching `matchers` while having samples in the range
-    /// [`start`, `end`]
-    pub(crate) fn series_ids_by_matchers(&self, matchers: &[Matchers]) -> IdBitmap {
-        let inner = self.inner.read().unwrap();
-        inner.series_ids_by_matchers(matchers)
-    }
-
     /// Returns a list of all series matching `matchers`
-    pub(crate) fn series_keys_by_matchers(&self, ctx: &Context, matchers: &[Matchers]) -> Vec<ValkeyString> {
+    pub(crate) fn series_keys_by_matchers(&self, ctx: &Context, matchers: &Matchers) -> TsdbResult<Vec<ValkeyString>> {
         let inner = self.inner.read().unwrap();
-        let bitmap = inner.series_ids_by_matchers(matchers);
+        let bitmap = inner.series_ids_by_matchers(matchers)?;
         let mut result: Vec<ValkeyString> = Vec::with_capacity(bitmap.cardinality() as usize);
         for id in bitmap.iter() {
             if let Some(value) = inner.id_to_key.get(&id) {
@@ -726,63 +750,21 @@ impl TimeSeriesIndex {
                 result.push(key)
             }
         }
-        result
+        Ok(result)
     }
 
     /// Returns a list of all series matching `matchers` while having samples in the range
     /// Primarily for unit testing outside valkey contexts
-    pub(crate) fn series_keys_by_matchers_internal(&self, matchers: &[Matchers]) -> Vec<KeyType> {
+    pub(crate) fn series_keys_by_matchers_internal(&self, matchers: &Matchers) -> TsdbResult<Vec<KeyType>> {
         let inner = self.inner.read().unwrap();
-        let bitmap = inner.series_ids_by_matchers(matchers);
+        let bitmap = inner.series_ids_by_matchers(matchers)?;
         let mut result: Vec<KeyType> = Vec::with_capacity(bitmap.cardinality() as usize);
         for id in bitmap.iter() {
             if let Some(value) = inner.id_to_key.get(&id) {
                 result.push(value.clone())
             }
         }
-        result
-    }
-
-    pub fn with_series_by_matchers<F, STATE>(
-        &self,
-        ctx: &Context,
-        matcher: Matchers,
-        start_ts: Timestamp,
-        end_ts: Timestamp,
-        state: &mut STATE,
-        f: F,
-    ) -> ValkeyResult<()>
-    where F: Fn(&mut STATE, &mut TimeSeries),  // todo: return ControlFLow
-    {
-        let keys = self.series_keys_by_matchers(ctx, &[matcher]);
-        for key in keys.iter() {
-            let redis_key = ctx.open_key_writable(key);
-            let series = redis_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE)?;
-            if let Some(series) = series {
-                if series.overlaps(start_ts, end_ts) {
-                    f(state, series);
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub(crate) fn find_ids_by_matchers(&self, matchers: &Matchers) -> IdBitmap {
-        let inner = self.inner.read().unwrap();
-        let mut dest = IdBitmap::new();
-        find_ids_by_matchers(&inner.label_index, matchers, &mut dest);
-        dest
-    }
-
-    // Compiles the given matchers to optimized matchers. Incurs some setup overhead, so use this
-    // in the following cases:
-    // * the queries are complex.
-    // * the labels being matched have high cardinality
-    pub fn get_ids_by_matchers_optimized(&self, matchers: &Matchers) -> IdBitmap {
-        let inner = self.inner.read().unwrap();
-        let mut dest = IdBitmap::new();
-        get_ids_by_matchers_optimized(&inner.label_index, matchers, &mut dest);
-        dest
+        Ok(result)
     }
 
     pub fn get_series_count_by_metric_name(&self, limit: usize, start: Option<&str>) -> Vec<(ValkeyValueKey, usize)> {
@@ -826,93 +808,64 @@ impl TimeSeriesIndex {
 }
 
 
-fn filter_by_label_value_predicate(
-    label_index: &ARTBitmap,
-    dest: &mut IdBitmap,
-    op: SetOperation,
-    label: &str,
-    predicate: impl Fn(&str) -> bool,
-) {
-    let prefix = get_key_for_label_prefix(label);
-    let start_pos = prefix.len();
-    let iter = label_index
-        .prefix(prefix.as_bytes())
-        .filter_map(|(key, map)| {
-            let value = key.sub_string(start_pos);
-            if predicate(value) {
-                Some(map)
-            } else {
-                None
-            }
-        });
-
-    process_iterator(iter, dest, op);
-}
-
-fn find_ids_by_label_filter(
-    label_index: &ARTBitmap,
-    filter: &LabelFilter,
-    dest: &mut IdBitmap,
-    op: SetOperation,
-    key_buf: &mut String,
-) {
-    use LabelFilterOp::*;
-
-    match filter.op {
-        Equal => {
-            key_buf.clear();
-            format_key_for_label_value(key_buf, &filter.label, &filter.value);
-            process_equals_match(label_index, key_buf, dest, op);
+fn run_or_matchers_parallel<'a>(label_index: &'a IndexInner,
+                            matchers: &[Vec<LabelFilter>]) -> TsdbResult<Cow<'a, IdBitmap>> {
+    let mut scope = chili::Scope::global();
+    match matchers {
+        [] => Ok(Cow::Owned(IdBitmap::new())),
+        [matchers] => label_index.postings_for_matchers(&matchers),
+        [m1, m2] => {
+            let (r1, r2) = scope.join(
+                |_| label_index.postings_for_matchers(&m1),
+                |_| label_index.postings_for_matchers(&m2),
+            );
+            let mut r1 = r1?.into_owned();
+            let r2 = r2?;
+            r1.or_inplace(&*r2);
+            Ok(Cow::Owned(r1))
         }
-        NotEqual => {
-            let predicate = |value: &str| value != filter.value;
-            filter_by_label_value_predicate(label_index, dest, op, &filter.label, predicate)
+        [m1, m2, m3] => {
+            let (x, (y, z)) = scope.join(
+                |_| label_index.postings_for_matchers(&m1),
+                |s2| s2.join(
+                    |_| label_index.postings_for_matchers(&m2),
+                    |_| label_index.postings_for_matchers(&m3),
+                )
+            );
+            let mut x = x?.into_owned();
+            let y = y?;
+            let z = z?;
+            x.or_inplace(&*y);
+            x.or_inplace(&*z);
+            Ok(Cow::Owned(x))
         }
-        RegexEqual => {
-            // todo: return Result. However if we get an invalid regex here,
-            // we have a problem with the base metricsql library.
-            let regex = regex::Regex::new(&filter.value).unwrap();
-            let predicate = |value: &str| regex.is_match(value);
-            filter_by_label_value_predicate(label_index, dest, op, &filter.label, predicate)
-        }
-        RegexNotEqual => {
-            // todo: return Result. However if we get an invalid regex here,
-            // we have a problem with the base metricsql library.
-            let regex = regex::Regex::new(&filter.value).unwrap();
-            let predicate = |value: &str| !regex.is_match(value);
-            filter_by_label_value_predicate(label_index, dest, op, &filter.label, predicate)
+        _ => {
+            let mid = matchers.len() / 2;
+            let (left, right) = matchers.split_at(mid);
+            let (left_results, right_results) = scope.join(
+                |_| run_or_matchers_parallel(label_index, left),
+                |_| run_or_matchers_parallel(label_index, right)
+            );
+            let right_results = right_results?;
+            let mut left_results = left_results?.into_owned();
+            left_results.or_inplace(&*right_results);
+            Ok(Cow::Owned(left_results))
         }
     }
 }
 
-fn find_ids_by_multiple_filters(
-    label_index: &ARTBitmap,
-    filters: &[LabelFilter],
-    dest: &mut IdBitmap,
-    operation: SetOperation,
-    key_buf: &mut String, // used to minimize allocations
-) {
-    for filter in filters.iter() {
-        find_ids_by_label_filter(label_index, filter, dest, operation, key_buf);
-    }
-}
-
-fn find_ids_by_matchers(
-    label_index: &ARTBitmap,
-    matchers: &Matchers,
-    dest: &mut IdBitmap
-) {
-    let mut key_buf = String::with_capacity(64);
-
+// Placeholder for more reasonable heuristics
+// e.g. if we have a filter that matches all postings, we should not parallelize
+// and instead rely on set operations to optimize the query at each iteration
+fn should_parallelize_matchers(matchers: &Matchers) -> bool {
     if !matchers.matchers.is_empty() {
-        find_ids_by_multiple_filters(label_index, &matchers.matchers, dest, SetOperation::Intersection, &mut key_buf);
+        return matchers.matchers.len() > 1
     }
-
-    if !matchers.or_matchers.is_empty() {
-        for filter in matchers.or_matchers.iter() {
-            find_ids_by_multiple_filters(label_index, filter, dest, SetOperation::Union, &mut key_buf);
-        }
+    if!matchers.or_matchers.is_empty() {
+        return matchers.or_matchers.iter()
+            .any(|m| m.len() > 3)
     }
+    false
 }
 
 
@@ -959,13 +912,6 @@ fn generate_unique_id(ts: &TimeSeries, id_to_key: &IntMap<TimeseriesId, KeyType>
         }
         return Ok(id)
     }
-}
-
-fn chunked<I>(iter: impl IntoIterator<Item = I>, chunk_size: usize) -> impl Iterator<Item = Vec<I>> {
-    let mut iter = iter.into_iter();
-    std::iter::from_fn(move || {
-        Some(iter.by_ref().take(chunk_size).collect()).filter(|chunk| !chunk.is_empty())
-    })
 }
 
 

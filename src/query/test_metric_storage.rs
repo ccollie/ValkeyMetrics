@@ -8,6 +8,7 @@ use metricsql_runtime::prelude::{
 };
 use std::collections::HashMap;
 use std::sync::RwLock;
+use metricsql_runtime::RuntimeError;
 use valkey_module::{ValkeyError, ValkeyResult};
 
 /// Interface between the time series database and the metricsql runtime.
@@ -142,7 +143,9 @@ impl TestMetricStorage {
     fn get_series_data(&self, search_query: SearchQuery) -> RuntimeResult<Vec<QueryResult>> {
         let map = self
             .index
-            .series_keys_by_matchers_internal(&[search_query.matchers]);
+            .series_keys_by_matchers_internal(&search_query.matchers)
+            .map_err(|_| RuntimeError::General("Error getting series keys".to_string()))?;
+
         let mut results: Vec<QueryResult> = Vec::with_capacity(map.len());
         let start_ts = search_query.start;
         let end_ts = search_query.end;

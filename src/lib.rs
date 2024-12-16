@@ -95,7 +95,7 @@ valkey_module! {
     deinit: deinitialize,
     commands: [
         ["VM.CREATE-SERIES", commands::create, "write deny-oom", 1, 1, 1],
-        ["VM.ALTER-SERIES", commands::alter, "write deny-oom", 1, 1, 1],
+        ["VM.ALTER-SERIES", commands::alter_series, "write deny-oom", 1, 1, 1],
         ["VM.ADD", commands::add, "write fast deny-oom", 1, 1, 1],
         ["VM.GET", commands::get, "readonly fast", 1, 1, 1],
         ["VM.MGET", commands::mget, "readonly fast", 0, 0, -1],

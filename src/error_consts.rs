@@ -33,3 +33,4 @@ pub const ROUNDING_ALREADY_SET: &str = "ERR rounding already set";
 pub const ALERTS_DUPLICATE_RULE: &str = "ERR a rule with the same name and labels already exists";
 pub const EVAL_OFFSET_EXCEEDS_INTERVAL: &str = "ERR eval_offset should be smaller than evaluation interval;";
 pub const UNEXPECTED_EMPTY_MATCHER: &str = "ERR unexpected empty matcher";
+pub const INVALID_MATCHER: &str = "ERR invalid matcher";

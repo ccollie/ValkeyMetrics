@@ -1,5 +1,5 @@
-use thiserror::Error;
 use crate::common::types::Sample;
+use thiserror::Error;
 
 #[derive(Debug, Error, Eq, PartialEq)]
 /// Enum for various errors in Tsdb.
@@ -67,11 +67,10 @@ impl From<String> for TsdbError {
   }
 }
 
-/*
-impl Into<ValkeyError> for TsdbError {
-  fn into(self) -> ValkeyError {
-    let msg = format!("TSDB: {}", self.to_string());
-    ValkeyError::String(msg)
-  }
-}
- */
+
+// impl Into<ValkeyError> for TsdbError {
+//   fn into(self) -> ValkeyError {
+//     let msg = format!("TSDB: {}", self.to_string());
+//     ValkeyError::String(msg)
+//   }
+// }

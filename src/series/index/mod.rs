@@ -1,12 +1,13 @@
 
 mod timeseries_index;
-#[cfg(test)]
-mod index_tests;
 mod filters;
 mod index_key;
 pub mod serialization;
 mod querier;
-mod querier_tests;
+#[cfg(test)]
+mod index_tests;
+#[cfg(test)]
+mod test_queries;
 
 use crate::common::get_current_db;
 use crate::module::VKM_SERIES_TYPE;
@@ -14,10 +15,10 @@ use crate::series::TimeSeries;
 use metricsql_parser::label::Matchers;
 use papaya::{Guard, HashMap};
 use rayon::iter::{ParallelBridge, ParallelIterator};
-use smallvec::SmallVec;
 use std::sync::LazyLock;
+use ahash::AHashSet;
 pub use timeseries_index::*;
-use valkey_module::{Context, ValkeyString};
+use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
 
 /// Map from db to TimeseriesIndex
 pub type TimeSeriesIndexMap = HashMap<i32, TimeSeriesIndex>;
@@ -41,38 +42,37 @@ where
     res
 }
 
-pub fn with_matched_series<F, R>(ctx: &Context, matchers: &[Matchers], f: F) -> R
+pub(crate) fn with_matched_series<F, STATE>(ctx: &Context, acc: &mut STATE, matchers: &[Matchers], mut f: F) -> ValkeyResult<()>
 where
-    F: FnOnce(&[&TimeSeries]) -> R,
+    F: FnMut(&mut STATE, &TimeSeries, ValkeyString) -> ValkeyResult<()>,
 {
-    let db = get_current_db(ctx);
-    let guard = TIMESERIES_INDEX.guard();
-    let index = get_timeseries_index_for_db(db, &guard);
-
-    let keys = index.series_keys_by_matchers(ctx, matchers);
-
-    if keys.is_empty() {
-        return f(&[]);
-    }
-
-    // needed to keep valkey keys alive below
-    let db_keys = keys
-        .iter()
-        .map(|key| ctx.open_key(key))
-        .collect::<Vec<_>>();
-
-    let mut time_series: SmallVec<&TimeSeries, 10> = SmallVec::new();
-
-    for key in db_keys.iter() {
-        if let Ok(Some(series)) = key.get_value::<TimeSeries>(&VKM_SERIES_TYPE) {
-            time_series.push(series);
+    with_timeseries_index(ctx, move |index| {
+        let keys = series_keys_by_matchers(ctx, index, matchers)?;
+        if keys.is_empty() {
+            return Err(ValkeyError::Str("ERR no series found"));
         }
+        for key in keys {
+            let db_key = ctx.open_key(&key);
+            if let Some(series) = db_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE)? {
+                f(acc, series, key)?
+            }
+        }
+        Ok(())
+    })
+}
+
+pub fn series_keys_by_matchers(ctx: &Context,
+                               ts_index: &TimeSeriesIndex,
+                               matchers: &[Matchers]) -> ValkeyResult<AHashSet<ValkeyString>> {
+
+    // todo: rayon ?
+    let mut key_set = AHashSet::new();
+    for matcher in matchers {
+        let keys = ts_index.series_keys_by_matchers(ctx, matcher)?;
+        key_set.extend(keys);
     }
 
-    let res = f(time_series.as_slice());
-
-    drop(guard);
-    res
+    Ok(key_set)
 }
 
 // todo: move elsewhere

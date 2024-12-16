@@ -1,3 +1,4 @@
+use crate::series::index::series_keys_by_matchers;
 use crate::aggregators::{AggOp, Aggregator};
 use crate::common::types::{IntMap, Matchers, Sample, Timestamp};
 use crate::module::arg_parse::*;
@@ -64,7 +65,7 @@ impl SeriesSample {
 fn handle_collate(ctx: &Context, options: CollateOptions) -> ValkeyResult {
 
     with_timeseries_index(ctx, move |index| {
-        let keys = index.series_keys_by_matchers(ctx, &options.matchers);
+        let keys = series_keys_by_matchers(ctx, index, &options.matchers)?;
         if keys.is_empty() {
             return Err(ValkeyError::Str(error_consts::NO_SERIES_FOUND));
         }

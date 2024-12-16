@@ -9,7 +9,7 @@ use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::{SeriesSampleIterator, TimeSeries};
 use ahash::AHashMap;
 use valkey_module::{Context, NextArg, ValkeyResult, ValkeyString, ValkeyValue};
-use crate::series::index::with_timeseries_index;
+use crate::series::index::{series_keys_by_matchers, with_timeseries_index};
 
 struct SeriesMeta<'a> {
     series: &'a TimeSeries,
@@ -28,7 +28,7 @@ pub fn mrange(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
     with_timeseries_index(ctx, move |index| {
         let matchers = std::mem::take(&mut options.series_selector);
-        let keys = index.series_keys_by_matchers(ctx, &[matchers]);
+        let keys = series_keys_by_matchers(ctx, index, &[matchers])?;
 
         // needed to keep valkey keys alive below
         let db_keys = keys

@@ -3,8 +3,6 @@ use crate::common::types::{LabelFilterOp, Matchers, StringMatchHandler, TagFilte
 use crate::series::index::index_key::format_key_for_label_prefix;
 use crate::series::index::timeseries_index::SetOperation;
 use blart::AsBytes;
-use metricsql_common::hash::FastHashSet;
-use metricsql_parser::label::Matcher;
 use metricsql_runtime::{create_label_filter_matchers, LabelFilterVec};
 
 
@@ -104,7 +102,7 @@ pub fn filter_value_by_matcher(
 ) -> bool {
     let res = match matcher {
         StringMatchHandler::Empty => value.is_empty(),
-        StringMatchHandler::NotEmpty => !value.is_empty(),
+       // StringMatchHandler::NotEmpty => !value.is_empty(),
         StringMatchHandler::StartsWith(prefix) => value.starts_with(prefix.as_bytes()),
         StringMatchHandler::EndsWith(suffix) => value.ends_with(suffix.as_bytes()),
         StringMatchHandler::Literal(literal) => value == literal.as_bytes(),
@@ -180,15 +178,5 @@ fn exec_filter_list(label_index: &ARTBitmap, filters: &[TagFilter], dest: &mut I
         if dest.is_empty() {
             return;
         }
-    }
-}
-
-fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<String>) -> bool {
-    if !label_must_be_set.contains(&m.label) {
-        return true;
-    }
-    match m.op {
-        LabelFilterOp::NotEqual | LabelFilterOp::RegexNotEqual => m.is_match(""),
-        _ => false,
     }
 }
