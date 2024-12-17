@@ -1,11 +1,14 @@
 use super::index_key::*;
+use super::postings::Postings;
+use super::{
+    IdBitmap, IdHasher, KeyType, TimeSeries
+};
 use crate::common::types::{IntMap, Label, Matchers};
 use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
 use crate::module::{with_timeseries, VKM_SERIES_TYPE};
 use crate::series::chunks::utils::format_prometheus_metric_name;
-use crate::series::index::postings::Postings;
-use crate::series::time_series::{TimeSeries, TimeseriesId};
+use crate::series::SeriesRef;
 use rand::Rng;
 use std::collections::BTreeSet;
 use std::ops::ControlFlow;
@@ -13,7 +16,6 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{RwLock, RwLockReadGuard};
 use valkey_module::redisvalue::ValkeyValueKey;
 use valkey_module::{logging, Context, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
-use crate::series::index::{IdBitmap, IdHasher, KeyType};
 
 /// Index for quick access to timeseries by label, label value or metric name.
 #[derive(Default)]
@@ -64,7 +66,7 @@ impl TimeSeriesIndex {
         inner.id_to_key.len()
     }
 
-    pub fn next_id(&self) -> TimeseriesId {
+    pub fn next_id(&self) -> SeriesRef {
         let inner = self.inner.read().unwrap();
         const MAX_RETRIES: usize = 64;
         let mut counter = 0;
@@ -72,7 +74,7 @@ impl TimeSeriesIndex {
             if counter >= MAX_RETRIES {
                 return 0;
             }
-            let current = self.last_id.load(std::sync::atomic::Ordering::Relaxed) as TimeseriesId;
+            let current = self.last_id.load(std::sync::atomic::Ordering::Relaxed) as SeriesRef;
             if inner.id_to_key.contains_key(&current) {
                 counter += 1;
                 continue;
@@ -107,12 +109,12 @@ impl TimeSeriesIndex {
         inner.remove_series(ts);
     }
 
-    pub fn remove_series_by_id(&self, id: TimeseriesId, metric_name: &str, labels: &[Label]) {
+    pub fn remove_series_by_id(&self, id: SeriesRef, metric_name: &str, labels: &[Label]) {
         let mut inner = self.inner.write().unwrap();
         inner.remove_series_by_id(id, metric_name, labels);
     }
 
-    fn index_series_by_labels(&self, ts_id: TimeseriesId, labels: &[Label]) {
+    fn index_series_by_labels(&self, ts_id: SeriesRef, labels: &[Label]) {
         let mut inner = self.inner.write().unwrap();
         for Label { name, value} in labels.iter() {
             inner.index_series_by_label(ts_id, name, value)
@@ -133,7 +135,7 @@ impl TimeSeriesIndex {
     /// This exists primarily to ensure that we disallow duplicate metric names, since the
     /// metric name and valkey key are distinct. IE we can have the metric http_requests_total{status="200"}
     /// stored at requests:http:total:200
-    pub fn get_id_by_name_and_labels(&self, metric: &str, labels: &[Label]) -> ValkeyResult<Option<TimeseriesId>> {
+    pub fn get_id_by_name_and_labels(&self, metric: &str, labels: &[Label]) -> ValkeyResult<Option<SeriesRef>> {
         let inner = self.inner.read()
             .map_err(|_| {
                 logging::log_debug("Possible lock poison error reading timeseries index");
@@ -237,7 +239,7 @@ impl TimeSeriesIndex {
         result
     }
 
-    pub fn is_series_indexed(&self, id: TimeseriesId) -> bool {
+    pub fn is_series_indexed(&self, id: SeriesRef) -> bool {
         let inner = self.inner.read().unwrap();
         inner.id_to_key.contains_key(&id)
     }
@@ -248,10 +250,10 @@ impl TimeSeriesIndex {
         inner.label_index.contains_key(key.as_bytes())
     }
 
-    /// Returns a list of all series matching `matchers`
+    /// Returns a list of all series keys matching `matchers`
     pub(crate) fn series_keys_by_matchers(&self, ctx: &Context, matchers: &Matchers) -> TsdbResult<Vec<ValkeyString>> {
         let inner = self.inner.read().unwrap();
-        let bitmap = inner.series_ids_by_matchers(matchers)?;
+        let bitmap = inner.series_refs_by_matchers(matchers)?;
         let mut result: Vec<ValkeyString> = Vec::with_capacity(bitmap.cardinality() as usize);
         for id in bitmap.iter() {
             if let Some(value) = inner.id_to_key.get(&id) {
@@ -262,11 +264,30 @@ impl TimeSeriesIndex {
         Ok(result)
     }
 
+    pub fn label_values_with_matchers(&self, name: &str, matchers: &Matchers) -> TsdbResult<Vec<String>> {
+        let inner = self.inner.read().unwrap();
+        if !matchers.matchers.is_empty() {
+            return inner.label_values_with_matchers(name, &matchers.matchers);
+        }
+
+        if !matchers.or_matchers.is_empty() {
+            let mut set = BTreeSet::new();
+            for filter in matchers.or_matchers.iter() {
+                let result = inner.label_values_with_matchers(name, filter)?;
+                set.extend(result);
+            }
+            let result = set.into_iter().collect();
+            Ok(result)
+        } else {
+            Ok(vec![])
+        }
+    }
+
     /// Returns a list of all series matching `matchers` while having samples in the range
     /// Primarily for unit testing outside valkey contexts
     pub(crate) fn series_keys_by_matchers_internal(&self, matchers: &Matchers) -> TsdbResult<Vec<KeyType>> {
         let inner = self.inner.read().unwrap();
-        let bitmap = inner.series_ids_by_matchers(matchers)?;
+        let bitmap = inner.series_refs_by_matchers(matchers)?;
         let mut result: Vec<KeyType> = Vec::with_capacity(bitmap.cardinality() as usize);
         for id in bitmap.iter() {
             if let Some(value) = inner.id_to_key.get(&id) {
@@ -317,7 +338,7 @@ impl TimeSeriesIndex {
 }
 
 
-fn hash_timeseries(ts: &TimeSeries, state: &mut IdHasher, counter: usize) -> TimeseriesId {
+fn hash_timeseries(ts: &TimeSeries, state: &mut IdHasher, counter: usize) -> SeriesRef {
     #[cfg(not(feature = "id64"))]
     state.reset(0);
 
@@ -331,11 +352,11 @@ fn hash_timeseries(ts: &TimeSeries, state: &mut IdHasher, counter: usize) -> Tim
     }
     state.update(counter.to_be_bytes().as_slice());
 
-    state.digest() as TimeseriesId
+    state.digest() as SeriesRef
 }
 
 // todo: why not just use a snowflake id generator ?
-fn generate_unique_id(ts: &TimeSeries, id_to_key: &IntMap<TimeseriesId, KeyType>) -> ValkeyResult<TimeseriesId> {
+fn generate_unique_id(ts: &TimeSeries, id_to_key: &IntMap<SeriesRef, KeyType>) -> ValkeyResult<SeriesRef> {
     const MAX_RETRIES: usize = 64;
 
     let mut hasher: IdHasher = Default::default();

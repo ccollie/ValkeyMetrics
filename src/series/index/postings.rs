@@ -1,18 +1,16 @@
+use super::index_key::{get_key_for_label_prefix, IndexKey};
 use crate::common::types::IntMap;
 use crate::common::METRIC_NAME_LABEL;
 use crate::error::{TsdbError, TsdbResult};
 use crate::error_consts;
-use crate::series::index::index_key::{get_key_for_label_prefix, IndexKey};
-use crate::series::{TimeSeries, TimeseriesId};
+use crate::series::{SeriesRef, TimeSeries};
 use cfg_if::cfg_if;
 use metricsql_common::hash::FastHashSet;
-use metricsql_common::label::Label;
-use metricsql_parser::label::{LabelFilter, LabelFilterOp, Matcher, Matchers};
+use metricsql_parser::label::{Label, LabelFilter, LabelFilterOp, Matcher, Matchers};
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::ops::ControlFlow;
-use std::sync::LazyLock;
 
 // todo: move to config
 pub const OPTIMIZE_CHANGE_THRESHOLD: usize = 1000;
@@ -30,12 +28,9 @@ cfg_if! {
 /// Type for the key of the index. Use instead of `String` because Valkey keys are binary safe not utf8 safe.
 pub type KeyType = Box<[u8]>;
 
-
 // label
 // label=value
 pub type ARTBitmap = blart::TreeMap<IndexKey, IdBitmap>;
-
-const EMPTY_BITMAP: LazyLock<IdBitmap> = LazyLock::new(|| IdBitmap::new());
 
 #[derive(Clone, Copy)]
 pub(crate) enum SetOperation {
@@ -53,7 +48,7 @@ impl PartialEq for SetOperation {
 #[derive(Clone, Default, Debug)]
 pub(crate) struct Postings {
     /// Map from timeseries id to timeseries key.
-    pub id_to_key: IntMap<TimeseriesId, KeyType>,
+    pub id_to_key: IntMap<SeriesRef, KeyType>,
     /// Map from label name and (label name,  label value) to set of timeseries ids.
     pub label_index: ARTBitmap,
     pub label_count: usize,
@@ -102,7 +97,7 @@ impl Postings {
         self.id_to_key.remove(&ts.id);
     }
 
-    pub(crate) fn remove_series_by_id(&mut self, id: TimeseriesId, metric_name: &str, labels: &[Label]) {
+    pub(crate) fn remove_series_by_id(&mut self, id: SeriesRef, metric_name: &str, labels: &[Label]) {
         self.id_to_key.remove(&id);
         // should never happen, but just in case
         if metric_name.is_empty() && labels.is_empty() {
@@ -110,15 +105,15 @@ impl Postings {
         }
 
         if !metric_name.is_empty() {
-            self.remove_label_value(METRIC_NAME_LABEL, metric_name, id);
+            self.remove_posting_for_label_value(METRIC_NAME_LABEL, metric_name, id);
         }
 
         for Label { name, value} in labels.iter() {
-            self.remove_label_value(name, value, id);
+            self.remove_posting_for_label_value(name, value, id);
         }
     }
 
-    fn index_series_by_metric_name(&mut self, ts_id: TimeseriesId, metric_name: &str) {
+    fn index_series_by_metric_name(&mut self, ts_id: SeriesRef, metric_name: &str) {
         self.index_series_by_label(ts_id, METRIC_NAME_LABEL, metric_name);
     }
 
@@ -127,7 +122,7 @@ impl Postings {
         self.label_index.prefix(prefix.as_bytes()).next().is_some()
     }
 
-    pub fn add_label_value(&mut self, label: &str, value: &str, ts_id: TimeseriesId) -> bool {
+    pub fn add_posting_for_label_value(&mut self, label: &str, value: &str, ts_id: SeriesRef) -> bool {
         let key = IndexKey::for_label_value(label, value);
         let result = if let Some(bmp) = self.label_index.get_mut(&key) {
             bmp.add(ts_id);
@@ -135,8 +130,9 @@ impl Postings {
         } else {
             let mut bmp = IdBitmap::new();
             bmp.add(ts_id);
-            // TODO: !!!!!! handle error
-            match self.label_index.try_insert(key, bmp).unwrap() {
+            // TODO: possibly return Result, though if this fails, it's a bug
+            match self.label_index.try_insert(key, bmp)
+                .expect("BUG in posting insert. Key is prefix of another key") {
                 None => {
                     self.label_count += 1;
                     true
@@ -148,11 +144,11 @@ impl Postings {
         result
     }
 
-    pub fn index_series_by_label(&mut self, ts_id: TimeseriesId, label: &str, value: &str) {
-        self.add_label_value(label, value, ts_id);
+    pub fn index_series_by_label(&mut self, ts_id: SeriesRef, label: &str, value: &str) {
+        self.add_posting_for_label_value(label, value, ts_id);
     }
 
-    fn remove_label_value(&mut self, label: &str, value: &str, ts_id: TimeseriesId) {
+    fn remove_posting_for_label_value(&mut self, label: &str, value: &str, ts_id: SeriesRef) {
         let key = IndexKey::for_label_value(label, value);
         if let Some(bmp) = self.label_index.get_mut(&key) {
             bmp.remove(ts_id);
@@ -167,7 +163,7 @@ impl Postings {
     }
 
     /// Returns a list of all series matching `matchers`
-    pub fn series_ids_by_matchers(&self, matchers: &Matchers) -> TsdbResult<Cow<IdBitmap>> {
+    pub fn series_refs_by_matchers(&self, matchers: &Matchers) -> TsdbResult<Cow<IdBitmap>> {
         if !matchers.matchers.is_empty() {
             return self.postings_for_matchers(&matchers.matchers);
         }
@@ -236,7 +232,7 @@ impl Postings {
 
         let mut its = if has_subtracting_matchers && !has_intersecting_matchers {
             // If there's nothing to subtract from, add in everything and remove the not_its later.
-            // We prefer to get AllPostings so that the base of subtraction (i.e. all_postings)
+            // We prefer to get all_postings so that the base of subtraction (i.e. all_postings)
             // doesn't include series that may be added to the index reader during this function call.
             self.all_postings()
         } else {
@@ -352,7 +348,7 @@ impl Postings {
         const BUFFER_SIZE: usize = 64;
         let mut result = IdBitmap::new();
         // use chunks to minimize ffi calls
-        let mut id_chunk: [TimeseriesId; BUFFER_SIZE] = [0; BUFFER_SIZE];
+        let mut id_chunk: [SeriesRef; BUFFER_SIZE] = [0; BUFFER_SIZE];
         let mut len = 0;
         for id in self.id_to_key.keys().copied() {
             id_chunk[len] = id;
@@ -392,6 +388,10 @@ impl Postings {
         }
     }
 
+
+    /// `postings_for_label_matching` returns postings having a label with the given name and a value
+    /// for which match returns true. If no postings are found having at least one matching label,
+    /// an empty bitmap is returned.
     pub fn postings_for_label_matching(&self, name: &str, match_fn: fn(&str) -> bool) -> IdBitmap {
         let prefix = get_key_for_label_prefix(name);
         let start_pos = prefix.len();
@@ -405,13 +405,18 @@ impl Postings {
         result
     }
 
-    fn postings_for_matcher_internal(&self, matcher: &Matcher) -> IdBitmap {
+    fn postings_for_matcher_internal(&self, matcher: &Matcher, inverse: bool) -> IdBitmap {
         let mut result = IdBitmap::new();
         let prefix = get_key_for_label_prefix(&matcher.label);
         let start_pos = prefix.len();
         for (key, map) in self.label_index.prefix(prefix.as_bytes()) {
             let value = key.sub_string(start_pos);
-            if matcher.is_match(value) {
+            let matched = if inverse {
+                !matcher.is_match(value)
+            } else {
+                matcher.is_match(value)
+            };
+            if matched {
                 result.or_inplace(map);
             }
         }
@@ -427,15 +432,31 @@ impl Postings {
         }
         if m.op == LabelFilterOp::RegexEqual {
             let set_matches = m.set_matches();
-            if !set_matches.is_empty() {
+            return if !set_matches.is_empty() {
                 if set_matches.len() == 1 {
                     return self.postings_for_label_value(&m.label, &set_matches[0]);
                 }
-                return Cow::Owned(self.postings(&m.label, &set_matches));
+                Cow::Owned(self.postings(&m.label, &set_matches))
+            } else {
+                // todo: refactor into a method
+                // todo: possible optimization - if there's only one entry, we can return a reference
+                let prefix = m.prefix();
+                let mut result = IdBitmap::new();
+                if !prefix.is_empty() {
+                    let key_prefix = IndexKey::for_label_value(&m.label, prefix);
+                    let start_pos = key_prefix.len();
+                    for (key, map) in self.label_index.prefix(&key_prefix) {
+                        let value = key.sub_string(start_pos);
+                        if m.is_match(value) {
+                            result.or_inplace(map);
+                        }
+                    }
+                }
+                Cow::Owned(result)
             }
         }
 
-        Cow::Owned(self.postings_for_matcher_internal(m))
+        Cow::Owned(self.postings_for_matcher_internal(m, false))
     }
 
     fn inverse_postings_for_matcher(&self, m: &Matcher) -> Cow<IdBitmap> {
@@ -454,7 +475,56 @@ impl Postings {
             return Cow::Owned(self.postings_for_all_label_values(&m.label));
         }
 
-        Cow::Owned(self.postings_for_matcher_internal(m))
+        Cow::Owned(self.postings_for_matcher_internal(m, true))
+    }
+
+    pub fn label_values_with_matchers(&self, name: &str, matchers: &[Matcher]) -> TsdbResult<Vec<String>> {
+        let mut all_values = self.label_values(name);
+
+        if all_values.is_empty() {
+            return Ok(all_values)
+        }
+
+        // If we have a matcher for the label name, we can filter out values that don't match
+        // before we fetch postings. This is especially useful for labels with many values.
+        // e.g. __name__ with a selector like {__name__="xyz"}
+        let has_matchers_for_other_labels= matchers.iter().any(|m| m.label != name);
+        all_values.retain(|v| {
+            matchers.iter().all(|m| {
+                m.label != name || m.is_match(v)
+            })
+        });
+
+        if all_values.is_empty() {
+            return Ok(all_values)
+        }
+
+        // If we don't have any matchers for other labels, then we're done.
+        if !has_matchers_for_other_labels {
+            return Ok(all_values);
+        }
+
+        let p = self.postings_for_matchers(matchers)
+            .map_err(|_err| TsdbError::General(error_consts::ERROR_FETCHING_POSTINGS_FROM_MATCHERS.to_string()))?;
+
+        all_values.retain(|v| {
+            let postings = self.postings_for_label_value(name, v);
+            postings.intersect(&p)
+        });
+
+        Ok(all_values)
+    }
+
+    pub fn label_values(&self, name: &str) -> Vec<String> {
+        let mut values = Vec::new();
+        self.process_label_values(name, &mut values, |_| true,
+                                            |values, value, _| {
+                                                values.push(value.to_string());
+                                                ControlFlow::<Option<()>>::Continue(())
+                                            });
+        values.sort();
+
+        values
     }
 
     pub fn process_label_values<T, CONTEXT, F, PRED>(

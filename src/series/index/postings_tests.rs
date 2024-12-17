@@ -17,8 +17,8 @@ mod tests {
     use ahash::AHashSet;
     use metricsql_parser::label::{LabelFilterOp, Label, Matcher};
     use crate::series::index::postings::Postings;
-    use crate::series::index::querier::SeriesRef;
     use rand::distributions::{Alphanumeric, DistString};
+    use crate::series::SeriesRef;
 
     fn random_string(len: usize) -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), len)
@@ -96,6 +96,18 @@ mod tests {
         }
 
         let cases = vec![
+            //
+            TestCase {
+                matchers: vec![
+                    Matcher::new(Equal, "n", "1").unwrap(),
+                    Matcher::new(RegexEqual, "i", "^a?$").unwrap(),
+                ],
+                exp: to_label_vec(&[
+                    labels_from_strings(&["n", "1"]),
+                    labels_from_strings(&["n", "1", "i", "a"]),
+                ]),
+            },
+            //
             TestCase {
                 matchers: vec![Matcher::new(Equal, "n", "1").unwrap()],
                 exp: to_label_vec(&[

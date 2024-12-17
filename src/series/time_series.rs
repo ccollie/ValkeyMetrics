@@ -24,9 +24,11 @@ pub(super) const TIMESTAMP_TYPE_U32: &str = "u32";
 cfg_if::cfg_if! {
     if #[cfg(feature = "id64")] {
         pub type TimeseriesId = u64;
+        pub type SeriesRef = u64;
         pub const TIMESTAMP_TYPE: &str = TIMESTAMP_TYPE_U64;
     } else {
         pub type TimeseriesId = u32;
+        pub type SeriesRef = u32;
         pub const TIMESTAMP_TYPE: &str = TIMESTAMP_TYPE_U64;
     }
 }
@@ -37,7 +39,7 @@ cfg_if::cfg_if! {
 #[derive(GetSize)]
 pub struct TimeSeries {
     /// fixed internal id used in indexing
-    pub id: TimeseriesId,
+    pub id: SeriesRef,
 
     /// Name of the metric
     /// For example, given `http_requests_total{method="POST", status="500"}`

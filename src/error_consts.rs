@@ -34,3 +34,4 @@ pub const ALERTS_DUPLICATE_RULE: &str = "ERR a rule with the same name and label
 pub const EVAL_OFFSET_EXCEEDS_INTERVAL: &str = "ERR eval_offset should be smaller than evaluation interval;";
 pub const UNEXPECTED_EMPTY_MATCHER: &str = "ERR unexpected empty matcher";
 pub const INVALID_MATCHER: &str = "ERR invalid matcher";
+pub const ERROR_FETCHING_POSTINGS_FROM_MATCHERS: &str = "ERR error fetching postings from matchers";

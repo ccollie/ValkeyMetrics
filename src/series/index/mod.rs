@@ -1,25 +1,23 @@
 
 mod timeseries_index;
-mod filters;
 mod index_key;
 pub mod serialization;
-mod querier;
 #[cfg(test)]
 mod index_tests;
 #[cfg(test)]
-mod test_queries;
+mod postings_tests;
 mod postings;
 
 use crate::common::get_current_db;
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::TimeSeries;
-use metricsql_parser::label::Matchers;
 use papaya::{Guard, HashMap};
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::sync::LazyLock;
 use ahash::AHashSet;
 pub use timeseries_index::*;
 pub use postings::*;
+pub use metricsql_parser::label::{Matcher, Matchers};
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
 
 /// Map from db to TimeseriesIndex
