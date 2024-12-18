@@ -13,7 +13,7 @@
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use ahash::AHashSet;
     use metricsql_parser::label::{LabelFilterOp, Label, Matcher};
     use crate::series::index::postings::Postings;
@@ -53,23 +53,35 @@ mod tests {
         ix.id_to_key.insert(series_ref, boxed_key);
     }
 
-    fn to_label_vec(labels: &[Vec<Label>]) -> Vec<Label> {
-        labels.iter().cloned().flatten().collect()
+    fn to_label_vec(labels: &[Vec<Label>]) -> Vec<Vec<Label>> {
+        labels.into_iter().map(|items| {
+            let mut items = items.clone();
+            items.sort();
+            items
+        }).collect::<Vec<_>>()
     }
 
     fn get_labels_by_matcher(ix: &Postings,
                              matchers: &[Matcher],
-                             series_data: &HashMap<SeriesRef, Vec<Label>>) -> Vec<Label> {
+                             series_data: &HashMap<SeriesRef, Vec<Label>>) -> Vec<Vec<Label>> {
         let p = ix.postings_for_matchers(matchers).unwrap();
         let mut actual: Vec<_> = p
             .iter()
             .filter_map(|series_ref| series_data.get(&series_ref))
             .cloned()
-            .flatten()
             .collect();
 
-        actual.sort();
         actual
+    }
+
+    fn label_vec_to_string(labels: &[Label]) -> String {
+        let mut items = labels.to_vec();
+        items.sort();
+
+        items.iter()
+            .map(|l| l.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     #[test]
@@ -92,7 +104,7 @@ mod tests {
 
         struct TestCase {
             matchers: Vec<Matcher>,
-            exp: Vec<Label>,
+            exp: Vec<Vec<Label>>,
         }
 
         let cases = vec![
@@ -122,7 +134,7 @@ mod tests {
                     Matcher::new(Equal, "n", "1").unwrap(),
                     Matcher::new(Equal, "i", "a").unwrap(),
                 ],
-                exp: labels_from_strings(&["n", "1", "i", "a"]),
+                exp: vec![labels_from_strings(&["n", "1", "i", "a"])],
             },
             TestCase {
                 matchers: vec![
@@ -236,7 +248,7 @@ mod tests {
                     Matcher::new(Equal, "n", "1").unwrap(),
                     Matcher::new(RegexEqual, "i", "^a$").unwrap(),
                 ],
-                exp: labels_from_strings(&["n", "1", "i", "a"]),
+                exp: vec![labels_from_strings(&["n", "1", "i", "a"])],
             },
             TestCase {
                 matchers: vec![
@@ -261,7 +273,7 @@ mod tests {
                     Matcher::new(Equal, "n", "1").unwrap(),
                     Matcher::new(RegexEqual, "i", "^$").unwrap(),
                 ],
-                exp: labels_from_strings(&["n", "1"]),
+                exp: vec![labels_from_strings(&["n", "1"])],
             },
             TestCase {
                 matchers: vec![
@@ -311,11 +323,11 @@ mod tests {
             },
             TestCase {
                 matchers: vec![Matcher::new(RegexNotEqual, "n", "1|2.5").unwrap()],
-                exp: labels_from_strings(&["n", "2"]),
+                exp: vec![labels_from_strings(&["n", "2"])],
             },
             TestCase {
                 matchers: vec![Matcher::new(RegexNotEqual, "n", "(1|2.5)").unwrap()],
-                exp: labels_from_strings(&["n", "2"]),
+                exp: vec![labels_from_strings(&["n", "2"])],
             },
             TestCase {
                 matchers: vec![
@@ -361,7 +373,7 @@ mod tests {
                     Matcher::new(Equal, "n", "1").unwrap(),
                     Matcher::new(RegexNotEqual, "i", "^.+$").unwrap(),
                 ],
-                exp: labels_from_strings(&["n", "1"]),
+                exp: vec![labels_from_strings(&["n", "1"])],
             },
             // Combinations.
             TestCase {
@@ -370,7 +382,7 @@ mod tests {
                     Matcher::new(NotEqual, "i", "").unwrap(),
                     Matcher::new(Equal, "i", "a").unwrap(),
                 ],
-                exp: labels_from_strings(&["n", "1", "i", "a"]),
+                exp: vec![ labels_from_strings(&["n", "1", "i", "a"]) ],
             },
             TestCase {
                 matchers: vec![
@@ -378,7 +390,7 @@ mod tests {
                     Matcher::new(NotEqual, "i", "b").unwrap(),
                     Matcher::new(RegexEqual, "i", "^(b|a).*$").unwrap(),
                 ],
-                exp: labels_from_strings(&["n", "1", "i", "a"]),
+                exp: vec![ labels_from_strings(&["n", "1", "i", "a"]) ],
             },
             // Set optimization for Regex.
             // Refer to https://github.com/prometheus/prometheus/issues/2651.
@@ -408,7 +420,7 @@ mod tests {
             },
             TestCase {
                 matchers: vec![Matcher::new(RegexEqual, "n", "x1|2").unwrap()],
-                exp: labels_from_strings(&["n", "2"]),
+                exp: vec![ labels_from_strings(&["n", "2"]) ],
             },
             TestCase {
                 matchers: vec![Matcher::new(RegexEqual, "n", "2|2\\.5").unwrap()],
@@ -467,7 +479,7 @@ mod tests {
                     Matcher::new(RegexEqual, "n", "^.*$").unwrap(),
                     Matcher::new(Equal, "i", "a").unwrap(),
                 ],
-                exp: labels_from_strings(&["n", "1", "i", "a"]),
+                exp: vec![ labels_from_strings(&["n", "1", "i", "a"]) ],
             },
             // Test shortcut for i!~".*"
             TestCase {
@@ -490,6 +502,18 @@ mod tests {
                 ],
                 exp: vec![],
             },
+            // Test shortcut i!~".+"
+            TestCase{
+                matchers: vec![
+                    Matcher::new(RegexEqual, "n", ".*").unwrap(),
+                    Matcher::new(RegexNotEqual, "i", ".+").unwrap()
+                ],
+                exp: to_label_vec(&[
+                    labels_from_strings(&["n", "1"]),
+                    labels_from_strings(&["n", "2"]),
+                    labels_from_strings(&["n", "2.5"]),
+                ]),
+            },
             // Test shortcut i!~"^.*$"
             TestCase {
                 matchers: vec![
@@ -500,6 +524,8 @@ mod tests {
             },
         ];
 
+        let mut exp: HashSet<String> = HashSet::new();
+
         for case in cases {
             let name = case
                 .matchers
@@ -508,15 +534,21 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            let actual = get_labels_by_matcher(&ix, &case.matchers, &series_data);
-            let mut expected = case.exp.clone();
-            expected.sort();
+            exp.clear();
 
-            assert_eq!(
-                actual, expected,
-                "Evaluating {:?}\n expected {:?} \n got {:?}",
-                name, expected, actual
-            );
+            for labels in case.exp {
+                let val = label_vec_to_string(&labels);
+                exp.insert(val);
+            }
+
+            let actual = get_labels_by_matcher(&ix, &case.matchers, &series_data);
+            for labels in actual {
+                let actual = label_vec_to_string(&labels);
+                let found = exp.remove(&actual);
+                assert!(found, "Evaluating {name}\n unexpected result {actual}");
+            }
+
+            assert!(exp.is_empty(), "Evaluating {name}\nextra result(s): {exp:?}");
         }
     }
 }

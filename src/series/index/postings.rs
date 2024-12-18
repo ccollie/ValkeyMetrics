@@ -280,11 +280,10 @@ impl Postings {
                 if it.is_empty() {
                     return Ok(Cow::Owned(it))
                 }
-                its &= it;
+                its.or_inplace(&it);
             } else if typ == LabelFilterOp::RegexNotEqual && value == ".+" {
                 // .+ regexp matches any non-empty string: get postings for all label values and remove them.
-                let it = self.postings_for_all_label_values(name);
-                not_its |= it;
+                not_its |= self.postings_for_all_label_values(name);
                 //its = append(not_its, it)
             } else if label_must_be_set.contains(name) {
                 // If this matcher must be non-empty, we can be smarter.
@@ -305,7 +304,7 @@ impl Postings {
                         // l!=""
                         // If the label can't be empty and is a Not, but the inner matcher can
                         // be empty we need to use inverse_postings_for_matcher.
-                        let it = self.inverse_postings_for_matcher(&inverse);
+                        let it = inverse_postings_for_matcher(self, &inverse);
                         if it.is_empty() {
                             return Ok(it);
                         }
@@ -326,7 +325,7 @@ impl Postings {
                 // the series which don't have the label name set too. See:
                 // https://github.com/prometheus/prometheus/issues/3575 and
                 // https://github.com/prometheus/prometheus/pull/3578#issuecomment-351653555
-                let it = self.inverse_postings_for_matcher(m);
+                let it = inverse_postings_for_matcher(self, m);
                 not_its.or_inplace(&*it);
             }
         }
@@ -459,25 +458,6 @@ impl Postings {
         Cow::Owned(self.postings_for_matcher_internal(m, false))
     }
 
-    fn inverse_postings_for_matcher(&self, m: &Matcher) -> Cow<IdBitmap> {
-        if m.op == LabelFilterOp::RegexNotEqual {
-            let set_matches = m.set_matches();
-            if !set_matches.is_empty() {
-                return Cow::Owned(self.postings(&m.label, &set_matches));
-            }
-        }
-
-        if m.op == LabelFilterOp::NotEqual {
-            return self.postings_for_label_value(&m.label, &m.value);
-        }
-
-        if m.value.is_empty() && (m.op == LabelFilterOp::RegexEqual || m.op == LabelFilterOp::Equal) {
-            return Cow::Owned(self.postings_for_all_label_values(&m.label));
-        }
-
-        Cow::Owned(self.postings_for_matcher_internal(m, true))
-    }
-
     pub fn label_values_with_matchers(&self, name: &str, matchers: &[Matcher]) -> TsdbResult<Vec<String>> {
         let mut all_values = self.label_values(name);
 
@@ -569,6 +549,32 @@ fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<String>) 
     }
     matches!(m.op, LabelFilterOp::NotEqual | LabelFilterOp::RegexNotEqual if m.is_match(""))
 }
+
+fn inverse_postings_for_matcher<'a>(postings: &'a Postings, m: &Matcher) -> Cow<'a, IdBitmap> {
+    // Fast-path for RegexNotEqual matching.
+    // Inverse of a RegexNotEqual is RegexpEqual (double negation).
+    // Fast-path for set matching.
+    if m.op == LabelFilterOp::RegexNotEqual {
+        let set_matches = m.set_matches();
+        if !set_matches.is_empty() {
+            return Cow::Owned(postings.postings(&m.label, &set_matches));
+        }
+    }
+
+    // Fast-path for NotEqual matching.
+    // Inverse of a NotEqual is Equal (double negation).
+    if m.op == LabelFilterOp::NotEqual {
+        return postings.postings_for_label_value(&m.label, &m.value);
+    }
+
+    // If the matcher being inverted is =~"" or ="", we just want all the values.
+    if m.value.is_empty() && (m.op == LabelFilterOp::RegexEqual || m.op == LabelFilterOp::Equal) {
+        return Cow::Owned(postings.postings_for_all_label_values(&m.label));
+    }
+
+    Cow::Owned(postings.postings_for_matcher_internal(m, true))
+}
+
 
 // Placeholder for more reasonable heuristics
 // e.g. if we have a filter that matches all postings, we should not parallelize
