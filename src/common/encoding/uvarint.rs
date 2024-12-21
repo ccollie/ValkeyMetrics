@@ -1,5 +1,72 @@
 use nom::{bytes::complete::take, IResult};
 
+/// Most-significant byte, == 0x80
+pub const MSB: u8 = 0b1000_0000;
+/// All bits except for the most significant. Can be used as bitmask to drop the most-signficant
+/// bit using `&` (binary-and).
+const DROP_MSB: u8 = 0b0111_1111;
+
+/// How many bytes an integer uses when being encoded as a VarInt.
+#[inline]
+pub(super) fn required_encoded_space_unsigned(mut v: u64) -> usize {
+    if v == 0 {
+        return 1;
+    }
+
+    let mut logcounter = 0;
+    while v > 0 {
+        logcounter += 1;
+        v >>= 7;
+    }
+    logcounter
+}
+
+/// Decode a value from the slice. Returns the value and the number of bytes read from the
+/// slice (can be used to read several consecutive values from a big slice)
+/// return None if all bytes has MSB set.
+#[inline]
+pub fn decode_var(src: &[u8]) -> Option<(u64, usize)> {
+    let mut result: u64 = 0;
+    let mut shift = 0;
+
+    let mut success = false;
+    for b in src.iter() {
+        let msb_dropped = b & DROP_MSB;
+        result |= (msb_dropped as u64) << shift;
+        shift += 7;
+
+        if b & MSB == 0 || shift > (9 * 7) {
+            success = b & MSB == 0;
+            break;
+        }
+    }
+
+    if success {
+        Some((result, shift / 7))
+    } else {
+        None
+    }
+}
+
+/// Encode a value into the slice. The slice must be at least `required_space()` bytes long.
+/// The number of bytes taken by the encoded integer is returned.
+#[inline]
+pub fn encode_var(val: u64, dst: &mut [u8]) -> usize {
+    debug_assert!(dst.len() >= required_encoded_space_unsigned(val));
+    let mut n = val;
+    let mut i = 0;
+
+    while n >= 0x80 {
+        dst[i] = MSB | (n as u8);
+        i += 1;
+        n >>= 7;
+    }
+
+    dst[i] = n as u8;
+    i + 1
+}
+
+
 /// Write a u64 as a Golang uvarint.
 pub fn write_uvarint<W: std::io::Write>(value: u64, writer: &mut W) -> std::io::Result<()> {
     let mut x: u64 = value;

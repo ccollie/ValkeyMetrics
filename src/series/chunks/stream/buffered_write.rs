@@ -1,11 +1,12 @@
 use super::{Bit, Write};
 use num_traits::{PrimInt};
 use std::boxed::Box;
+use get_size::GetSize;
 
 /// BufferedWriter
 ///
 /// BufferedWriter writes bytes to a buffer.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, GetSize)]
 pub struct BufferedWriter {
     pub buf: Vec<u8>,
     pub pos: u32, // position in the last byte in the buffer

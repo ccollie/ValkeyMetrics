@@ -14,6 +14,7 @@ use std::io::Write;
 use std::mem::size_of_val;
 use valkey_module::error::Error as ValkeyError;
 use valkey_module::raw;
+use crate::series::chunks::stream::BufferedWriter;
 
 #[derive(Debug)]
 pub struct XOREncoder {
@@ -24,6 +25,7 @@ pub struct XOREncoder {
     pub leading_bits_count: u8,
     pub trailing_bits_count: u8,
     pub timestamp_delta: i64,
+  //  w: BufferedWriter
 }
 
 impl GetSize for XOREncoder {
@@ -50,6 +52,7 @@ impl Clone for XOREncoder {
             leading_bits_count: self.leading_bits_count,
             trailing_bits_count: self.trailing_bits_count,
             timestamp_delta: self.timestamp_delta,
+            w: Default::default(),
         }
     }
 }
@@ -66,6 +69,7 @@ impl XOREncoder {
             leading_bits_count: 0,
             trailing_bits_count: 0,
             timestamp_delta: 0,
+            w: Default::default(),
         }
     }
 
@@ -91,6 +95,7 @@ impl XOREncoder {
 
     fn write_first_sample(&mut self, sample: &Sample) -> std::io::Result<()> {
         let mut bytes: Vec<u8> = Vec::with_capacity(32);
+
         write_varint(sample.timestamp, &mut bytes)?;
         // Classic Float64 for the value
         bytes.write_all(&sample.value.to_be_bytes())?;

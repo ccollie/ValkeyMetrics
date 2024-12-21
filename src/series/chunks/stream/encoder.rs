@@ -35,7 +35,6 @@ pub(crate) struct StdEncoder<T: Write> {
     pub leading_zeroes: u32,
     pub trailing_zeroes: u32,
 
-    pub first: bool,  // will next DataPoint be the first Sample encoded
     pub count: usize, // number of Samples encoded
 
     pub(crate) w: T,
@@ -55,7 +54,6 @@ where
             val: f64::NAN,
             leading_zeroes: 64,  // 64 is an initial sentinel value
             trailing_zeroes: 64, // 64 is an initial sentinel value
-            first: true,
             count: 0,
             w,
         };
@@ -73,7 +71,6 @@ where
         self.val = f64::NAN;
         self.leading_zeroes = 64;
         self.trailing_zeroes = 64;
-        self.first = true;
         self.count = 0;
     }
 
@@ -92,8 +89,6 @@ where
 
         // store the first value exactly
         self.w.write_bits(self.value_bits, 64);
-
-        self.first = true
     }
 
     /// writes an i64 using varbit encoding with a bit bucketing
@@ -239,10 +234,9 @@ where
     fn encode(&mut self, dp: Sample) {
         let value_bits = dp.value.to_bits();
 
-        if self.first {
+        if self.count == 0 {
             self.time = dp.timestamp as u64; // cc
             self.write_first(dp.timestamp as u64, value_bits);
-            self.first = false;
             self.count += 1;
             return;
         }
