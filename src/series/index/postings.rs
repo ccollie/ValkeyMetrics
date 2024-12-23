@@ -6,7 +6,7 @@ use crate::error_consts;
 use crate::series::{SeriesRef, TimeSeries};
 use cfg_if::cfg_if;
 use metricsql_common::hash::FastHashSet;
-use metricsql_parser::label::{Label, LabelFilter, LabelFilterOp, Matcher, Matchers};
+use metricsql_parser::label::{Label, MatchOp, Matcher, Matchers};
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -265,29 +265,29 @@ impl Postings {
                 return Err(TsdbError::General(error_consts::MISSING_FILTER.into())) // todo: better error
             }
 
-            if typ == LabelFilterOp::RegexEqual && value == ".*" {
+            if typ == MatchOp::RegexEqual && value == ".*" {
                 // .* regexp matches any string: do nothing.
                 continue;
             }
 
-            if typ == LabelFilterOp::RegexNotEqual && value == ".*" {
+            if typ == MatchOp::RegexNotEqual && value == ".*" {
                 return Ok(Cow::Owned(IdBitmap::default()))
             }
 
-            if typ == LabelFilterOp::RegexEqual && value == ".+" {
+            if typ == MatchOp::RegexEqual && value == ".+" {
                 // .+ regexp matches any non-empty string: get postings for all label values.
                 let it = self.postings_for_all_label_values(&m.label);
                 if it.is_empty() {
                     return Ok(Cow::Owned(it))
                 }
                 its.or_inplace(&it);
-            } else if typ == LabelFilterOp::RegexNotEqual && value == ".+" {
+            } else if typ == MatchOp::RegexNotEqual && value == ".+" {
                 // .+ regexp matches any non-empty string: get postings for all label values and remove them.
                 not_its |= self.postings_for_all_label_values(name);
                 //its = append(not_its, it)
             } else if label_must_be_set.contains(name) {
                 // If this matcher must be non-empty, we can be smarter.
-                let is_not = typ == LabelFilterOp::NotEqual || m.op == LabelFilterOp::RegexNotEqual;
+                let is_not = typ == MatchOp::NotEqual || m.op == MatchOp::RegexNotEqual;
 
                 if is_not {
                     // a failure here should probably panic
@@ -426,22 +426,21 @@ impl Postings {
         if m.label.is_empty() && m.value.is_empty() {
             return Cow::Owned(self.all_postings());
         }
-        if m.op == LabelFilterOp::Equal {
+        if m.op == MatchOp::Equal {
             return self.postings_for_label_value(&m.label, &m.value);
         }
-        if m.op == LabelFilterOp::RegexEqual {
+        if m.op == MatchOp::RegexEqual {
             let set_matches = m.set_matches();
-            return if !set_matches.is_empty() {
-                if set_matches.len() == 1 {
-                    return self.postings_for_label_value(&m.label, &set_matches[0]);
+            return if let Some(matches) = set_matches {
+                if matches.len() == 1 {
+                    return self.postings_for_label_value(&m.label, &matches[0]);
                 }
-                Cow::Owned(self.postings(&m.label, &set_matches))
+                Cow::Owned(self.postings(&m.label, &matches))
             } else {
                 // todo: refactor into a method
                 // todo: possible optimization - if there's only one entry, we can return a reference
-                let prefix = m.prefix();
                 let mut result = IdBitmap::new();
-                if !prefix.is_empty() {
+                if let Some(prefix) = m.prefix() {
                     let key_prefix = IndexKey::for_label_value(&m.label, prefix);
                     let start_pos = key_prefix.len();
                     for (key, map) in self.label_index.prefix(&key_prefix) {
@@ -547,28 +546,27 @@ fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<String>) 
     if !label_must_be_set.contains(&m.label) {
         return true;
     }
-    matches!(m.op, LabelFilterOp::NotEqual | LabelFilterOp::RegexNotEqual if m.is_match(""))
+    matches!(m.op, MatchOp::NotEqual | MatchOp::RegexNotEqual if m.is_match(""))
 }
 
 fn inverse_postings_for_matcher<'a>(postings: &'a Postings, m: &Matcher) -> Cow<'a, IdBitmap> {
     // Fast-path for RegexNotEqual matching.
     // Inverse of a RegexNotEqual is RegexpEqual (double negation).
     // Fast-path for set matching.
-    if m.op == LabelFilterOp::RegexNotEqual {
-        let set_matches = m.set_matches();
-        if !set_matches.is_empty() {
-            return Cow::Owned(postings.postings(&m.label, &set_matches));
+    if m.op == MatchOp::RegexNotEqual {
+        if let Some(matches) = m.set_matches() {
+            return Cow::Owned(postings.postings(&m.label, &matches));
         }
     }
 
     // Fast-path for NotEqual matching.
     // Inverse of a NotEqual is Equal (double negation).
-    if m.op == LabelFilterOp::NotEqual {
+    if m.op == MatchOp::NotEqual {
         return postings.postings_for_label_value(&m.label, &m.value);
     }
 
     // If the matcher being inverted is =~"" or ="", we just want all the values.
-    if m.value.is_empty() && (m.op == LabelFilterOp::RegexEqual || m.op == LabelFilterOp::Equal) {
+    if m.value.is_empty() && (m.op == MatchOp::RegexEqual || m.op == MatchOp::Equal) {
         return Cow::Owned(postings.postings_for_all_label_values(&m.label));
     }
 
@@ -592,7 +590,7 @@ fn should_parallelize_matchers(matchers: &Matchers) -> bool {
 
 
 fn run_or_matchers_parallel<'a>(label_index: &'a Postings,
-                                matchers: &[Vec<LabelFilter>]) -> TsdbResult<Cow<'a, IdBitmap>> {
+                                matchers: &[Vec<Matcher>]) -> TsdbResult<Cow<'a, IdBitmap>> {
     let mut scope = chili::Scope::global();
     match matchers {
         [] => Ok(Cow::Owned(IdBitmap::new())),

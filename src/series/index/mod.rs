@@ -5,7 +5,7 @@ pub mod serialization;
 #[cfg(test)]
 mod index_tests;
 #[cfg(test)]
-mod postings_tests;
+mod posting_query_tests;
 mod postings;
 
 use crate::common::get_current_db;

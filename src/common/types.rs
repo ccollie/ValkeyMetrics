@@ -1,6 +1,6 @@
 
 pub use metricsql_runtime::types::{Label, Sample, Timestamp, TimestampTrait, MetricName};
-pub use metricsql_parser::label::{ LabelFilter, LabelFilterOp, Matchers };
+pub use metricsql_parser::label::{ Matcher, Matchers };
 pub type IntMap<K,V> = metricsql_common::hash::IntMap<K, V>;
 pub use metricsql_runtime::prelude::query::QueryParams;
 

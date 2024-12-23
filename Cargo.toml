@@ -16,7 +16,6 @@ blart = "0.3"
 bitstream-io = "2.6"
 cfg-if = "1.0"
 chili = { git = "https://github.com/dragostis/chili", branch = "main" }
-chrono = { version = "0.4", features = ["serde"] }
 croaring = { version = "2.2" , features = ["alloc"] }
 enquote = "1.1"
 get-size = { version = "^0.1", features = ["derive"] }
@@ -37,7 +36,7 @@ pco = "0.4"
 phf = "0.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-smallvec = { version = "2.0.0-alpha.8", features = ["specialization", "std"] }
+smallvec = { version = "2.0.0-alpha.9", features = ["specialization", "std"] }
 thiserror = "2.0"
 rayon = "1.10"
 regex = "1"

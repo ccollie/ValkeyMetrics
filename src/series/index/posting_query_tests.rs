@@ -15,7 +15,7 @@
 mod tests {
     use std::collections::{HashMap, HashSet};
     use ahash::AHashSet;
-    use metricsql_parser::label::{LabelFilterOp, Label, Matcher};
+    use metricsql_parser::label::{MatchOp, Label, Matcher};
     use crate::series::index::postings::Postings;
     use rand::distributions::{Alphanumeric, DistString};
     use crate::series::SeriesRef;
@@ -86,7 +86,7 @@ mod tests {
 
     #[test]
     fn test_postings_for_matchers() {
-        use LabelFilterOp::*;
+        use MatchOp::*;
         let mut ix = Postings::new();
 
         let series_data = HashMap::from([
