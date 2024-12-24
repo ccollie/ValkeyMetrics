@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tracing::debug;
 use valkey_module::{logging, Context, ValkeyError, ValkeyResult};
-use crate::series::utils::make_series_key;
+use crate::series::chunks::utils::make_series_key;
 // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmalert/alerting.go#L612
 
 /// the duration for which a resolved alert instance is kept in memory state and consequently

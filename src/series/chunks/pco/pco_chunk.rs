@@ -5,7 +5,7 @@ use crate::iterators::SampleIter;
 use crate::series::chunks::pco::pco_utils::{compress_timestamps, compress_values, decompress_timestamps, decompress_values};
 use crate::series::chunks::pco::PcoSampleIterator;
 use crate::series::chunks::Chunk;
-use crate::series::utils::get_timestamp_index_bounds;
+use crate::series::chunks::utils::get_timestamp_index_bounds;
 use crate::series::{DuplicatePolicy, Sample, SampleAddResult, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE};
 use get_size::GetSize;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64, PooledVecF64, PooledVecI64};

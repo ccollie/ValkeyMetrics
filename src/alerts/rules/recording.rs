@@ -17,7 +17,7 @@ use std::fmt::Display;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use crate::alerts::datasource::AlertDatasource;
-use crate::series::utils::make_series_key;
+use crate::series::chunks::utils::make_series_key;
 
 const ERR_DUPLICATE: &str =
     "result contains metrics with the same labelset after applying rules labels.";

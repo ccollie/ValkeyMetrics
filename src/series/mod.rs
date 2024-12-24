@@ -5,7 +5,6 @@ use valkey_module::{Context, RedisModuleTimerID};
 
 mod constants;
 pub mod time_series;
-pub(crate) mod utils;
 mod defrag;
 pub mod index;
 pub mod chunks;
@@ -13,6 +12,7 @@ pub mod types;
 mod merge;
 mod timestamp_range;
 pub mod serialization;
+mod utils;
 
 use crate::common::rounding::RoundingStrategy;
 use crate::common::types::Sample;

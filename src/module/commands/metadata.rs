@@ -10,7 +10,7 @@ use valkey_module::{
 };
 use crate::error_consts;
 use crate::series::{normalize_range_args, TimestampValue};
-use crate::series::index::with_timeseries_index;
+use crate::series::index::{series_keys_by_matchers, with_timeseries_index};
 // todo: series count
 
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#finding-series-by-label-matchers
@@ -88,7 +88,7 @@ where
     F: FnMut(R, &TimeSeries, &ValkeyString) -> R,
 {
     with_timeseries_index(ctx, move |index| {
-        let keys = index.series_keys_by_matchers(ctx, &args.matchers);
+        let keys = series_keys_by_matchers(ctx, index, &args.matchers)?;
         if keys.is_empty() {
             return Err(ValkeyError::Str(error_consts::NO_SERIES_FOUND));
         }

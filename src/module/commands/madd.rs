@@ -19,8 +19,6 @@ struct ParsedInput<'a> {
     index: usize,
 }
 
-use rayon::prelude::*;
-// Add this import
 
 pub fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     let arg_count = args.len() - 1;

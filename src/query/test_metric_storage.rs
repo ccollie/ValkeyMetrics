@@ -8,6 +8,7 @@ use metricsql_runtime::prelude::{
 };
 use std::collections::HashMap;
 use std::sync::RwLock;
+use metricsql_runtime::RuntimeError;
 use valkey_module::{ValkeyError, ValkeyResult};
 
 /// Interface between the time series database and the metricsql runtime.
@@ -25,9 +26,19 @@ impl TestMetricStorage {
         }
     }
 
+    fn add_internal(&mut self, key: KeyType, ts: Timestamp, val: f64) -> ValkeyResult<()> {
+        self.with_mutable_series(&key, |series| {
+            let res = series.add(ts, val, None);
+            if !res.is_ok() {
+                return Err(ValkeyError::String("Error adding sample".to_string()));
+            }
+            Ok(())
+        })
+    }
+
     fn add_by_key(&mut self, key: &str, ts: Timestamp, val: f64) -> ValkeyResult<()> {
         let key = string_to_key(key);
-        self.with_mutable_series(&key, |series| series.add(ts, val, None))
+        self.add_internal(key, ts, val)
     }
 
     pub fn add(&mut self, metric: &str, ts: Timestamp, value: f64) -> ValkeyResult<()> {
@@ -36,7 +47,7 @@ impl TestMetricStorage {
             Err(_) => return Err(ValkeyError::String("Invalid metric name".to_string())),
         };
         let key = mn.to_string().into_bytes().into_boxed_slice();
-        self.with_mutable_series(&key, |series| series.add(ts, value, None))
+        self.add_internal(key, ts, value)
     }
 
     pub fn add_sample(&mut self, mn: &MetricName, sample: &Sample) -> ValkeyResult<()> {
@@ -48,9 +59,7 @@ impl TestMetricStorage {
                 string_to_key(mn_str.as_str())
             }
         };
-        self.with_mutable_series(&key, |series| {
-            series.add(sample.timestamp, sample.value, None)
-        })
+        self.add_internal(key, sample.timestamp, sample.value)
     }
 
     fn get_key_from_metric_name(&self, mn: &MetricName) -> Option<KeyType> {
@@ -134,7 +143,9 @@ impl TestMetricStorage {
     fn get_series_data(&self, search_query: SearchQuery) -> RuntimeResult<Vec<QueryResult>> {
         let map = self
             .index
-            .series_keys_by_matchers_internal(&[search_query.matchers]);
+            .series_keys_by_matchers_internal(&search_query.matchers)
+            .map_err(|_| RuntimeError::General("Error getting series keys".to_string()))?;
+
         let mut results: Vec<QueryResult> = Vec::with_capacity(map.len());
         let start_ts = search_query.start;
         let end_ts = search_query.end;

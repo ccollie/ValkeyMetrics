@@ -122,7 +122,7 @@ pub(crate) fn make_series_key(labels: &[Label]) -> String {
     let prefix = crate::config::KEY_PREFIX.as_str();
     format!("{prefix}:{measurement}{:x}", hasher.finish())
 }
-// maybe x-vm:{alert_for_name}::name=joe::foo=bar::bar=baz
+// todo: maybe x-vm:{alert_for_name}::name=joe::foo=bar::bar=baz
 
 #[cfg(test)]
 mod tests {

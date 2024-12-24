@@ -1,13 +1,12 @@
 use std::fmt::Display;
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
 
-use crate::common::types::{Matchers, Timestamp};
+use crate::common::types::Timestamp;
 use crate::module::arg_parse::parse_timestamp_range_value;
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::time_series::{SeriesSampleIterator, TimeSeries};
 use crate::series::types::ValueFilter;
 use crate::series::{TimestampRange, TimestampValue};
-use crate::series::index::with_timeseries_index;
 
 pub fn parse_timestamp_arg(
     arg: &str,
@@ -41,8 +40,8 @@ pub(crate) fn with_timeseries<R>(ctx: &Context, key: &ValkeyString, f: impl FnOn
 }
 
 pub(crate) fn with_timeseries_mut(ctx: &Context, key: &ValkeyString, f: impl FnOnce(&mut TimeSeries) -> ValkeyResult) -> ValkeyResult {
-    // unwrap is ok, since must_exist will cause an error if the key is non-existent, and `?` will ensure it propagates
-    f(get_timeseries_mut(ctx, key, true)?.unwrap())
+    // expect should not panic, since must_exist will cause an error if the key is non-existent, and `?` will ensure it propagates
+    f(get_timeseries_mut(ctx, key, true)?.expect("key does not exist"))
 }
 
 pub(crate) fn get_timeseries_mut<'a>(ctx: &'a Context, key: &ValkeyString, must_exist: bool) -> ValkeyResult<Option<&'a mut TimeSeries>>  {
@@ -61,23 +60,4 @@ pub(crate) fn get_timeseries_mut<'a>(ctx: &'a Context, key: &ValkeyString, must_
             }
         },
     }
-}
-
-pub(crate) fn with_matched_series<F, STATE>(ctx: &Context, acc: &mut STATE, matchers: &[Matchers], mut f: F) -> ValkeyResult<()>
-where
-    F: FnMut(&mut STATE, &TimeSeries, ValkeyString) -> ValkeyResult<()>,
-{
-    with_timeseries_index(ctx, move |index| {
-        let keys = index.series_keys_by_matchers(ctx, matchers);
-        if keys.is_empty() {
-            return Err(ValkeyError::Str("ERR no series found"));
-        }
-        for key in keys {
-            let db_key = ctx.open_key(&key);
-            if let Some(series) = db_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE)? {
-                f(acc, series, key)?
-            }
-        }
-        Ok(())
-    })
 }

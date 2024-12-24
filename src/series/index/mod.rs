@@ -1,17 +1,24 @@
 
 mod timeseries_index;
-#[cfg(test)]
-mod index_tests;
-mod filters;
 mod index_key;
 pub mod serialization;
+#[cfg(test)]
+mod index_tests;
+#[cfg(test)]
+mod posting_query_tests;
+mod postings;
 
-use std::sync::LazyLock;
+use crate::common::get_current_db;
+use crate::module::VKM_SERIES_TYPE;
+use crate::series::TimeSeries;
 use papaya::{Guard, HashMap};
 use rayon::iter::{ParallelBridge, ParallelIterator};
-use valkey_module::{Context};
+use std::sync::LazyLock;
+use ahash::AHashSet;
 pub use timeseries_index::*;
-use crate::common::get_current_db;
+pub use postings::*;
+pub use metricsql_parser::label::{Matcher, Matchers};
+use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
 
 /// Map from db to TimeseriesIndex
 pub type TimeSeriesIndexMap = HashMap<i32, TimeSeriesIndex>;
@@ -33,6 +40,39 @@ where
     let res = f(index);
     drop(guard);
     res
+}
+
+pub(crate) fn with_matched_series<F, STATE>(ctx: &Context, acc: &mut STATE, matchers: &[Matchers], mut f: F) -> ValkeyResult<()>
+where
+    F: FnMut(&mut STATE, &TimeSeries, ValkeyString) -> ValkeyResult<()>,
+{
+    with_timeseries_index(ctx, move |index| {
+        let keys = series_keys_by_matchers(ctx, index, matchers)?;
+        if keys.is_empty() {
+            return Err(ValkeyError::Str("ERR no series found"));
+        }
+        for key in keys {
+            let db_key = ctx.open_key(&key);
+            if let Some(series) = db_key.get_value::<TimeSeries>(&VKM_SERIES_TYPE)? {
+                f(acc, series, key)?
+            }
+        }
+        Ok(())
+    })
+}
+
+pub fn series_keys_by_matchers(ctx: &Context,
+                               ts_index: &TimeSeriesIndex,
+                               matchers: &[Matchers]) -> ValkeyResult<AHashSet<ValkeyString>> {
+
+    // todo: rayon ?
+    let mut key_set = AHashSet::new();
+    for matcher in matchers {
+        let keys = ts_index.series_keys_by_matchers(ctx, matcher)?;
+        key_set.extend(keys);
+    }
+
+    Ok(key_set)
 }
 
 // todo: move elsewhere

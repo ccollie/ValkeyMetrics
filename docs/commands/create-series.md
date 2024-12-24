@@ -1,8 +1,8 @@
-**VKM.CREATE** create a timeseries.
+**VM.CREATE-SERIES** create a timeseries.
 
 #### Syntax
 ```
-VM.CREATE key metric 
+VM.CREATE-SERIES key metric 
   [RETENTION retentionPeriod]
   [ENCODING <COMPRESSED|UNCOMPRESSED>]
   [CHUNK_SIZE chunkSize]
@@ -48,5 +48,5 @@ The number of decimal digits to store for the timeseries.
 </details>
 
 ```sh
-127.0.0.1:6379> VM.CREATE req_total:post:handler:{us-east-1} api_http_requests_total{method="POST",handler="/messages"} CHUNK_SIZE 8192 DUPLICATE_POLICY SUM DEDUPE_INTERVAL 2s
+127.0.0.1:6379> VM.CREATE-SERIES req_total:post:handler:{us-east-1} api_http_requests_total{method="POST",handler="/messages"} CHUNK_SIZE 8192 DUPLICATE_POLICY SUM DEDUPE_INTERVAL 2s
 ```

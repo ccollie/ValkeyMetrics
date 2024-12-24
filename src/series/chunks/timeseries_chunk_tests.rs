@@ -229,9 +229,9 @@ mod tests {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.set_data(&[Sample { timestamp: 20, value: 5.0 }]).unwrap();
 
-            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::KeepFirst));
+            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::KeepFirst)).unwrap();
 
-            assert_eq!(result.unwrap(), 3);
+            assert_eq!(result.len(), 3);
             assert_eq!(chunk.len(), 3);
             assert_eq!(chunk.get_range(0, 100).unwrap(), vec![
                 Sample { timestamp: 10, value: 1.0 },
@@ -254,9 +254,9 @@ mod tests {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.set_data(&[Sample { timestamp: 20, value: 5.0 }]).unwrap();
 
-            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::KeepLast));
+            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::KeepLast)).unwrap();
 
-            assert_eq!(result.unwrap(), 3);
+            assert_eq!(result.len(), 3);
             assert_eq!(chunk.len(), 3);
             assert_eq!(chunk.get_range(0, 100).unwrap(), vec![
                 Sample { timestamp: 10, value: 1.0 },
@@ -286,8 +286,8 @@ mod tests {
             let result = chunk.merge_samples(&samples_to_merge, Some(DuplicatePolicy::Block));
 
             assert!(result.is_ok());
-            let merged_count = result.unwrap();
-            assert!(merged_count < samples_to_merge.len(),
+            let merged = result.unwrap();
+            assert!(merged.len() < samples_to_merge.len(),
                 "{}: Expected fewer samples to be merged due to capacity limit", chunk_type);
 
             let all_samples = chunk.get_range(0, 100).unwrap();
@@ -311,9 +311,9 @@ mod tests {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
             chunk.add_sample(&Sample { timestamp: 20, value: 5.0 }).unwrap();
 
-            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Sum));
+            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Sum)).unwrap();
 
-            assert_eq!(result.unwrap(), 3);
+            assert_eq!(result.len(), 3);
             assert_eq!(chunk.len(), 3);
 
             let merged_samples = chunk.get_range(0, 40).unwrap();
@@ -342,9 +342,9 @@ mod tests {
             assert_eq!(chunk.first_timestamp(), 10);
             assert_eq!(chunk.last_timestamp(), 20);
 
-            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Block));
+            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Block)).unwrap();
 
-            assert_eq!(result.unwrap(), 2);
+            assert_eq!(result.len(), 2);
             assert_eq!(chunk.len(), 4);
             assert_eq!(chunk.first_timestamp(), 5);
             assert_eq!(chunk.last_timestamp(), 35);
@@ -380,9 +380,9 @@ mod tests {
 
             assert_eq!(chunk.len(), 3);
 
-            let result = chunk.merge_samples(&new_samples, Some(DuplicatePolicy::Block));
+            let result = chunk.merge_samples(&new_samples, Some(DuplicatePolicy::Block)).unwrap();
 
-            assert_eq!(result.unwrap(), 3);
+            assert_eq!(result.len(), 3);
             assert_eq!(chunk.len(), 6);
             // assert_eq!(blocked.len(), 1);
             // assert!(blocked.contains(&20));
@@ -411,20 +411,20 @@ mod tests {
             let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
 
             // First merge should add all samples
-            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Block));
-            assert_eq!(result.unwrap(), 3, "{}: Expected 3 samples to be merged", chunk_type);
+            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Block)).unwrap();
+            assert_eq!(result.len(), 3, "{}: Expected 3 samples to be merged", chunk_type);
 
             // Second merge with same samples should add no new samples
-            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Block));
-            assert_eq!(result.unwrap(), 0, "{}: Expected 0 samples to be merged on second attempt", chunk_type);
+            let result = chunk.merge_samples(&samples, Some(DuplicatePolicy::Block)).unwrap();
+            assert_eq!(result.len(), 0, "{}: Expected 0 samples to be merged on second attempt", chunk_type);
 
             // Merge with new samples should add only the new ones
             let new_samples = vec![
                 Sample { timestamp: 40, value: 4.0 },
                 Sample { timestamp: 20, value: 5.0 }, // Duplicate timestamp
             ];
-            let result = chunk.merge_samples(&new_samples, Some(DuplicatePolicy::Block));
-            assert_eq!(result.unwrap(), 1, "{}: Expected 1 new sample to be merged", chunk_type);
+            let result = chunk.merge_samples(&new_samples, Some(DuplicatePolicy::Block)).unwrap();
+            assert_eq!(result.len(), 1, "{}: Expected 1 new sample to be merged", chunk_type);
         }
     }
 

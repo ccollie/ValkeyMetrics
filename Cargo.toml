@@ -18,6 +18,8 @@ cfg-if = "1.0"
 compressed_vec = { git = "https://github.com/velvia/compressed-vec", branch = "main" }
 chrono = { version = "0.4", features = ["serde"] }
 croaring = { version = "2.1" , features = ["alloc"] }
+chili = { git = "https://github.com/dragostis/chili", branch = "main" }
+croaring = { version = "2.2" , features = ["alloc"] }
 enquote = "1.1"
 enum_dispatch = "0.3.13"
 get-size = { version = "^0.1", features = ["derive"] }
@@ -38,7 +40,7 @@ pco = "0.4"
 phf = "0.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-smallvec = { version = "2.0.0-alpha.7", features = ["specialization", "std"] }
+smallvec = { version = "2.0.0-alpha.9", features = ["specialization", "std"] }
 thiserror = "2.0"
 rayon = "1.10"
 regex = "1"

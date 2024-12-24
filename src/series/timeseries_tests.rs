@@ -1,12 +1,10 @@
 #[cfg(test)]
 mod tests {
     use crate::common::types::{Label, Sample, Timestamp};
-    use crate::error_consts;
     use crate::series::test_utils::generate_random_samples;
-    use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, TimeSeries, TimeSeriesChunk};
+    use crate::series::{Chunk, ChunkCompression, DuplicatePolicy, SampleAddResult, TimeSeries, TimeSeriesChunk};
     use metricsql_runtime::prelude::TimestampTrait;
     use std::time::Duration;
-    use valkey_module::ValkeyError;
 
     fn create_test_timeseries() -> TimeSeries {
         TimeSeries {
@@ -56,8 +54,7 @@ mod tests {
 
         let result = ts.add(old_timestamp, 42.0, None);
 
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), error_consts::SAMPLE_TOO_OLD);
+        assert!(matches!(result, SampleAddResult::TooOld));
     }
 
     #[test]
@@ -85,10 +82,7 @@ mod tests {
         let current_timestamp = 1000;
         ts.last_timestamp = current_timestamp;
         let result = ts.add(current_timestamp + 30, 1.0, None); // Within dedupe interval
-        match result {
-            Ok(_) => assert!(false), // Should have failed due to dedupe interval
-            Err(e) => assert_eq!(e.to_string(), error_consts::DUPLICATE_SAMPLE),
-        }
+        assert!(matches!(result, SampleAddResult::Ignored(stamp) if stamp == current_timestamp));
     }
 
     #[test]
@@ -123,7 +117,7 @@ mod tests {
         ];
 
         for (timestamp, value) in samples {
-            ts.add_sample(Sample { timestamp, value }).unwrap();
+            ts.add_sample(Sample { timestamp, value });
         }
 
         assert_eq!(ts.total_samples, 5);
@@ -141,12 +135,12 @@ mod tests {
         ts.duplicate_policy = DuplicatePolicy::KeepLast;
 
         // Add first sample
-        ts.add_sample(Sample { timestamp, value: 1.0 }).unwrap();
+        ts.add_sample(Sample { timestamp, value: 1.0 });
         assert_eq!(ts.total_samples, 1);
         assert_eq!(ts.last_value, 1.0);
 
         // Add second sample with same timestamp but different value
-        ts.add_sample(Sample { timestamp, value: 2.0 }).unwrap();
+        ts.add_sample(Sample { timestamp, value: 2.0 });
         assert_eq!(ts.total_samples, 1);
         assert_eq!(ts.last_value, 2.0);
 
@@ -160,12 +154,13 @@ mod tests {
         ts.duplicate_policy = DuplicatePolicy::KeepFirst;
 
         // Add first sample
-        ts.add_sample(Sample { timestamp, value: 1.0 }).unwrap();
+        let res = ts.add_sample(Sample { timestamp, value: 1.0 });
+        assert!(matches!(res, SampleAddResult::Ok(ts) if ts == timestamp));
         assert_eq!(ts.total_samples, 1);
         assert_eq!(ts.last_value, 1.0);
 
         // Add second sample with same timestamp but different value
-        ts.add_sample(Sample { timestamp, value: 2.0 }).unwrap();
+        let res = ts.add_sample(Sample { timestamp, value: 2.0 });
         assert_eq!(ts.total_samples, 1);
         assert_eq!(ts.last_value, 1.0);
 
@@ -182,12 +177,12 @@ mod tests {
         ts.chunk_size_bytes = 8; // Set a small chunk size to force new chunk creation
 
         // Add first sample
-        ts.add_sample(Sample { timestamp: 1000, value: 1.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 1000, value: 1.0 });
         assert_eq!(ts.chunks.len(), 1);
         assert_eq!(ts.total_samples, 1);
 
         // Add second sample, which should create a new chunk
-        ts.add_sample(Sample { timestamp: 2000, value: 2.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 2000, value: 2.0 });
         assert_eq!(ts.chunks.len(), 2);
         assert_eq!(ts.total_samples, 2);
         assert_eq!(ts.first_timestamp, 1000);
@@ -222,11 +217,13 @@ mod tests {
 
         // Add initial sample
         let initial_timestamp = 1000;
-        ts.add(initial_timestamp, 10.0, None).unwrap();
+        ts.add(initial_timestamp, 10.0, None);
 
         // Add sample exactly at dedupe interval boundary
         let boundary_timestamp = initial_timestamp + ts.dedupe_interval.unwrap().as_millis() as i64;
-        ts.add(boundary_timestamp, 20.0, None).unwrap();
+        let res = ts.add(boundary_timestamp, 20.0, None);
+
+        assert!(matches!(res, SampleAddResult::Ignored(stamp) if stamp == initial_timestamp));
 
         assert_eq!(ts.total_samples, 2);
         assert_eq!(ts.last_timestamp, boundary_timestamp);
@@ -240,14 +237,13 @@ mod tests {
 
         // Add a sample with a timestamp close to the maximum value for Timestamp
         let max_timestamp = Timestamp::MAX - 30; // 30 milliseconds before overflow
-        ts.add(max_timestamp, 1.0, None).unwrap();
+        ts.add(max_timestamp, 1.0, None);
 
         // Try to add another sample with a timestamp that would cause overflow when calculating deduplication interval
         let overflow_timestamp = Timestamp::MAX - 20; // 20 milliseconds before overflow
 
         let result = ts.add(overflow_timestamp, 2.0, None);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), error_consts::DUPLICATE_SAMPLE);
+        todo!("Handle overflow timestamp");
     }
 
     #[test]
@@ -257,7 +253,7 @@ mod tests {
 
         // Add a sample to set the last_timestamp
         let initial_timestamp = 1000;
-        ts.add(initial_timestamp, 1.0, None).unwrap();
+        ts.add(initial_timestamp, 1.0, None);
 
         // Try to add another sample with the same timestamp
         let result = ts.add(initial_timestamp, 2.0, None);
@@ -273,13 +269,13 @@ mod tests {
 
         // Add a sample to set the last_timestamp
         let initial_timestamp = 1000;
-        ts.add(initial_timestamp, 1.0, None).unwrap();
+        ts.add(initial_timestamp, 1.0, None);
 
         // Try to add another sample with the same timestamp
         let result = ts.add(initial_timestamp, 2.0, Some(DuplicatePolicy::Block));
 
         // Expect an error due to deduplication policy
-        assert!(matches!(result, Err(ValkeyError::Str(err)) if err == error_consts::DUPLICATE_SAMPLE));
+        assert!(matches!(result, SampleAddResult::Duplicate));
     }
 
     #[test]
@@ -293,11 +289,7 @@ mod tests {
             value: sample_value,
         };
         let res = ts.add(duplicate_timestamp, sample_value, Some(DuplicatePolicy::KeepFirst));
-        assert!(res.is_err());
-        assert_eq!(
-            res.err().unwrap().to_string(),
-            error_consts::DUPLICATE_SAMPLE.to_string()
-        );
+        assert!(matches!(res, SampleAddResult::Ignored(stamp) if stamp == duplicate_timestamp));
         assert_eq!(ts.last_value, 0.0);
     }
 
@@ -315,7 +307,7 @@ mod tests {
         ];
 
         for sample in samples {
-            ts.add(sample.timestamp, sample.value, None).unwrap();
+            ts.add(sample.timestamp, sample.value, None);
         }
 
         assert_eq!(ts.total_samples, 3);
@@ -643,7 +635,7 @@ mod tests {
     fn test_trim_single_sample() {
         let mut ts = create_test_timeseries();
         let now = Timestamp::now();
-        ts.add(now, 42.0, None).unwrap();
+        ts.add(now, 42.0, None);
 
         // Set retention to 1 second
         ts.retention = Duration::from_secs(1);
@@ -692,9 +684,9 @@ mod tests {
     #[test]
     fn test_remove_range_start_before_first_timestamp() {
         let mut ts = TimeSeries::default();
-        ts.add_sample(Sample { timestamp: 100, value: 1.0 }).unwrap();
-        ts.add_sample(Sample { timestamp: 200, value: 2.0 }).unwrap();
-        ts.add_sample(Sample { timestamp: 300, value: 3.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 100, value: 1.0 });
+        ts.add_sample(Sample { timestamp: 200, value: 2.0 });
+        ts.add_sample(Sample { timestamp: 300, value: 3.0 });
 
         assert_eq!(ts.total_samples, 3);
         assert_eq!(ts.first_timestamp, 100);
@@ -710,9 +702,9 @@ mod tests {
     #[test]
     fn test_remove_range_end_after_last_timestamp() {
         let mut ts = TimeSeries::default();
-        ts.add_sample(Sample { timestamp: 100, value: 1.0 }).unwrap();
-        ts.add_sample(Sample { timestamp: 200, value: 2.0 }).unwrap();
-        ts.add_sample(Sample { timestamp: 300, value: 3.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 100, value: 1.0 });
+        ts.add_sample(Sample { timestamp: 200, value: 2.0 });
+        ts.add_sample(Sample { timestamp: 300, value: 3.0 });
 
         assert_eq!(ts.total_samples, 3);
         assert_eq!(ts.first_timestamp, 100);
@@ -729,9 +721,9 @@ mod tests {
     fn test_remove_range_same_chunk() {
         // Arrange
         let mut ts = TimeSeries::default();
-        ts.add_sample(Sample { timestamp: 1000, value: 1.0 }).unwrap();
-        ts.add_sample(Sample { timestamp: 2000, value: 2.0 }).unwrap();
-        ts.add_sample(Sample { timestamp: 3000, value: 3.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 1000, value: 1.0 });
+        ts.add_sample(Sample { timestamp: 2000, value: 2.0 });
+        ts.add_sample(Sample { timestamp: 3000, value: 3.0 });
 
         // Act
         let result = ts.remove_range(1500, 2500);
@@ -750,12 +742,12 @@ mod tests {
         let mut ts = TimeSeries::default();
 
         // Add samples to chunks
-        ts.add_sample(Sample { timestamp: 100, value: 1.0 }).unwrap();
-        ts.add_sample(Sample { timestamp: 200, value: 2.0 }).unwrap();
-        ts.add_sample(Sample { timestamp: 300, value: 3.0 }).unwrap();
-        ts.add_sample(Sample { timestamp: 400, value: 4.0 }).unwrap();
-        ts.add_sample(Sample { timestamp: 500, value: 5.0 }).unwrap();
-        ts.add_sample(Sample { timestamp: 600, value: 6.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 100, value: 1.0 });
+        ts.add_sample(Sample { timestamp: 200, value: 2.0 });
+        ts.add_sample(Sample { timestamp: 300, value: 3.0 });
+        ts.add_sample(Sample { timestamp: 400, value: 4.0 });
+        ts.add_sample(Sample { timestamp: 500, value: 5.0 });
+        ts.add_sample(Sample { timestamp: 600, value: 6.0 });
 
         // Remove range spanning multiple chunks
         ts.remove_range(250, 450).unwrap();
@@ -797,9 +789,9 @@ mod tests {
     #[test]
     fn test_remove_range_entire_series() {
         let mut ts = TimeSeries::default();
-        ts.add_sample(Sample { timestamp: 1000, value: 1.0 }).unwrap();
-        ts.add_sample(Sample { timestamp: 2000, value: 2.0 }).unwrap();
-        ts.add_sample(Sample { timestamp: 3000, value: 3.0 }).unwrap();
+        ts.add_sample(Sample { timestamp: 1000, value: 1.0 });
+        ts.add_sample(Sample { timestamp: 2000, value: 2.0 });
+        ts.add_sample(Sample { timestamp: 3000, value: 3.0 });
 
         let start_ts = 1000;
         let end_ts = 3000;

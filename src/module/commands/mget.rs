@@ -4,7 +4,7 @@ use crate::module::commands::range_utils::get_series_labels;
 use crate::module::result::sample_to_value;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 use crate::error_consts;
-use crate::module::with_matched_series;
+use crate::series::index::with_matched_series;
 
 struct MGetOptions {
     filter: Matchers,
