@@ -52,7 +52,7 @@ impl Clone for XOREncoder {
             leading_bits_count: self.leading_bits_count,
             trailing_bits_count: self.trailing_bits_count,
             timestamp_delta: self.timestamp_delta,
-            w: Default::default(),
+            //w: Default::default(),
         }
     }
 }
@@ -69,7 +69,7 @@ impl XOREncoder {
             leading_bits_count: 0,
             trailing_bits_count: 0,
             timestamp_delta: 0,
-            w: Default::default(),
+            //w: Default::default(),
         }
     }
 
