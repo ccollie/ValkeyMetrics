@@ -218,7 +218,7 @@ impl Postings {
         // Optimization for case like {l=~".", l!="1"}.
         let mut label_must_be_set: FastHashSet<String> = FastHashSet::with_capacity(ms.len());
         for m in ms {
-            let matches_empty = m.is_match("");
+            let matches_empty = m.matches("");
             if !matches_empty {
                 label_must_be_set.insert(m.label.clone());
             }
@@ -248,9 +248,10 @@ impl Postings {
             if !is_i_subtracting && is_j_subtracting {
                 return Ordering::Less;
             }
-
-            // i.cmp(&j)
-            return Ordering::Greater;
+            // sort by match cost
+            let cost_i = i.0.cost();
+            let cost_j = j.0.cost();
+            cost_i.cmp(&cost_j)
         });
 
         for (m, matches_empty, _is_subtracting) in sorted_matchers {
@@ -410,11 +411,10 @@ impl Postings {
         let start_pos = prefix.len();
         for (key, map) in self.label_index.prefix(prefix.as_bytes()) {
             let value = key.sub_string(start_pos);
-            let matched = if inverse {
-                !matcher.is_match(value)
-            } else {
-                matcher.is_match(value)
-            };
+            let mut matched = matcher.matches(value);
+            if inverse {
+                matched = !matched;
+            }
             if matched {
                 result.or_inplace(map);
             }
@@ -431,26 +431,26 @@ impl Postings {
         }
         if m.op == MatchOp::RegexEqual {
             let set_matches = m.set_matches();
-            return if let Some(matches) = set_matches {
+            if let Some(matches) = set_matches {
                 if matches.len() == 1 {
                     return self.postings_for_label_value(&m.label, &matches[0]);
                 }
-                Cow::Owned(self.postings(&m.label, &matches))
+                return Cow::Owned(self.postings(&m.label, &matches))
             } else {
-                // todo: refactor into a method
-                // todo: possible optimization - if there's only one entry, we can return a reference
-                let mut result = IdBitmap::new();
                 if let Some(prefix) = m.prefix() {
+                    // todo: refactor into a method
+                    // todo: possible optimization - if there's only one entry, we can return a reference
+                    let mut result = IdBitmap::new();
                     let key_prefix = IndexKey::for_label_value(&m.label, prefix);
                     let start_pos = key_prefix.len();
                     for (key, map) in self.label_index.prefix(&key_prefix) {
                         let value = key.sub_string(start_pos);
-                        if m.is_match(value) {
+                        if m.matches(value) {
                             result.or_inplace(map);
                         }
                     }
+                    return Cow::Owned(result)
                 }
-                Cow::Owned(result)
             }
         }
 
@@ -470,7 +470,7 @@ impl Postings {
         let has_matchers_for_other_labels= matchers.iter().any(|m| m.label != name);
         all_values.retain(|v| {
             matchers.iter().all(|m| {
-                m.label != name || m.is_match(v)
+                m.label != name || m.matches(v)
             })
         });
 
@@ -546,7 +546,7 @@ fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<String>) 
     if !label_must_be_set.contains(&m.label) {
         return true;
     }
-    matches!(m.op, MatchOp::NotEqual | MatchOp::RegexNotEqual if m.is_match(""))
+    matches!(m.op, MatchOp::NotEqual | MatchOp::RegexNotEqual if m.matches(""))
 }
 
 fn inverse_postings_for_matcher<'a>(postings: &'a Postings, m: &Matcher) -> Cow<'a, IdBitmap> {
