@@ -17,7 +17,6 @@ use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::Duration;
 use std::vec;
 use topologic::AcyclicDependencyGraph;
-use tracing::info;
 use valkey_module::{logging, ValkeyResult};
 use valkey_module::{Context, ValkeyError};
 use xxhash_rust::xxh3::Xxh3;
@@ -479,7 +478,7 @@ impl Group {
             headers.insert(key.clone(), value.clone());
         }
 
-        info!("group re-started");
+        logging::log_debug("group re-started");
         Ok(())
     }
 

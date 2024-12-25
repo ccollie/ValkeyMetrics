@@ -2,11 +2,8 @@ use crate::common::serialization::{rdb_load_string, rdb_load_usize, rdb_save_usi
 use crate::common::types::Sample;
 use crate::series::{TimeSeriesChunk, UncompressedChunk};
 use valkey_module::{raw, ValkeyError, ValkeyResult};
-use crate::series::chunks::compressed_vec::serialization::{rdb_load_compressed_vec_chunk, rdb_save_compressed_vec_chunk};
 use crate::series::chunks::gorilla::{rdb_load_gorilla_chunk, rdb_save_gorilla_chunk};
 use crate::series::chunks::pco::{rdb_load_pco_chunk, rdb_save_pco_chunk};
-use crate::series::{TimeSeriesChunk, UncompressedChunk};
-use valkey_module::{raw, ValkeyError, ValkeyResult};
 
 fn rdb_save_uncompressed_chunk(chunk: &UncompressedChunk, rdb: *mut raw::RedisModuleIO) {
     // todo: compress ?
@@ -53,9 +50,6 @@ fn save_chunk_type(chunk: &TimeSeriesChunk, rdb: *mut raw::RedisModuleIO) {
         TimeSeriesChunk::Pco(_) => {
             raw::save_string(rdb, "pco");
         }
-        TimeSeriesChunk::CompressedVec(_) => {
-            raw::save_string(rdb, "compressed");
-        }
     }
 }
 
@@ -71,9 +65,6 @@ pub fn rdb_save_series_chunk(chunk: &TimeSeriesChunk, rdb: *mut raw::RedisModule
         TimeSeriesChunk::Pco(chunk) => {
             rdb_save_pco_chunk(chunk, rdb);
         }
-        TimeSeriesChunk::CompressedVec(chunk) => {
-            rdb_save_compressed_vec_chunk(chunk, rdb);
-        }
     }
 }
 
@@ -86,7 +77,6 @@ pub fn rdb_load_series_chunk(
         "uncompressed" => TimeSeriesChunk::Uncompressed(rdb_load_compressed_chunk(rdb, enc_ver)?),
         "gorilla" => TimeSeriesChunk::Gorilla(rdb_load_gorilla_chunk(rdb, enc_ver)?),
         "pco" => TimeSeriesChunk::Pco(rdb_load_pco_chunk(rdb, enc_ver)?),
-        "compressed" => TimeSeriesChunk::CompressedVec(rdb_load_compressed_vec_chunk(rdb)?),
         _ => return Err(ValkeyError::Str("Invalid chunk type")),
     };
     Ok(chunk)

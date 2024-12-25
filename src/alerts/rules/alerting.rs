@@ -23,7 +23,6 @@ use std::hash::Hasher;
 use std::ops::Sub;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tracing::debug;
 use valkey_module::{logging, Context, ValkeyError, ValkeyResult};
 // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmalert/alerting.go#L612
 
@@ -395,7 +394,7 @@ impl AlertingRule {
                     && ts.sub(alert.resolved_at) > RESOLVED_RETENTION.as_millis() as i64
                 {
                     self.log_debug(ts, Some(alert), "deleted as inactive");
-                    debug!("deleted as inactive");
+                    //debug!("deleted as inactive");
                     Some(*h)
                 } else {
                     None

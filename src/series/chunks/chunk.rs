@@ -19,7 +19,6 @@ pub enum ChunkCompression {
     Uncompressed = 1,
     #[default]
     Gorilla = 2,
-    CompressedVec = 3,
     Pco = 4,
 }
 
@@ -29,7 +28,6 @@ impl ChunkCompression {
             ChunkCompression::Uncompressed => "uncompressed",
             ChunkCompression::Gorilla => "gorilla",
             ChunkCompression::Pco => "pco",
-            ChunkCompression::CompressedVec => "compressed_vec",
         }
     }
 }
@@ -47,7 +45,6 @@ impl TryFrom<u8> for ChunkCompression {
             1 => Ok(ChunkCompression::Uncompressed),
             2 => Ok(ChunkCompression::Gorilla),
             4 => Ok(ChunkCompression::Pco),
-            8 => Ok(ChunkCompression::CompressedVec),
             _ => Err(TsdbError::InvalidCompression(value.to_string())),
         }
     }
@@ -60,7 +57,6 @@ impl TryFrom<&str> for ChunkCompression {
             s if s.eq_ignore_ascii_case("uncompressed") => Ok(ChunkCompression::Uncompressed),
             s if s.eq_ignore_ascii_case("gorilla") => Ok(ChunkCompression::Gorilla),
             s if s.eq_ignore_ascii_case("pco") => Ok(ChunkCompression::Pco),
-            s if s.eq_ignore_ascii_case("compressed_vec") => Ok(ChunkCompression::CompressedVec),
             _ => Err(ValkeyError::Str(error_consts::INVALID_CHUNK_COMPRESSION)),
         }
     }

@@ -4,7 +4,6 @@ mod pco;
 mod serialization;
 mod stream;
 mod timeseries_chunk;
-mod compressed_vec;
 #[cfg(test)]
 mod timeseries_chunk_tests;
 mod uncompressed;
