@@ -1,5 +1,4 @@
 use crate::common::types::{Sample, Timestamp};
-use crate::config::SPLIT_FACTOR;
 use crate::error::TsdbResult;
 use crate::iterators::SampleIter;
 use crate::series::chunks::utils::{filter_samples_by_date_range, filter_samples_by_value};
