@@ -1,9 +1,9 @@
-use std::fmt::Write;
+use crate::common::METRIC_NAME_LABEL;
+use blart::AsBytes;
 use std::borrow::Borrow;
 use std::fmt::Display;
+use std::fmt::Write;
 use std::ops::Deref;
-use blart::{AsBytes};
-use crate::common::METRIC_NAME_LABEL;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IndexKey(Box<[u8]>);
@@ -24,17 +24,18 @@ impl IndexKey {
     }
 
     pub fn as_str(&self) -> &str {
-        let buf = &self.0[..self.0.len()-1];
+        let buf = &self.0[..self.0.len() - 1];
         std::str::from_utf8(buf).unwrap()
     }
 
     pub fn split(&self) -> Option<(&str, &str)> {
         let key = self.as_str();
-        key.find('=').map(|index| (&key[..index], &key[index + 1..self.len()]))
+        key.find('=')
+            .map(|index| (&key[..index], &key[index + 1..self.len()]))
     }
 
     pub(crate) fn sub_string(&self, start: usize) -> &str {
-        let buf = &self.0[start .. self.0.len() - 1];
+        let buf = &self.0[start..self.0.len() - 1];
         std::str::from_utf8(buf).expect("invalid utf8")
     }
 
@@ -107,7 +108,6 @@ impl Borrow<[u8]> for IndexKey {
         self.as_bytes()
     }
 }
-
 
 pub fn format_key_for_label_prefix(dest: &mut String, label_name: &str) {
     dest.clear();
@@ -241,7 +241,6 @@ mod tests {
 
     #[test]
     fn test_with_collection() {
-
         let mut tree: TreeMap<IndexKey, String> = TreeMap::new();
 
         let regions = ["US", "EU", "APAC"];

@@ -66,7 +66,6 @@ pub fn encode_var(val: u64, dst: &mut [u8]) -> usize {
     i + 1
 }
 
-
 /// Write a u64 as a Golang uvarint.
 pub fn write_uvarint<W: std::io::Write>(value: u64, writer: &mut W) -> std::io::Result<()> {
     let mut x: u64 = value;

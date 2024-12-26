@@ -1,16 +1,16 @@
 use crate::common::METRIC_NAME_LABEL;
+use crate::error_consts;
 use crate::module::arg_parse::{parse_series_selector_list, CMD_ARG_LIMIT};
 use crate::module::result::{format_array_result, get_ts_metric_selector};
-use crate::series::types::MetadataFunctionArgs;
 use crate::module::{parse_timestamp_arg, VKM_SERIES_TYPE};
+use crate::series::index::{series_keys_by_matchers, with_timeseries_index};
 use crate::series::time_series::TimeSeries;
+use crate::series::types::MetadataFunctionArgs;
+use crate::series::{normalize_range_args, TimestampValue};
 use std::collections::BTreeSet;
 use valkey_module::{
     Context as RedisContext, Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue,
 };
-use crate::error_consts;
-use crate::series::{normalize_range_args, TimestampValue};
-use crate::series::index::{series_keys_by_matchers, with_timeseries_index};
 // todo: series count
 
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#finding-series-by-label-matchers
@@ -83,7 +83,12 @@ pub(crate) fn label_values(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResu
     Ok(format_array_result(label_values))
 }
 
-fn with_matched_series<F, R>(ctx: &Context, mut acc: R, args: MetadataFunctionArgs, mut f: F) -> ValkeyResult<R>
+fn with_matched_series<F, R>(
+    ctx: &Context,
+    mut acc: R,
+    args: MetadataFunctionArgs,
+    mut f: F,
+) -> ValkeyResult<R>
 where
     F: FnMut(R, &TimeSeries, &ValkeyString) -> R,
 {
@@ -120,11 +125,7 @@ fn parse_metadata_command_args(
     args: Vec<ValkeyString>,
     require_matchers: bool,
 ) -> ValkeyResult<MetadataFunctionArgs> {
-    const ARG_TOKENS: [&str; 3] = [
-        CMD_ARG_END,
-        CMD_ARG_START,
-        CMD_ARG_LIMIT
-    ];
+    const ARG_TOKENS: [&str; 3] = [CMD_ARG_END, CMD_ARG_START, CMD_ARG_LIMIT];
 
     let mut args = args.into_iter().skip(1).peekable();
     let mut matchers = Vec::with_capacity(4);

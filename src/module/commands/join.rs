@@ -184,9 +184,10 @@ fn join_internal(left: &TimeSeries, right: &TimeSeries, options: &JoinOptions) -
     let result = process_join(left, right, options);
     let arr = match result {
         JoinResultType::Samples(samples) => samples.into_iter().map(sample_to_value).collect(),
-        JoinResultType::Values(values) => {
-            values.into_iter().map(|x| join_value_to_valkey_value(x, false)).collect()
-        }
+        JoinResultType::Values(values) => values
+            .into_iter()
+            .map(|x| join_value_to_valkey_value(x, false))
+            .collect(),
     };
 
     ValkeyValue::Array(arr)

@@ -1,10 +1,10 @@
-use metricsql_common::label::Label;
 use crate::error_consts;
 use crate::module::arg_parse::*;
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::index::with_timeseries_index;
 use crate::series::time_series::TimeSeries;
 use crate::series::TimeSeriesOptions;
+use metricsql_common::label::Label;
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{
     Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK,
@@ -65,8 +65,8 @@ pub fn parse_create_options(
                     return Err(ValkeyError::Str(error_consts::METRIC_ALREADY_SET));
                 }
                 let metric = args.next_string()?;
-                options.labels =
-                    parse_metric_name(&metric).map_err(|_e| ValkeyError::Str(error_consts::INVALID_METRIC))?;
+                options.labels = parse_metric_name(&metric)
+                    .map_err(|_e| ValkeyError::Str(error_consts::INVALID_METRIC))?;
             }
             CMD_ARG_LABELS => {
                 if metric_set {
@@ -108,7 +108,9 @@ pub fn parse_create_options(
     }
 
     if options.labels.is_empty() {
-        return Err(ValkeyError::Str(error_consts::INVALID_OR_MISSING_METRIC_NAME));
+        return Err(ValkeyError::Str(
+            error_consts::INVALID_OR_MISSING_METRIC_NAME,
+        ));
     }
 
     Ok((key, options))

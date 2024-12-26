@@ -13,12 +13,12 @@
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
-    use ahash::AHashSet;
-    use metricsql_parser::label::{MatchOp, Label, Matcher};
     use crate::series::index::postings::Postings;
-    use rand::distributions::{Alphanumeric, DistString};
     use crate::series::SeriesRef;
+    use ahash::AHashSet;
+    use metricsql_parser::label::{Label, MatchOp, Matcher};
+    use rand::distributions::{Alphanumeric, DistString};
+    use std::collections::{HashMap, HashSet};
 
     fn random_string(len: usize) -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), len)
@@ -54,16 +54,21 @@ mod tests {
     }
 
     fn to_label_vec(labels: &[Vec<Label>]) -> Vec<Vec<Label>> {
-        labels.into_iter().map(|items| {
-            let mut items = items.clone();
-            items.sort();
-            items
-        }).collect::<Vec<_>>()
+        labels
+            .into_iter()
+            .map(|items| {
+                let mut items = items.clone();
+                items.sort();
+                items
+            })
+            .collect::<Vec<_>>()
     }
 
-    fn get_labels_by_matcher(ix: &Postings,
-                             matchers: &[Matcher],
-                             series_data: &HashMap<SeriesRef, Vec<Label>>) -> Vec<Vec<Label>> {
+    fn get_labels_by_matcher(
+        ix: &Postings,
+        matchers: &[Matcher],
+        series_data: &HashMap<SeriesRef, Vec<Label>>,
+    ) -> Vec<Vec<Label>> {
         let p = ix.postings_for_matchers(matchers).unwrap();
         let mut actual: Vec<_> = p
             .iter()
@@ -78,7 +83,8 @@ mod tests {
         let mut items = labels.to_vec();
         items.sort();
 
-        items.iter()
+        items
+            .iter()
             .map(|l| l.to_string())
             .collect::<Vec<_>>()
             .join(", ")
@@ -370,7 +376,7 @@ mod tests {
                     Matcher::new(NotEqual, "i", "").unwrap(),
                     Matcher::new(Equal, "i", "a").unwrap(),
                 ],
-                exp: vec![ labels_from_strings(&["n", "1", "i", "a"]) ],
+                exp: vec![labels_from_strings(&["n", "1", "i", "a"])],
             },
             TestCase {
                 matchers: vec![
@@ -378,7 +384,7 @@ mod tests {
                     Matcher::new(NotEqual, "i", "b").unwrap(),
                     Matcher::new(RegexEqual, "i", "^(b|a).*$").unwrap(),
                 ],
-                exp: vec![ labels_from_strings(&["n", "1", "i", "a"]) ],
+                exp: vec![labels_from_strings(&["n", "1", "i", "a"])],
             },
             // Set optimization for Regex.
             // Refer to https://github.com/prometheus/prometheus/issues/2651.
@@ -408,7 +414,7 @@ mod tests {
             },
             TestCase {
                 matchers: vec![Matcher::new(RegexEqual, "n", "x1|2").unwrap()],
-                exp: vec![ labels_from_strings(&["n", "2"]) ],
+                exp: vec![labels_from_strings(&["n", "2"])],
             },
             TestCase {
                 matchers: vec![Matcher::new(RegexEqual, "n", "2|2\\.5").unwrap()],
@@ -467,7 +473,7 @@ mod tests {
                     Matcher::new(RegexEqual, "n", "^.*$").unwrap(),
                     Matcher::new(Equal, "i", "a").unwrap(),
                 ],
-                exp: vec![ labels_from_strings(&["n", "1", "i", "a"]) ],
+                exp: vec![labels_from_strings(&["n", "1", "i", "a"])],
             },
             // Test shortcut for i!~".*"
             TestCase {
@@ -491,10 +497,10 @@ mod tests {
                 exp: vec![],
             },
             // Test shortcut i!~".+"
-            TestCase{
+            TestCase {
                 matchers: vec![
                     Matcher::new(RegexEqual, "n", ".*").unwrap(),
-                    Matcher::new(RegexNotEqual, "i", ".+").unwrap()
+                    Matcher::new(RegexNotEqual, "i", ".+").unwrap(),
                 ],
                 exp: to_label_vec(&[
                     labels_from_strings(&["n", "1"]),
@@ -536,7 +542,10 @@ mod tests {
                 assert!(found, "Evaluating {name}\n unexpected result {actual}");
             }
 
-            assert!(exp.is_empty(), "Evaluating {name}\nextra result(s): {exp:?}");
+            assert!(
+                exp.is_empty(),
+                "Evaluating {name}\nextra result(s): {exp:?}"
+            );
         }
     }
 }

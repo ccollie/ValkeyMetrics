@@ -1,7 +1,6 @@
-
-pub use metricsql_runtime::types::{Label, Sample, Timestamp, TimestampTrait, MetricName};
-pub use metricsql_parser::label::{ Matchers };
-pub type IntMap<K,V> = metricsql_common::hash::IntMap<K, V>;
+pub use metricsql_parser::label::Matchers;
+pub use metricsql_runtime::types::{Label, MetricName, Sample, Timestamp, TimestampTrait};
+pub type IntMap<K, V> = metricsql_common::hash::IntMap<K, V>;
 pub use metricsql_runtime::prelude::query::QueryParams;
 
 pub trait SampleLike: Eq + PartialEq + PartialOrd + Ord {
@@ -17,4 +16,3 @@ impl SampleLike for Sample {
         self.value
     }
 }
-

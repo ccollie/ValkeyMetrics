@@ -1,7 +1,7 @@
 use super::{Bit, Write};
-use num_traits::{PrimInt};
-use std::boxed::Box;
 use get_size::GetSize;
+use num_traits::PrimInt;
+use std::boxed::Box;
 
 /// BufferedWriter
 ///
@@ -34,6 +34,11 @@ impl BufferedWriter {
         self.buf.push(0);
     }
 
+    pub fn clear(&mut self) {
+        self.buf.clear();
+        self.pos = 8;
+    }
+
     fn last_index(&self) -> usize {
         self.buf.len() - 1
     }
@@ -48,10 +53,12 @@ impl BufferedWriter {
     /// to fit the given number of bits.
     /// A compile-time error occurs if the given number of bits
     /// is larger than the output type.
-    pub fn write_out<const BITS: u32, U>(&mut self, value: U) where
+    pub fn write_out<const BITS: u32, U>(&mut self, value: U)
+    where
         U: PrimInt,
     {
-        self.write_bits(value.to_u64().expect("Cannot convert int to u64"), BITS) // ?????
+        self.write_bits(value.to_u64().expect("Cannot convert int to u64"), BITS)
+        // ?????
     }
 }
 
@@ -64,9 +71,8 @@ impl Write for BufferedWriter {
 
         let i = self.last_index();
 
-        match bit {
-            Bit::Zero => (),
-            Bit::One => self.buf[i] |= 1u8.wrapping_shl(7 - self.pos),
+        if bit == Bit::One {
+            self.buf[i] |= 1u8.wrapping_shl(7 - self.pos)
         };
 
         self.pos += 1;

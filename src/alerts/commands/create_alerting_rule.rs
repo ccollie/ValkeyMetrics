@@ -1,4 +1,3 @@
-use std::ascii::AsciiExt;
 use crate::alerts::meta::with_group_mut;
 use crate::alerts::notifications::validate_templates;
 use crate::alerts::rules::{
@@ -10,7 +9,10 @@ use crate::module::arg_parse::{
     CMD_ARG_LABELS,
 };
 use metricsql_parser::parser::is_valid_identifier;
-use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
+use std::ascii::AsciiExt;
+use valkey_module::{
+    Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK,
+};
 use valkey_module_macros::command;
 
 const CMD_ARG_ALERT_FOR: &str = "FOR"; // todo: rename to THRESHOLD

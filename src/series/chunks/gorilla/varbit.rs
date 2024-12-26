@@ -4,11 +4,11 @@
 //! used in histograms, that are not implemented yet.
 use crate::common::bitwriter::BitWrite;
 use crate::common::NomBitInput;
+use crate::series::chunks::stream::{Bit, BufferedReader, BufferedWriter, Error, Read, Write};
 use nom::{
     bits::complete::{bool, take},
     IResult,
 };
-use crate::series::chunks::stream::{Bit, BufferedReader, BufferedWriter, Error, Read, Write};
 
 /// writes an i64 using varbit encoding with a bit bucketing
 /// optimized for the dod's observed in histogram buckets, plus a few additional
@@ -68,7 +68,7 @@ pub fn write_varbit<W: BitWrite>(value: i64, writer: &mut W) -> std::io::Result<
     Ok(())
 }
 
-pub fn write_varbit_buf<W: Write>(value: i64, writer: &mut BufferedWriter) -> std::io::Result<()> {
+pub fn write_varbit_buf(value: i64, writer: &mut BufferedWriter) -> std::io::Result<()> {
     match value {
         0 => writer.write_bit(Bit::Zero), // Precisely 0, needs 1 bit.
         // -3 <= val <= 4, needs 5 bits.
@@ -137,7 +137,8 @@ pub fn read_varbit_int_bucket(input: NomBitInput) -> IResult<NomBitInput, u8> {
     Ok((remaining_input, 8))
 }
 
-pub fn read_varbit_int_bucket_ex(reader: &mut BufferedReader) -> Result<u8, Error> {
+#[inline]
+fn read_varbit_int_bucket_ex(reader: &mut BufferedReader) -> Result<u8, Error> {
     for i in 0..8 {
         let bit = reader.read_bit()?;
         // If we read a 0, it's a sign that we reached the end of the bucket category.
@@ -185,7 +186,7 @@ pub fn read_varbit_int(input: NomBitInput) -> IResult<NomBitInput, i64> {
 }
 
 pub fn read_varbit_int_ex(reader: &mut BufferedReader) -> Result<i64, Error> {
-    let bucket= read_varbit_int_bucket_ex(reader)?;
+    let bucket = read_varbit_int_bucket_ex(reader)?;
     let num_bits = varbit_bucket_to_num_bits(bucket);
 
     // Shortcut for the 0 use case as nothing more has to be read.
@@ -216,52 +217,53 @@ pub fn read_varbit_uint(input: NomBitInput) -> IResult<NomBitInput, u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_varbit_int, write_varbit};
+    use super::{read_varbit_int, read_varbit_int_ex, write_varbit, write_varbit_buf};
     use crate::common::bitwriter::{BitWrite, BitWriter};
+    use crate::series::chunks::stream::{BufferedReader, BufferedWriter};
     use bitstream_io::BigEndian;
+
+    const NUMBERS: [i64; 33] = [
+        i64::MIN,
+        -36028797018963968,
+        -36028797018963967,
+        -16777216,
+        -16777215,
+        -131072,
+        -131071,
+        -2048,
+        -2047,
+        -256,
+        -255,
+        -32,
+        -31,
+        -4,
+        -3,
+        -1,
+        0,
+        1,
+        4,
+        5,
+        32,
+        33,
+        256,
+        257,
+        2048,
+        2049,
+        131072,
+        131073,
+        16777216,
+        16777217,
+        36028797018963968,
+        36028797018963969,
+        i64::MAX,
+    ];
 
     #[test]
     fn test_write_varbit() {
-        let numbers = vec![
-            i64::MIN,
-            -36028797018963968,
-            -36028797018963967,
-            -16777216,
-            -16777215,
-            -131072,
-            -131071,
-            -2048,
-            -2047,
-            -256,
-            -255,
-            -32,
-            -31,
-            -4,
-            -3,
-            -1,
-            0,
-            1,
-            4,
-            5,
-            32,
-            33,
-            256,
-            257,
-            2048,
-            2049,
-            131072,
-            131073,
-            16777216,
-            16777217,
-            36028797018963968,
-            36028797018963969,
-            i64::MAX,
-        ];
-
         let mut buffer: Vec<u8> = Vec::new();
         let mut bit_writer = BitWriter::endian(&mut buffer, BigEndian);
 
-        for number in numbers.iter() {
+        for number in NUMBERS.iter() {
             write_varbit(*number, &mut bit_writer).unwrap();
         }
 
@@ -269,10 +271,25 @@ mod tests {
 
         // Read again
         let mut cursor: (&[u8], usize) = (&buffer, 0);
-        for want in numbers {
+        for want in NUMBERS {
             let (new_cursor, got) = read_varbit_int(cursor).unwrap();
             cursor = new_cursor;
             assert_eq!(want, got)
+        }
+    }
+
+    #[test]
+    fn test_write_varbit_buf() {
+        let mut writer = BufferedWriter::new();
+
+        for number in NUMBERS.iter() {
+            write_varbit_buf(*number, &mut writer).unwrap();
+        }
+
+        let mut reader = BufferedReader::new(&writer.buf);
+        for number in NUMBERS.iter() {
+            let value = read_varbit_int_ex(&mut reader).unwrap();
+            assert_eq!(number, &value)
         }
     }
 }

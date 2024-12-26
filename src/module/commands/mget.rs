@@ -1,10 +1,10 @@
 use crate::common::types::{Matchers, Sample};
+use crate::error_consts;
 use crate::module::arg_parse::*;
 use crate::module::commands::range_utils::get_series_labels;
 use crate::module::result::sample_to_value;
-use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
-use crate::error_consts;
 use crate::series::index::with_matched_series;
+use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
 struct MGetOptions {
     filter: Matchers,
@@ -22,39 +22,43 @@ pub fn mget(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     struct SeriesData {
         series_key: ValkeyString,
         labels: Vec<ValkeyValue>,
-        sample: Sample
+        sample: Sample,
     }
 
     struct State {
         with_labels: bool,
         selected_labels: Vec<String>,
-        series: Vec<SeriesData>
+        series: Vec<SeriesData>,
     }
 
     let mut state = State {
         with_labels: options.with_labels,
         selected_labels: options.selected_labels,
-        series: Vec::new()
+        series: Vec::new(),
     };
 
-
     with_matched_series(ctx, &mut state, &[options.filter], |acc, series, key| {
-        let sample = Sample { timestamp: series.last_timestamp, value: series.last_value };
+        let sample = Sample {
+            timestamp: series.last_timestamp,
+            value: series.last_value,
+        };
         let labels = get_series_labels(series, acc.with_labels, &acc.selected_labels);
         acc.series.push(SeriesData {
             sample,
             labels,
-            series_key: key
+            series_key: key,
         });
         Ok(())
     })?;
 
-    let result = state.series.into_iter()
+    let result = state
+        .series
+        .into_iter()
         .map(|s| {
             let series = vec![
                 ValkeyValue::from(s.series_key),
                 ValkeyValue::Array(s.labels),
-                sample_to_value(s.sample)
+                sample_to_value(s.sample),
             ];
             ValkeyValue::Array(series)
         })
@@ -63,12 +67,8 @@ pub fn mget(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     Ok(ValkeyValue::Array(result))
 }
 
-
 fn parse_mget_options(args: &mut CommandArgIterator) -> ValkeyResult<MGetOptions> {
-
-    const CMD_TOKENS: &[&str] = &[
-        CMD_ARG_WITH_LABELS,
-    ];
+    const CMD_TOKENS: &[&str] = &[CMD_ARG_WITH_LABELS];
 
     fn is_mget_command_keyword(arg: &str) -> bool {
         CMD_TOKENS.contains(&arg)

@@ -7,7 +7,9 @@ use crate::module::arg_parse::{
     CMD_ARG_LABELS,
 };
 use metricsql_parser::parser::is_valid_identifier;
-use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
+use valkey_module::{
+    Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK,
+};
 use valkey_module_macros::command;
 
 const CMD_ARG_MAX_ENTRIES: &str = "MAX_ENTRIES";

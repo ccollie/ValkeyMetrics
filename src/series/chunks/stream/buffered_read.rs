@@ -6,17 +6,17 @@ use std::boxed::Box;
 ///
 /// BufferedReader encapsulates a buffer of bytes which can be read from.
 #[derive(Debug)]
-pub struct BufferedReader {
-    bytes: Vec<u8>, // internal buffer of bytes
-    index: usize,   // index into bytes
-    pos: u32,       // position in the byte we are currently reading
+pub struct BufferedReader<'a> {
+    bytes: &'a Vec<u8>, // internal buffer of bytes
+    index: usize,       // index into bytes
+    pos: u32,           // position in the byte we are currently reading
 }
 
-impl BufferedReader {
+impl<'a> BufferedReader<'a> {
     /// new creates a new `BufferedReader` from `bytes`
-    pub fn new(bytes: Box<[u8]>) -> Self {
+    pub fn new(bytes: &'a Vec<u8>) -> Self {
         BufferedReader {
-            bytes: bytes.into_vec(),
+            bytes,
             index: 0,
             pos: 0,
         }
@@ -27,7 +27,7 @@ impl BufferedReader {
     }
 }
 
-impl Read for BufferedReader {
+impl Read for BufferedReader<'_> {
     fn read_bit(&mut self) -> Result<Bit, Error> {
         if self.pos == 8 {
             self.index += 1;
@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn read_bit() {
         let bytes = vec![0b01101100, 0b11101001];
-        let mut b = BufferedReader::new(bytes.into_boxed_slice());
+        let mut b = BufferedReader::new(&bytes);
 
         assert_eq!(b.read_bit().unwrap(), Bit::Zero);
         assert_eq!(b.read_bit().unwrap(), Bit::One);
@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn read_byte() {
         let bytes = vec![100, 25, 0, 240, 240];
-        let mut b = BufferedReader::new(bytes.into_boxed_slice());
+        let mut b = BufferedReader::new(&bytes);
 
         assert_eq!(b.read_byte().unwrap(), 100);
         assert_eq!(b.read_byte().unwrap(), 25);
@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn read_bits() {
         let bytes = vec![0b01010111, 0b00011101, 0b11110101, 0b00010100];
-        let mut b = BufferedReader::new(bytes.into_boxed_slice());
+        let mut b = BufferedReader::new(&bytes);
 
         assert_eq!(b.read_bits(3).unwrap(), 0b010);
         assert_eq!(b.read_bits(1).unwrap(), 0b1);
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn read_mixed() {
         let bytes = vec![0b01101101, 0b01101101];
-        let mut b = BufferedReader::new(bytes.into_boxed_slice());
+        let mut b = BufferedReader::new(&bytes);
 
         assert_eq!(b.read_bit().unwrap(), Bit::Zero);
         assert_eq!(b.read_bits(3).unwrap(), 0b110);
@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn peek_bits() {
         let bytes = vec![0b01010111, 0b00011101, 0b11110101, 0b00010100];
-        let mut b = BufferedReader::new(bytes.into_boxed_slice());
+        let mut b = BufferedReader::new(&bytes);
 
         assert_eq!(b.peek_bits(1).unwrap(), 0b0);
         assert_eq!(b.peek_bits(4).unwrap(), 0b0101);

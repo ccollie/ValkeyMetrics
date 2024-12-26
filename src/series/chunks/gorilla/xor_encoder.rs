@@ -7,6 +7,7 @@ use crate::common::types::Sample;
 use crate::common::{write_uvarint, write_varint};
 use crate::series::chunks::gorilla::varbit::write_varbit;
 use crate::series::chunks::gorilla::xor_iterator::XORIterator;
+use crate::series::chunks::stream::BufferedWriter;
 use bitstream_io::BitQueue;
 use get_size::GetSize;
 use smallvec::SmallVec;
@@ -14,7 +15,6 @@ use std::io::Write;
 use std::mem::size_of_val;
 use valkey_module::error::Error as ValkeyError;
 use valkey_module::raw;
-use crate::series::chunks::stream::BufferedWriter;
 
 #[derive(Debug)]
 pub struct XOREncoder {
@@ -25,7 +25,7 @@ pub struct XOREncoder {
     pub leading_bits_count: u8,
     pub trailing_bits_count: u8,
     pub timestamp_delta: i64,
-  //  w: BufferedWriter
+    //  w: BufferedWriter
 }
 
 impl GetSize for XOREncoder {

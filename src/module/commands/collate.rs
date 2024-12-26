@@ -1,4 +1,3 @@
-use crate::series::index::series_keys_by_matchers;
 use crate::aggregators::{AggOp, Aggregator};
 use crate::common::types::{IntMap, Matchers, Sample, Timestamp};
 use crate::error_consts;
@@ -6,6 +5,7 @@ use crate::module::arg_parse::*;
 use crate::module::commands::range_utils::get_series_labels;
 use crate::module::result::sample_to_value;
 use crate::module::{get_series_iterator, VKM_SERIES_TYPE};
+use crate::series::index::series_keys_by_matchers;
 use crate::series::index::with_timeseries_index;
 use crate::series::{TimeSeries, TimeseriesId, TimestampRange};
 use ahash::HashMapExt;

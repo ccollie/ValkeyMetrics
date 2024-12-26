@@ -1,29 +1,29 @@
-
-mod timeseries_index;
 mod index_key;
-pub mod serialization;
 #[cfg(test)]
 mod index_tests;
 #[cfg(test)]
 mod posting_query_tests;
 mod postings;
+pub mod serialization;
+mod timeseries_index;
 
 use crate::common::get_current_db;
+use crate::module::VKM_SERIES_TYPE;
 use crate::series::TimeSeries;
+use ahash::AHashSet;
+pub use metricsql_parser::label::{Matcher, Matchers};
 use papaya::{Guard, HashMap};
+pub use postings::*;
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::sync::LazyLock;
-use ahash::AHashSet;
 pub use timeseries_index::*;
-pub use postings::*;
-pub use metricsql_parser::label::{Matcher, Matchers};
 use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
-use crate::module::VKM_SERIES_TYPE;
 
 /// Map from db to TimeseriesIndex
 pub type TimeSeriesIndexMap = HashMap<i32, TimeSeriesIndex>;
 
-pub(crate) static TIMESERIES_INDEX: LazyLock<TimeSeriesIndexMap> = LazyLock::new(TimeSeriesIndexMap::new);
+pub(crate) static TIMESERIES_INDEX: LazyLock<TimeSeriesIndexMap> =
+    LazyLock::new(TimeSeriesIndexMap::new);
 
 #[inline]
 pub fn get_timeseries_index_for_db(db: i32, guard: &impl Guard) -> &TimeSeriesIndex {
@@ -42,7 +42,12 @@ where
     res
 }
 
-pub(crate) fn with_matched_series<F, STATE>(ctx: &Context, acc: &mut STATE, matchers: &[Matchers], mut f: F) -> ValkeyResult<()>
+pub(crate) fn with_matched_series<F, STATE>(
+    ctx: &Context,
+    acc: &mut STATE,
+    matchers: &[Matchers],
+    mut f: F,
+) -> ValkeyResult<()>
 where
     F: FnMut(&mut STATE, &TimeSeries, ValkeyString) -> ValkeyResult<()>,
 {
@@ -61,10 +66,11 @@ where
     })
 }
 
-pub fn series_keys_by_matchers(ctx: &Context,
-                               ts_index: &TimeSeriesIndex,
-                               matchers: &[Matchers]) -> ValkeyResult<AHashSet<ValkeyString>> {
-
+pub fn series_keys_by_matchers(
+    ctx: &Context,
+    ts_index: &TimeSeriesIndex,
+    matchers: &[Matchers],
+) -> ValkeyResult<AHashSet<ValkeyString>> {
     // todo: rayon ?
     let mut key_set = AHashSet::new();
     for matcher in matchers {

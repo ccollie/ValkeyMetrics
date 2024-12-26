@@ -6,9 +6,9 @@ use async_trait::async_trait;
 use metricsql_runtime::prelude::{
     Deadline, MetricName, MetricStorage, QueryResult, QueryResults, RuntimeResult, SearchQuery,
 };
+use metricsql_runtime::RuntimeError;
 use std::collections::HashMap;
 use std::sync::RwLock;
-use metricsql_runtime::RuntimeError;
 use valkey_module::{ValkeyError, ValkeyResult};
 
 /// Interface between the time series database and the metricsql runtime.

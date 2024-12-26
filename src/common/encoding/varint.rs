@@ -21,12 +21,11 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
-
 // Portions Copyright (c) Apache 2.0
 // https://github.com/SINTEF/rusty-chunkenc
+use super::required_encoded_space_unsigned;
 use crate::common::{read_uvarint, write_uvarint};
 use nom::IResult;
-use super::required_encoded_space_unsigned;
 
 /// How many bytes an integer uses when being encoded as a VarInt.
 #[inline]
@@ -46,7 +45,6 @@ fn zigzag_encode(from: i64) -> u64 {
 fn zigzag_decode(from: u64) -> i64 {
     ((from >> 1) ^ (-((from & 1) as i64)) as u64) as i64
 }
-
 
 /// Parses a Golang varint.
 pub fn read_varint(input: &[u8]) -> IResult<&[u8], i64> {

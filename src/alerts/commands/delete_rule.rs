@@ -1,6 +1,8 @@
 use crate::alerts::meta::with_group_mut;
 use crate::alerts::rules::{Group, MetricRule};
-use valkey_module::{Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK};
+use valkey_module::{
+    Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK,
+};
 use valkey_module_macros::command;
 
 // todo: support multiple

@@ -1,4 +1,5 @@
 use crate::common::types::{Sample, Timestamp};
+use crate::config::SPLIT_FACTOR;
 use crate::error::TsdbResult;
 use crate::iterators::SampleIter;
 use crate::series::chunks::utils::{filter_samples_by_date_range, filter_samples_by_value};
@@ -9,7 +10,6 @@ use crate::series::{
 };
 use core::mem::size_of;
 use get_size::GetSize;
-use crate::config::SPLIT_FACTOR;
 
 #[derive(Debug, Clone, PartialEq, GetSize)]
 pub enum TimeSeriesChunk {
@@ -31,9 +31,7 @@ impl TimeSeriesChunk {
                 let chunk = GorillaChunk::with_max_size(chunk_size);
                 Gorilla(chunk)
             }
-            ChunkCompression::Pco => {
-                Pco(PcoChunk::with_max_size(chunk_size))
-            }
+            ChunkCompression::Pco => Pco(PcoChunk::with_max_size(chunk_size)),
         }
     }
 
@@ -104,7 +102,7 @@ impl TimeSeriesChunk {
         use TimeSeriesChunk::*;
         match self {
             Uncompressed(chunk) => Box::new(chunk.iter()),
-            Gorilla( chunk) => Box::new(chunk.iter()),
+            Gorilla(chunk) => Box::new(chunk.iter()),
             Pco(chunk) => Box::new(chunk.iter()),
         }
     }
@@ -114,7 +112,7 @@ impl TimeSeriesChunk {
         match self {
             Uncompressed(chunk) => chunk.range_iter(start, end),
             Gorilla(chunk) => chunk.range_iter(start, end),
-            Pco(chunk) => chunk.range_iter(start, end)
+            Pco(chunk) => chunk.range_iter(start, end),
         }
     }
 
@@ -334,15 +332,9 @@ impl Chunk for TimeSeriesChunk {
         debug_assert!(!samples.is_empty());
 
         match self {
-            Uncompressed(chunk) => {
-                chunk.merge_samples(samples, dp_policy)
-            }
-            Gorilla(chunk) => {
-                chunk.merge_samples(samples, dp_policy)
-            }
-            Pco(chunk) => {
-                chunk.merge_samples(samples, dp_policy)
-            }
+            Uncompressed(chunk) => chunk.merge_samples(samples, dp_policy),
+            Gorilla(chunk) => chunk.merge_samples(samples, dp_policy),
+            Pco(chunk) => chunk.merge_samples(samples, dp_policy),
         }
     }
 

@@ -40,10 +40,13 @@ pub(crate) enum SetOperation {
 
 impl PartialEq for SetOperation {
     fn eq(&self, other: &Self) -> bool {
-        matches!((self, other), (SetOperation::Union, SetOperation::Union) | (SetOperation::Intersection, SetOperation::Intersection))
+        matches!(
+            (self, other),
+            (SetOperation::Union, SetOperation::Union)
+                | (SetOperation::Intersection, SetOperation::Intersection)
+        )
     }
 }
-
 
 #[derive(Clone, Default, Debug)]
 pub(crate) struct Postings {
@@ -97,7 +100,12 @@ impl Postings {
         self.id_to_key.remove(&ts.id);
     }
 
-    pub(crate) fn remove_series_by_id(&mut self, id: SeriesRef, metric_name: &str, labels: &[Label]) {
+    pub(crate) fn remove_series_by_id(
+        &mut self,
+        id: SeriesRef,
+        metric_name: &str,
+        labels: &[Label],
+    ) {
         self.id_to_key.remove(&id);
         // should never happen, but just in case
         if metric_name.is_empty() && labels.is_empty() {
@@ -108,7 +116,7 @@ impl Postings {
             self.remove_posting_for_label_value(METRIC_NAME_LABEL, metric_name, id);
         }
 
-        for Label { name, value} in labels.iter() {
+        for Label { name, value } in labels.iter() {
             self.remove_posting_for_label_value(name, value, id);
         }
     }
@@ -122,7 +130,12 @@ impl Postings {
         self.label_index.prefix(prefix.as_bytes()).next().is_some()
     }
 
-    pub fn add_posting_for_label_value(&mut self, label: &str, value: &str, ts_id: SeriesRef) -> bool {
+    pub fn add_posting_for_label_value(
+        &mut self,
+        label: &str,
+        value: &str,
+        ts_id: SeriesRef,
+    ) -> bool {
         let key = IndexKey::for_label_value(label, value);
         let result = if let Some(bmp) = self.label_index.get_mut(&key) {
             bmp.add(ts_id);
@@ -131,13 +144,16 @@ impl Postings {
             let mut bmp = IdBitmap::new();
             bmp.add(ts_id);
             // TODO: possibly return Result, though if this fails, it's a bug
-            match self.label_index.try_insert(key, bmp)
-                .expect("BUG in posting insert. Key is prefix of another key") {
+            match self
+                .label_index
+                .try_insert(key, bmp)
+                .expect("BUG in posting insert. Key is prefix of another key")
+            {
                 None => {
                     self.label_count += 1;
                     true
-                },
-                _ => false
+                }
+                _ => false,
             }
         };
         self.changes_since_last_optimize += 1;
@@ -184,7 +200,6 @@ impl Postings {
             Ok(Cow::Owned(IdBitmap::new()))
         }
     }
-
 
     /// Optimize the bitmap indexes
     pub(super) fn optimize(&mut self, force: bool) {
@@ -242,7 +257,7 @@ impl Postings {
         // Sort matchers to have the intersecting matchers first.
         // This way the base for subtraction is smaller and there is no chance that the set we subtract
         // from contains postings of series that didn't exist when we constructed the set we subtract by.
-        sorted_matchers.sort_by(|i, j|-> Ordering {
+        sorted_matchers.sort_by(|i, j| -> Ordering {
             let is_i_subtracting = i.2;
             let is_j_subtracting = j.2;
             if !is_i_subtracting && is_j_subtracting {
@@ -263,7 +278,8 @@ impl Postings {
                 // If the matchers for a label name selects an empty value, it selects all
                 // the series which don't have the label name set too. See:
                 //
-                return Err(TsdbError::General(error_consts::MISSING_FILTER.into())) // todo: better error
+                return Err(TsdbError::General(error_consts::MISSING_FILTER.into()));
+                // todo: better error
             }
 
             if typ == MatchOp::RegexEqual && value == ".*" {
@@ -272,14 +288,14 @@ impl Postings {
             }
 
             if typ == MatchOp::RegexNotEqual && value == ".*" {
-                return Ok(Cow::Owned(IdBitmap::default()))
+                return Ok(Cow::Owned(IdBitmap::default()));
             }
 
             if typ == MatchOp::RegexEqual && value == ".+" {
                 // .+ regexp matches any non-empty string: get postings for all label values.
                 let it = self.postings_for_all_label_values(&m.label);
                 if it.is_empty() {
-                    return Ok(Cow::Owned(it))
+                    return Ok(Cow::Owned(it));
                 }
                 its.or_inplace(&it);
             } else if typ == MatchOp::RegexNotEqual && value == ".+" {
@@ -292,11 +308,13 @@ impl Postings {
 
                 if is_not {
                     // a failure here should probably panic
-                    let inverse = m.inverse()
-                        .map_err(|_| TsdbError::General(error_consts::INVALID_MATCHER.to_string()))?;
+                    let inverse = m.inverse().map_err(|_| {
+                        TsdbError::General(error_consts::INVALID_MATCHER.to_string())
+                    })?;
 
                     // If the label can't be empty and is a Not, then subtract it out at the end.
-                    if matches_empty { // l!="foo"
+                    if matches_empty {
+                        // l!="foo"
                         // If the label can't be empty and is a Not and the inner matcher
                         // doesn't match empty, then subtract it out at the end.
                         let it = self.postings_for_matcher(&inverse);
@@ -320,8 +338,8 @@ impl Postings {
                     }
                     intersect(&mut its, &it);
                 }
-
-            } else { // l=""
+            } else {
+                // l=""
                 // If the matchers for a label name selects an empty value, it selects all
                 // the series which don't have the label name set too. See:
                 // https://github.com/prometheus/prometheus/issues/3575 and
@@ -388,7 +406,6 @@ impl Postings {
         }
     }
 
-
     /// `postings_for_label_matching` returns postings having a label with the given name and a value
     /// for which match returns true. If no postings are found having at least one matching label,
     /// an empty bitmap is returned.
@@ -435,7 +452,7 @@ impl Postings {
                 if matches.len() == 1 {
                     return self.postings_for_label_value(&m.label, &matches[0]);
                 }
-                return Cow::Owned(self.postings(&m.label, &matches))
+                return Cow::Owned(self.postings(&m.label, &matches));
             } else {
                 if let Some(prefix) = m.prefix() {
                     // todo: refactor into a method
@@ -449,7 +466,7 @@ impl Postings {
                             result.or_inplace(map);
                         }
                     }
-                    return Cow::Owned(result)
+                    return Cow::Owned(result);
                 }
             }
         }
@@ -457,25 +474,25 @@ impl Postings {
         Cow::Owned(self.postings_for_matcher_internal(m, false))
     }
 
-    pub fn label_values_with_matchers(&self, name: &str, matchers: &[Matcher]) -> TsdbResult<Vec<String>> {
+    pub fn label_values_with_matchers(
+        &self,
+        name: &str,
+        matchers: &[Matcher],
+    ) -> TsdbResult<Vec<String>> {
         let mut all_values = self.label_values(name);
 
         if all_values.is_empty() {
-            return Ok(all_values)
+            return Ok(all_values);
         }
 
         // If we have a matcher for the label name, we can filter out values that don't match
         // before we fetch postings. This is especially useful for labels with many values.
         // e.g. __name__ with a selector like {__name__="xyz"}
-        let has_matchers_for_other_labels= matchers.iter().any(|m| m.label != name);
-        all_values.retain(|v| {
-            matchers.iter().all(|m| {
-                m.label != name || m.matches(v)
-            })
-        });
+        let has_matchers_for_other_labels = matchers.iter().any(|m| m.label != name);
+        all_values.retain(|v| matchers.iter().all(|m| m.label != name || m.matches(v)));
 
         if all_values.is_empty() {
-            return Ok(all_values)
+            return Ok(all_values);
         }
 
         // If we don't have any matchers for other labels, then we're done.
@@ -483,8 +500,9 @@ impl Postings {
             return Ok(all_values);
         }
 
-        let p = self.postings_for_matchers(matchers)
-            .map_err(|_err| TsdbError::General(error_consts::ERROR_FETCHING_POSTINGS_FROM_MATCHERS.to_string()))?;
+        let p = self.postings_for_matchers(matchers).map_err(|_err| {
+            TsdbError::General(error_consts::ERROR_FETCHING_POSTINGS_FROM_MATCHERS.to_string())
+        })?;
 
         all_values.retain(|v| {
             let postings = self.postings_for_label_value(name, v);
@@ -496,11 +514,15 @@ impl Postings {
 
     pub fn label_values(&self, name: &str) -> Vec<String> {
         let mut values = Vec::new();
-        self.process_label_values(name, &mut values, |_| true,
-                                            |values, value, _| {
-                                                values.push(value.to_string());
-                                                ControlFlow::<Option<()>>::Continue(())
-                                            });
+        self.process_label_values(
+            name,
+            &mut values,
+            |_| true,
+            |values, value, _| {
+                values.push(value.to_string());
+                ControlFlow::<Option<()>>::Continue(())
+            },
+        );
         values.sort();
 
         values
@@ -511,10 +533,11 @@ impl Postings {
         label: &str,
         ctx: &mut CONTEXT,
         predicate: PRED,
-        f: F
+        f: F,
     ) -> Option<T>
-    where F: Fn(&mut CONTEXT, &str, &IdBitmap) -> ControlFlow<Option<T>>,
-          PRED: Fn(&str) -> bool
+    where
+        F: Fn(&mut CONTEXT, &str, &IdBitmap) -> ControlFlow<Option<T>>,
+        PRED: Fn(&str) -> bool,
     {
         let prefix = get_key_for_label_prefix(label);
         let start_pos = prefix.len();
@@ -524,7 +547,7 @@ impl Postings {
                 match f(ctx, value, map) {
                     ControlFlow::Break(v) => {
                         return v;
-                    },
+                    }
                     ControlFlow::Continue(_) => continue,
                 }
             }
@@ -573,24 +596,23 @@ fn inverse_postings_for_matcher<'a>(postings: &'a Postings, m: &Matcher) -> Cow<
     Cow::Owned(postings.postings_for_matcher_internal(m, true))
 }
 
-
 // Placeholder for more reasonable heuristics
 // e.g. if we have a filter that matches all postings, we should not parallelize
 // and instead rely on set operations to optimize the query at each iteration
 fn should_parallelize_matchers(matchers: &Matchers) -> bool {
     if !matchers.matchers.is_empty() {
-        return matchers.matchers.len() > 1
+        return matchers.matchers.len() > 1;
     }
     if !matchers.or_matchers.is_empty() {
-        return matchers.or_matchers.iter()
-            .any(|m| m.len() > 3)
+        return matchers.or_matchers.iter().any(|m| m.len() > 3);
     }
     false
 }
 
-
-fn run_or_matchers_parallel<'a>(label_index: &'a Postings,
-                                matchers: &[Vec<Matcher>]) -> TsdbResult<Cow<'a, IdBitmap>> {
+fn run_or_matchers_parallel<'a>(
+    label_index: &'a Postings,
+    matchers: &[Vec<Matcher>],
+) -> TsdbResult<Cow<'a, IdBitmap>> {
     let mut scope = chili::Scope::global();
     match matchers {
         [] => Ok(Cow::Owned(IdBitmap::new())),
@@ -608,10 +630,12 @@ fn run_or_matchers_parallel<'a>(label_index: &'a Postings,
         [m1, m2, m3] => {
             let (x, (y, z)) = scope.join(
                 |_| label_index.postings_for_matchers(&m1),
-                |s2| s2.join(
-                    |_| label_index.postings_for_matchers(&m2),
-                    |_| label_index.postings_for_matchers(&m3),
-                )
+                |s2| {
+                    s2.join(
+                        |_| label_index.postings_for_matchers(&m2),
+                        |_| label_index.postings_for_matchers(&m3),
+                    )
+                },
             );
             let mut x = x?.into_owned();
             let y = y?;
@@ -625,7 +649,7 @@ fn run_or_matchers_parallel<'a>(label_index: &'a Postings,
             let (left, right) = matchers.split_at(mid);
             let (left_results, right_results) = scope.join(
                 |_| run_or_matchers_parallel(label_index, left),
-                |_| run_or_matchers_parallel(label_index, right)
+                |_| run_or_matchers_parallel(label_index, right),
             );
             let right_results = right_results?;
             let mut left_results = left_results?.into_owned();

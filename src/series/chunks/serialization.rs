@@ -1,9 +1,9 @@
 use crate::common::serialization::{rdb_load_string, rdb_load_usize, rdb_save_usize};
 use crate::common::types::Sample;
-use crate::series::{TimeSeriesChunk, UncompressedChunk};
-use valkey_module::{raw, ValkeyError, ValkeyResult};
 use crate::series::chunks::gorilla::{rdb_load_gorilla_chunk, rdb_save_gorilla_chunk};
 use crate::series::chunks::pco::{rdb_load_pco_chunk, rdb_save_pco_chunk};
+use crate::series::{TimeSeriesChunk, UncompressedChunk};
+use valkey_module::{raw, ValkeyError, ValkeyResult};
 
 fn rdb_save_uncompressed_chunk(chunk: &UncompressedChunk, rdb: *mut raw::RedisModuleIO) {
     // todo: compress ?

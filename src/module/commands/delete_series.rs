@@ -1,9 +1,9 @@
+use crate::error_consts;
 use crate::module::arg_parse::parse_series_selector;
 use crate::module::VKM_SERIES_TYPE;
+use crate::series::index::{series_keys_by_matchers, with_timeseries_index};
 use crate::series::time_series::TimeSeries;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
-use crate::error_consts;
-use crate::series::index::{series_keys_by_matchers, with_timeseries_index};
 
 ///
 /// VM.DELETE-SERIES selector..
@@ -39,9 +39,7 @@ pub fn delete_series(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
                 Ok(None) => {
                     return Err(ValkeyError::Str(error_consts::SERIES_NOT_FOUND));
                 }
-                Err(e) => {
-                    return Err(e)
-                }
+                Err(e) => return Err(e),
             }
             deleted += 1;
         }
