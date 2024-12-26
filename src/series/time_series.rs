@@ -1,4 +1,3 @@
-use valkey_module::logging;
 use super::chunks::utils::{
     filter_samples_by_date_range, filter_samples_by_value, format_prometheus_metric_name,
 };
