@@ -57,7 +57,7 @@ pub fn join(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
     match (left_series, right_series) {
         (Some(left_series), Some(right_series)) => {
-            Ok(join_internal(&left_series, &right_series, &options))
+            Ok(join_internal(left_series, right_series, &options))
         }
         (Some(_), None) => Err(invalid_series_key_error(&right_key)),
         (None, Some(_)) => Err(invalid_series_key_error(&left_key)),

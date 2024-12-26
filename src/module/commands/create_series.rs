@@ -49,7 +49,7 @@ pub fn parse_create_options(
     args: Vec<ValkeyString>,
 ) -> ValkeyResult<(ValkeyString, TimeSeriesOptions)> {
     let mut args = args.into_iter().skip(1).peekable();
-    let mut metric_set = false;
+    let metric_set = false;
 
     let mut options = TimeSeriesOptions::default();
 

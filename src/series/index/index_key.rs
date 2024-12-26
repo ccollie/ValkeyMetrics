@@ -254,7 +254,7 @@ mod tests {
 
         for service in services.iter() {
             let key = IndexKey::for_label_value("service", service);
-            let _ = tree.try_insert(key.into(), service.to_string()).unwrap();
+            let _ = tree.try_insert(key, service.to_string()).unwrap();
         }
 
         for environment in environments.iter() {

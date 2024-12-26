@@ -1,4 +1,3 @@
-use super::varint::*;
 use std::cmp::min;
 
 #[derive(Debug)]

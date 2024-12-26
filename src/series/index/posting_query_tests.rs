@@ -29,7 +29,7 @@ mod tests {
     }
 
     fn labels_from_strings<S: Into<String> + Clone>(ss: &[S]) -> Vec<Label> {
-        if ss.len() == 0 {
+        if ss.is_empty() {
             return vec![];
         }
         if ss.len() % 2 != 0 {
@@ -55,7 +55,7 @@ mod tests {
 
     fn to_label_vec(labels: &[Vec<Label>]) -> Vec<Vec<Label>> {
         labels
-            .into_iter()
+            .iter()
             .map(|items| {
                 let mut items = items.clone();
                 items.sort();
@@ -70,7 +70,7 @@ mod tests {
         series_data: &HashMap<SeriesRef, Vec<Label>>,
     ) -> Vec<Vec<Label>> {
         let p = ix.postings_for_matchers(matchers).unwrap();
-        let mut actual: Vec<_> = p
+        let actual: Vec<_> = p
             .iter()
             .filter_map(|series_ref| series_data.get(&series_ref))
             .cloned()

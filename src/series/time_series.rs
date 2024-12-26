@@ -1,3 +1,4 @@
+use valkey_module::logging;
 use super::chunks::utils::{
     filter_samples_by_date_range, filter_samples_by_value, format_prometheus_metric_name,
 };
@@ -21,7 +22,7 @@ use std::hash::Hash;
 use std::mem::size_of;
 use std::time::Duration;
 use std::vec;
-use valkey_module::{logging, ValkeyError, ValkeyResult};
+use valkey_module::{ValkeyError, ValkeyResult};
 
 pub(super) const TIMESTAMP_TYPE_U64: &str = "u64";
 pub(super) const TIMESTAMP_TYPE_U32: &str = "u32";

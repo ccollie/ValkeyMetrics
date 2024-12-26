@@ -7,7 +7,6 @@ use crate::common::types::Sample;
 use crate::common::{write_uvarint, write_varint};
 use crate::series::chunks::gorilla::varbit::write_varbit;
 use crate::series::chunks::gorilla::xor_iterator::XORIterator;
-use crate::series::chunks::stream::BufferedWriter;
 use bitstream_io::BitQueue;
 use get_size::GetSize;
 use smallvec::SmallVec;

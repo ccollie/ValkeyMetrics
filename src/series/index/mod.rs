@@ -11,7 +11,7 @@ use crate::common::get_current_db;
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::TimeSeries;
 use ahash::AHashSet;
-pub use metricsql_parser::label::{Matcher, Matchers};
+pub use metricsql_parser::label::Matchers;
 use papaya::{Guard, HashMap};
 pub use postings::*;
 use rayon::iter::{ParallelBridge, ParallelIterator};

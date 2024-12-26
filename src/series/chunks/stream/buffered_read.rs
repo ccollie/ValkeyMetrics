@@ -1,6 +1,5 @@
 use super::Bit;
 use super::{Error, Read};
-use std::boxed::Box;
 
 /// BufferedReader
 ///

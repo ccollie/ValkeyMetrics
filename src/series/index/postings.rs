@@ -192,7 +192,7 @@ impl Postings {
                 let mut acc = IdBitmap::new();
                 for filter in matchers.or_matchers.iter() {
                     let postings = self.postings_for_matchers(filter)?;
-                    acc.or_inplace(&*postings);
+                    acc.or_inplace(&postings);
                 }
                 Ok(Cow::Owned(acc))
             }
@@ -242,7 +242,7 @@ impl Postings {
             has_subtracting_matchers |= is_subtracting;
             has_intersecting_matchers |= !is_subtracting;
 
-            sorted_matchers.push((&m, matches_empty, is_subtracting))
+            sorted_matchers.push((m, matches_empty, is_subtracting))
         }
 
         let mut its = if has_subtracting_matchers && !has_intersecting_matchers {
@@ -318,7 +318,7 @@ impl Postings {
                         // If the label can't be empty and is a Not and the inner matcher
                         // doesn't match empty, then subtract it out at the end.
                         let it = self.postings_for_matcher(&inverse);
-                        not_its.or_inplace(&*it);
+                        not_its.or_inplace(&it);
                     } else {
                         // l!=""
                         // If the label can't be empty and is a Not, but the inner matcher can
@@ -345,7 +345,7 @@ impl Postings {
                 // https://github.com/prometheus/prometheus/issues/3575 and
                 // https://github.com/prometheus/prometheus/pull/3578#issuecomment-351653555
                 let it = inverse_postings_for_matcher(self, m);
-                not_its.or_inplace(&*it);
+                not_its.or_inplace(&it);
             }
         }
 
@@ -453,21 +453,19 @@ impl Postings {
                     return self.postings_for_label_value(&m.label, &matches[0]);
                 }
                 return Cow::Owned(self.postings(&m.label, &matches));
-            } else {
-                if let Some(prefix) = m.prefix() {
-                    // todo: refactor into a method
-                    // todo: possible optimization - if there's only one entry, we can return a reference
-                    let mut result = IdBitmap::new();
-                    let key_prefix = IndexKey::for_label_value(&m.label, prefix);
-                    let start_pos = key_prefix.len();
-                    for (key, map) in self.label_index.prefix(&key_prefix) {
-                        let value = key.sub_string(start_pos);
-                        if m.matches(value) {
-                            result.or_inplace(map);
-                        }
+            } else if let Some(prefix) = m.prefix() {
+                // todo: refactor into a method
+                // todo: possible optimization - if there's only one entry, we can return a reference
+                let mut result = IdBitmap::new();
+                let key_prefix = IndexKey::for_label_value(&m.label, prefix);
+                let start_pos = key_prefix.len();
+                for (key, map) in self.label_index.prefix(&key_prefix) {
+                    let value = key.sub_string(start_pos);
+                    if m.matches(value) {
+                        result.or_inplace(map);
                     }
-                    return Cow::Owned(result);
                 }
+                return Cow::Owned(result);
             }
         }
 
@@ -616,32 +614,32 @@ fn run_or_matchers_parallel<'a>(
     let mut scope = chili::Scope::global();
     match matchers {
         [] => Ok(Cow::Owned(IdBitmap::new())),
-        [matchers] => label_index.postings_for_matchers(&matchers),
+        [matchers] => label_index.postings_for_matchers(matchers),
         [m1, m2] => {
             let (r1, r2) = scope.join(
-                |_| label_index.postings_for_matchers(&m1),
-                |_| label_index.postings_for_matchers(&m2),
+                |_| label_index.postings_for_matchers(m1),
+                |_| label_index.postings_for_matchers(m2),
             );
             let mut r1 = r1?.into_owned();
             let r2 = r2?;
-            r1.or_inplace(&*r2);
+            r1.or_inplace(&r2);
             Ok(Cow::Owned(r1))
         }
         [m1, m2, m3] => {
             let (x, (y, z)) = scope.join(
-                |_| label_index.postings_for_matchers(&m1),
+                |_| label_index.postings_for_matchers(m1),
                 |s2| {
                     s2.join(
-                        |_| label_index.postings_for_matchers(&m2),
-                        |_| label_index.postings_for_matchers(&m3),
+                        |_| label_index.postings_for_matchers(m2),
+                        |_| label_index.postings_for_matchers(m3),
                     )
                 },
             );
             let mut x = x?.into_owned();
             let y = y?;
             let z = z?;
-            x.or_inplace(&*y);
-            x.or_inplace(&*z);
+            x.or_inplace(&y);
+            x.or_inplace(&z);
             Ok(Cow::Owned(x))
         }
         _ => {
@@ -653,7 +651,7 @@ fn run_or_matchers_parallel<'a>(
             );
             let right_results = right_results?;
             let mut left_results = left_results?.into_owned();
-            left_results.or_inplace(&*right_results);
+            left_results.or_inplace(&right_results);
             Ok(Cow::Owned(left_results))
         }
     }

@@ -75,7 +75,6 @@ pub trait Write {
 
     // Write a single byte to the underlying stream.
     fn write_byte(&mut self, byte: u8);
-    #[inline]
     fn write_bytes(&mut self, buf: &[u8]);
 
     // Write the bottom `num` bits of `bits` to the underlying stream.
