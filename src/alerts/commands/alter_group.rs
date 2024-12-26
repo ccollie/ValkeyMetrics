@@ -85,7 +85,7 @@ pub fn parse_alter_options(
     ];
 
     fn is_command_keyword(arg: &str) -> bool {
-        CREATE_TOKENS.contains(&arg)
+        CREATE_TOKENS.iter().any(|x| x.eq_ignore_ascii_case(arg))
     }
 
     let mut config = AlterGroupOptions::default();

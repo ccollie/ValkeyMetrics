@@ -1,3 +1,4 @@
+use std::ascii::AsciiExt;
 use crate::alerts::meta::with_group_mut;
 use crate::alerts::notifications::validate_templates;
 use crate::alerts::rules::{
@@ -68,7 +69,7 @@ fn parse_alerting_rule_config(mut args: CommandArgIterator) -> ValkeyResult<Aler
             CMD_ARG_EVAL_INTERVAL,
             CMD_ARG_MAX_ENTRIES,
         ];
-        TOKENS.contains(&token)
+        TOKENS.iter().any(|x| x.eq_ignore_ascii_case(token))
     }
 
     let name = args.next_string()?;

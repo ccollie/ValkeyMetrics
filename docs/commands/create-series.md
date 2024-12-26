@@ -3,6 +3,8 @@
 #### Syntax
 ```
 VM.CREATE-SERIES key metric 
+  [METRIC metric]
+  [LABELS label1=value1 label2=value2 ...]  
   [RETENTION retentionPeriod]
   [ENCODING <COMPRESSED|UNCOMPRESSED>]
   [CHUNK_SIZE chunkSize]
@@ -24,6 +26,12 @@ is key name for the time series.
 The metric name in Prometheus format, _e.g. `node_memory_used_bytes{hostname="host1.domain.com"}`
 is key name for time series. See https://prometheus.io/docs/concepts/data_model/#metric-names-and-labels
 </details>
+
+<details open><summary><code>label1...</code></summary> 
+The labels for the metric. Labels are key-value pairs that are used to identify the metric.
+</details>
+
+Either `METRIC` or `LABELS` must be specified.
 
 ## Optional Arguments 
 <details open><summary><code>retentionPeriod</code></summary>

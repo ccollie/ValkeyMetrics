@@ -581,7 +581,7 @@ fn should_parallelize_matchers(matchers: &Matchers) -> bool {
     if !matchers.matchers.is_empty() {
         return matchers.matchers.len() > 1
     }
-    if!matchers.or_matchers.is_empty() {
+    if !matchers.or_matchers.is_empty() {
         return matchers.or_matchers.iter()
             .any(|m| m.len() > 3)
     }

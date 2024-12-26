@@ -80,7 +80,7 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
     ];
 
     fn is_command_keyword(arg: &str) -> bool {
-        CREATE_TOKENS.contains(&arg)
+        CREATE_TOKENS.iter().any(|x| x.eq_ignore_ascii_case(arg))
     }
 
     while let Ok(arg) = args.next_str() {

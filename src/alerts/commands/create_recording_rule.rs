@@ -52,7 +52,7 @@ pub fn create_recording_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRe
 fn parse_rule_config(mut args: CommandArgIterator) -> ValkeyResult<RecordingRule> {
     fn is_cmd_token(token: &str) -> bool {
         const TOKENS: [&str; 3] = [CMD_ARG_EXPR, CMD_ARG_LABELS, CMD_ARG_MAX_ENTRIES];
-        TOKENS.contains(&token)
+        TOKENS.iter().any(|x| x.eq_ignore_ascii_case(token))
     }
 
     let name = args.next_string()?;

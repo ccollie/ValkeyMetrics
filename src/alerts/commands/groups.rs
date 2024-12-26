@@ -70,7 +70,7 @@ pub fn parse_alert_rules_filter(args: Vec<ValkeyString>) -> ValkeyResult<RulesFi
             CMD_ARG_RULE_TYPE,
             CMD_ARG_EXCLUDE_ALERTS,
         ];
-        TOKENS.contains(&token)
+        TOKENS.iter().any(|x| x.eq_ignore_ascii_case(token))
     }
 
     let mut filter = RulesFilter::default();

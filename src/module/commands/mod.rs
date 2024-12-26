@@ -1,6 +1,6 @@
 mod active_queries;
 mod add;
-mod alter;
+mod alter_series;
 mod collate;
 mod create_series;
 mod delete_key_range;
@@ -23,7 +23,7 @@ mod top_queries;
 
 pub use active_queries::*;
 pub use add::*;
-pub use alter::*;
+pub use alter_series::*;
 pub use collate::*;
 pub use create_series::*;
 pub use delete_key_range::*;
