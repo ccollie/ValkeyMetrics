@@ -234,7 +234,7 @@ class ValkeyServerHandle(object):
             self._waitForExit()
             self.server = None
 
-        if os.environ.get('SKIPLOGCLEAN') == None:
+        if os.environ.get('SKIPLOGCLEAN') is None:
             if "logfile" in self.args and os.path.exists(os.path.join(self.cwd, self.args["logfile"])):
                 os.remove(os.path.join(self.cwd, self.args["logfile"]))
 
@@ -252,7 +252,7 @@ class ValkeyServerHandle(object):
 
     @wait()
     def _waitForServerPoll(self):
-        return self.server.poll() != None
+        return self.server.poll() is not None
 
     def _waitForExit(self):
         try:
@@ -273,7 +273,7 @@ class ValkeyServerHandle(object):
 
     @wait(timeout = 5)
     def is_down(self):
-        return self.server.poll() != None
+        return self.server.poll() is not None
 
     def children_pids(self):
         process = subprocess.Popen("ps --no-headers -o pid --ppid %s" % self.pid(),
@@ -437,7 +437,7 @@ class ValkeyServerHandle(object):
             raise RuntimeError("{} not support".format(action))
 
     def wait_for_action_done(self, action, client=None):
-        """Wait for the some action to complete, failing if it does not complete successfully in the timeout"""
+        """Wait for some action to complete, failing if it does not complete successfully in the timeout"""
         if client is None:
             client = self.client
         try:

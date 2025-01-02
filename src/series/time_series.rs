@@ -22,6 +22,8 @@ use std::mem::size_of;
 use std::time::Duration;
 use std::vec;
 use valkey_module::{ValkeyError, ValkeyResult};
+use valkey_module::logging;
+
 
 pub(super) const TIMESTAMP_TYPE_U64: &str = "u64";
 pub(super) const TIMESTAMP_TYPE_U32: &str = "u32";
@@ -99,22 +101,14 @@ impl TimeSeries {
             .unwrap_or(DEFAULT_CHUNK_COMPRESSION);
 
         res.duplicate_policy = options.duplicate_policy.unwrap_or(DEFAULT_DUPLICATE_POLICY);
-
         res.retention = options.retention.unwrap_or(DEFAULT_RETENTION_PERIOD);
-
-        if let Some(dedupe_interval) = options.dedupe_interval {
-            res.dedupe_interval = Some(dedupe_interval);
-        }
+        res.dedupe_interval = options.dedupe_interval;
 
         // todo: make sure labels are sorted and dont contain __name__
-        let label = options.labels.iter().find(|x| x.name == METRIC_NAME_LABEL); // better error
-
-        if let Some(label) = label {
-            res.metric_name.clone_from(&label.value);
+        if let Some(label) = options.labels.iter().find(|x| x.name == METRIC_NAME_LABEL) {
+            res.metric_name = label.value.clone();
         } else {
-            return Err(TsdbError::InvalidMetric(
-                "ERR missing metric name".to_string(),
-            ));
+            return Err(TsdbError::InvalidMetric("ERR missing metric name".to_string()));
         }
 
         options.labels.retain(|x| x.name != METRIC_NAME_LABEL);
@@ -316,7 +310,7 @@ impl TimeSeries {
 
             // todo: do this in background so ingestion is not blocked
             if let Err(_e) = self.trim() {
-                #[cfg(not(test))] // so we can run unit tests
+                //#[cfg(not(test))] // so we can run unit tests
                 logging::log_warning(format!("Error trimming time series: {:?}", _e));
             }
             let insert_at = self

@@ -21,7 +21,7 @@ def load_into_redis(redis_conn):
         split = key.split(':')
         region = split[0]
         location = split[1]
-        metric = 'consumption\{region="{}",location_type="{}"\}'.format(region, location)
+        metric = 'consumption{{region="{}",location_type="{}"}}'.format(region, location)
         r.execute_command('VM.CREATE-SERIES', key,  metric)
 
     for key, values in data.items():

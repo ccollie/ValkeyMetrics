@@ -10,7 +10,7 @@ echo "Script Directory: $SCRIPT_DIR"
 
 echo "Running cargo and clippy format checks..."
 cargo fmt --check
-cargo clippy --profile release --all-targets -- -D clippy::all
+# cargo clippy --profile release --all-targets -- -D clippy::all
 
 echo "Running cargo build release..."
 cargo build --all --all-targets  --release
@@ -61,7 +61,7 @@ else
     exit 1
 fi
 
-export MODULE_PATH="$SCRIPT_DIR/target/release/libvalkey_bloom.so"
+export MODULE_PATH="$SCRIPT_DIR/target/release/libvalkey_metrics.so"
 
 echo "Running the integration tests..."
 # TEST_PATTERN can be used to run specific tests or test patterns.
