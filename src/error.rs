@@ -1,7 +1,7 @@
 use crate::common::types::Sample;
 use thiserror::Error;
 
-#[derive(Debug, Error, Eq, PartialEq)]
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
 /// Enum for various errors in Tsdb.
 pub enum TsdbError {
     #[error("Chunk at full capacity. Max capacity {0}.")]
@@ -51,6 +51,9 @@ pub enum TsdbError {
 
     #[error("{0}")]
     General(String),
+
+    #[error("End of stream")]
+    EndOfStream,
 }
 
 pub type TsdbResult<T> = Result<T, TsdbError>;

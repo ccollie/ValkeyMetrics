@@ -1,4 +1,4 @@
-use super::{XOREncoder, XORIterator};
+use super::{GorillaEncoder, GorillaIterator};
 use crate::common::current_time_millis;
 use crate::common::types::{Sample, Timestamp};
 use crate::error::{TsdbError, TsdbResult};
@@ -14,7 +14,7 @@ use std::mem::size_of;
 /// `GorillaChunk` holds information about location and time range of a block of compressed data.
 #[derive(Debug, Clone, PartialEq, GetSize)]
 pub struct GorillaChunk {
-    pub(crate) xor_encoder: XOREncoder,
+    pub(crate) xor_encoder: GorillaEncoder,
     pub(crate) first_timestamp: Timestamp,
     pub max_size: usize,
 }
@@ -29,7 +29,7 @@ impl GorillaChunk {
     pub fn with_max_size(max_size: usize) -> Self {
         let now = current_time_millis();
         Self {
-            xor_encoder: XOREncoder::new(),
+            xor_encoder: GorillaEncoder::new(),
             first_timestamp: now,
             max_size,
         }
@@ -52,7 +52,7 @@ impl GorillaChunk {
     }
 
     fn compress(&mut self, samples: &[Sample]) -> TsdbResult<()> {
-        let mut encoder = XOREncoder::new();
+        let mut encoder = GorillaEncoder::new();
         for sample in samples {
             push_sample(&mut encoder, sample)?;
         }
@@ -101,7 +101,7 @@ impl GorillaChunk {
     }
 
     fn buf(&self) -> &[u8] {
-        &self.xor_encoder.writer.writer
+        self.xor_encoder.buf()
     }
 
     pub fn iter(&self) -> SampleIter {
@@ -183,7 +183,7 @@ impl Chunk for GorillaChunk {
         }
 
         let old_sample_count = self.xor_encoder.num_samples;
-        let mut new_encoder = XOREncoder::new();
+        let mut new_encoder = GorillaEncoder::new();
 
         for value in self.xor_encoder.iter() {
             let sample = value?;
@@ -239,7 +239,7 @@ impl Chunk for GorillaChunk {
         }
 
         let count = self.len();
-        let mut xor_encoder = XOREncoder::new();
+        let mut xor_encoder = GorillaEncoder::new();
 
         let mut iter = self.xor_encoder.iter();
 
@@ -313,13 +313,13 @@ impl Chunk for GorillaChunk {
 
         struct MergeState {
             count: usize,
-            xor_encoder: XOREncoder,
+            xor_encoder: GorillaEncoder,
             result: Vec<SampleAddResult>,
         }
 
         let mut merge_state = MergeState {
             count: 0,
-            xor_encoder: XOREncoder::new(),
+            xor_encoder: GorillaEncoder::new(),
             result: Vec::with_capacity(samples.len()),
         };
 
@@ -351,7 +351,7 @@ impl Chunk for GorillaChunk {
     where
         Self: Sized,
     {
-        let mut left_chunk = XOREncoder::new();
+        let mut left_chunk = GorillaEncoder::new();
         let mut right_chunk = GorillaChunk::default();
 
         if self.is_empty() {
@@ -374,7 +374,7 @@ impl Chunk for GorillaChunk {
     }
 }
 
-fn push_sample(encoder: &mut XOREncoder, sample: &Sample) -> TsdbResult<()> {
+fn push_sample(encoder: &mut GorillaEncoder, sample: &Sample) -> TsdbResult<()> {
     encoder.add_sample(sample).map_err(|e| {
         println!("Error adding sample: {:?}", e);
         TsdbError::CannotAddSample(*sample)
@@ -382,12 +382,12 @@ fn push_sample(encoder: &mut XOREncoder, sample: &Sample) -> TsdbResult<()> {
 }
 
 pub(crate) struct ChunkIter<'a> {
-    inner: XORIterator<'a>,
+    inner: GorillaIterator<'a>,
 }
 
 impl<'a> ChunkIter<'a> {
     pub fn new(chunk: &'a GorillaChunk) -> Self {
-        let inner = XORIterator::new(&chunk.xor_encoder);
+        let inner = GorillaIterator::new(&chunk.xor_encoder);
         Self { inner }
     }
 }
@@ -409,7 +409,7 @@ impl Iterator for ChunkIter<'_> {
 }
 
 pub struct GorillaChunkIterator<'a> {
-    inner: XORIterator<'a>,
+    inner: GorillaIterator<'a>,
     start: Timestamp,
     end: Timestamp,
     init: bool,
@@ -417,7 +417,7 @@ pub struct GorillaChunkIterator<'a> {
 
 impl<'a> GorillaChunkIterator<'a> {
     pub fn new(chunk: &'a GorillaChunk, start: Timestamp, end: Timestamp) -> Self {
-        let inner = XORIterator::new(&chunk.xor_encoder);
+        let inner = GorillaIterator::new(&chunk.xor_encoder);
         Self {
             inner,
             start,

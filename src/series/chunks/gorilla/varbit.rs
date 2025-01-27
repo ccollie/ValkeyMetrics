@@ -2,13 +2,9 @@
 //!
 //! The writers are not implemented yet as they are only
 //! used in histograms, that are not implemented yet.
-use crate::common::bitwriter::BitWrite;
-use crate::common::NomBitInput;
-use crate::series::chunks::stream::{Bit, BufferedReader, BufferedWriter, Error, Read, Write};
-use nom::{
-    bits::complete::{bool, take},
-    IResult,
-};
+
+use super::utils::{read_bits, read_bool, sign_extend};
+use super::traits::{BitRead, BitWrite};
 
 /// writes an i64 using varbit encoding with a bit bucketing
 /// optimized for the dod's observed in histogram buckets, plus a few additional
@@ -68,52 +64,6 @@ pub fn write_varbit<W: BitWrite>(value: i64, writer: &mut W) -> std::io::Result<
     Ok(())
 }
 
-pub fn write_varbit_buf(value: i64, writer: &mut BufferedWriter) -> std::io::Result<()> {
-    match value {
-        0 => writer.write_bit(Bit::Zero), // Precisely 0, needs 1 bit.
-        // -3 <= val <= 4, needs 5 bits.
-        -3..=3 => {
-            writer.write_out::<2, u8>(0b10);
-            writer.write_out::<5, u64>(value as u64 & 0x1F);
-        }
-        // -31 <= val <= 32, 9 bits.
-        -31..=31 => {
-            writer.write_out::<3, u8>(0b110);
-            writer.write_out::<9, u64>(value as u64 & 0x1FF);
-        }
-        // -255 <= val <= 256, 13 bits.
-        -255..=255 => {
-            writer.write_out::<4, u8>(0b1110);
-            writer.write_out::<13, u64>(value as u64 & 0x1FFF);
-        }
-        // -2047 <= val <= 2048, 17 bits.
-        -2047..=2047 => {
-            writer.write_out::<5, u8>(0b11110);
-            writer.write_out::<17, u64>(value as u64 & 0x1FFFF);
-        }
-        // -131071 <= val <= 131072, 3 bytes.
-        -131071..=131071 => {
-            writer.write_out::<6, u8>(0b111110);
-            writer.write_out::<24, u64>(value as u64 & 0x0FFFFFF);
-        }
-        // -16777215 <= val <= 16777216, 4 bytes.
-        -16777215..=167772165 => {
-            writer.write_out::<7, u8>(0b1111110);
-            writer.write_out::<32, u64>(value as u64 & 0x0FFFFFFFF);
-        }
-        // -36028797018963967 <= val <= 36028797018963968, 8 bytes.
-        -36028797018963967..=36028797018963967 => {
-            writer.write_out::<8, u8>(0b11111110);
-            writer.write_out::<56, u64>(value as u64 & 0xFFFFFFFFFFFFFF);
-        }
-        _ => {
-            writer.write_out::<8, u8>(0b11111111); // Worst case, needs 9 bytes.
-            writer.write_out::<64, u64>(value as u64); // ??? test this !!!
-        }
-    }
-    Ok(())
-}
-
 /// Reads a varbit-encoded integer from the input.
 ///
 /// Prometheus' varbitint starts with a bucket category of variable length.
@@ -121,28 +71,11 @@ pub fn write_varbit_buf(value: i64, writer: &mut BufferedWriter) -> std::io::Res
 /// When it's 8 bits long, the final 0 is skipped.
 ///
 /// It consists of 9 categories.
-pub fn read_varbit_int_bucket(input: NomBitInput) -> IResult<NomBitInput, u8> {
-    let mut remaining_input = input;
-
+fn read_varbit_int_bucket<R: BitRead>(reader: &mut R) -> std::io::Result<u8> {
     for i in 0..8 {
-        let (new_remaining_input, bit) = bool(remaining_input)?;
-        remaining_input = new_remaining_input;
+        let bit = read_bool(reader)?;
         // If we read a 0, it's a sign that we reached the end of the bucket category.
         if !bit {
-            return Ok((remaining_input, i));
-        }
-    }
-
-    // If we read 8 bits already, there is no final 0.
-    Ok((remaining_input, 8))
-}
-
-#[inline]
-fn read_varbit_int_bucket_ex(reader: &mut BufferedReader) -> Result<u8, Error> {
-    for i in 0..8 {
-        let bit = reader.read_bit()?;
-        // If we read a 0, it's a sign that we reached the end of the bucket category.
-        if !bit.is_set() {
             return Ok(i);
         }
     }
@@ -152,7 +85,7 @@ fn read_varbit_int_bucket_ex(reader: &mut BufferedReader) -> Result<u8, Error> {
 }
 
 #[inline]
-pub fn varbit_bucket_to_num_bits(bucket: u8) -> u8 {
+fn varbit_bucket_to_num_bits(bucket: u8) -> u8 {
     match bucket {
         0 => 0,
         1 => 5,
@@ -168,25 +101,8 @@ pub fn varbit_bucket_to_num_bits(bucket: u8) -> u8 {
 }
 
 /// Reads a Prometheus varbit-encoded integer from the input.
-pub fn read_varbit_int(input: NomBitInput) -> IResult<NomBitInput, i64> {
-    let (remaining_input, bucket) = read_varbit_int_bucket(input)?;
-    let num_bits = varbit_bucket_to_num_bits(bucket);
-
-    // Shortcut for the 0 use case as nothing more has to be read.
-    if bucket == 0 {
-        return Ok((remaining_input, 0));
-    }
-
-    let (remaining_input, mut value): (_, i64) = take(num_bits)(remaining_input)?;
-    if num_bits != 64 && value > (1 << (num_bits - 1)) {
-        value -= 1 << num_bits;
-    }
-
-    Ok((remaining_input, value))
-}
-
-pub fn read_varbit_int_ex(reader: &mut BufferedReader) -> Result<i64, Error> {
-    let bucket = read_varbit_int_bucket_ex(reader)?;
+pub fn read_varbit_int<R: BitRead>(reader: &mut R) -> std::io::Result<i64> {
+    let bucket = read_varbit_int_bucket(reader)?;
     let num_bits = varbit_bucket_to_num_bits(bucket);
 
     // Shortcut for the 0 use case as nothing more has to be read.
@@ -194,33 +110,32 @@ pub fn read_varbit_int_ex(reader: &mut BufferedReader) -> Result<i64, Error> {
         return Ok(0);
     }
 
-    let mut value = reader.read_bits(num_bits as u32)?;
+    let mut value= read_bits(reader, num_bits as u32)?;
     if num_bits != 64 && value > (1 << (num_bits - 1)) {
-        value -= 1 << num_bits;
+        //value -= 1 << num_bits;
+        return Ok(sign_extend(value, num_bits as u32))
     }
 
     Ok(value as i64)
 }
 
 /// Reads a Prometheus varbit-encoded unsigned integer from the input.
-pub fn read_varbit_uint(input: NomBitInput) -> IResult<NomBitInput, u64> {
-    let (remaining_input, bucket) = read_varbit_int_bucket(input)?;
+pub fn read_varbit_uint<R: BitRead>(reader: &mut R) -> std::io::Result<u64> {
+    let bucket = read_varbit_int_bucket(reader)?;
     let num_bits = varbit_bucket_to_num_bits(bucket);
 
     // Shortcut for the 0 use case as nothing more has to be read.
     if bucket == 0 {
-        return Ok((remaining_input, 0));
+        return Ok(0);
     }
-    let (remaining_input, value): (_, u64) = take(num_bits)(remaining_input)?;
-    Ok((remaining_input, value))
+    read_bits(reader, num_bits as u32)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{read_varbit_int, read_varbit_int_ex, write_varbit, write_varbit_buf};
-    use crate::common::bitwriter::{BitWrite, BitWriter};
-    use crate::series::chunks::stream::{BufferedReader, BufferedWriter};
-    use bitstream_io::BigEndian;
+    use super::{read_varbit_int, write_varbit};
+    use crate::series::chunks::gorilla::buffered_read::BufferedReader;
+    use crate::series::chunks::gorilla::buffered_writer::BufferedWriter;
 
     const NUMBERS: [i64; 33] = [
         i64::MIN,
@@ -260,36 +175,18 @@ mod tests {
 
     #[test]
     fn test_write_varbit() {
-        let mut buffer: Vec<u8> = Vec::new();
-        let mut bit_writer = BitWriter::endian(&mut buffer, BigEndian);
+        let mut bit_writer = BufferedWriter::new();
 
-        for number in NUMBERS.iter() {
-            write_varbit(*number, &mut bit_writer).unwrap();
+        for number in NUMBERS.iter().cloned() {
+            write_varbit(number, &mut bit_writer).unwrap();
         }
 
-        bit_writer.byte_align().unwrap();
-
+        let binding = bit_writer.get_ref();
+        let mut reader = BufferedReader::new(&binding);
         // Read again
-        let mut cursor: (&[u8], usize) = (&buffer, 0);
         for want in NUMBERS {
-            let (new_cursor, got) = read_varbit_int(cursor).unwrap();
-            cursor = new_cursor;
+            let got = read_varbit_int(&mut reader).unwrap();
             assert_eq!(want, got)
-        }
-    }
-
-    #[test]
-    fn test_write_varbit_buf() {
-        let mut writer = BufferedWriter::new();
-
-        for number in NUMBERS.iter() {
-            write_varbit_buf(*number, &mut writer).unwrap();
-        }
-
-        let mut reader = BufferedReader::new(&writer.buf);
-        for number in NUMBERS.iter() {
-            let value = read_varbit_int_ex(&mut reader).unwrap();
-            assert_eq!(number, &value)
         }
     }
 }

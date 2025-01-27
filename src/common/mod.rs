@@ -3,8 +3,6 @@ use valkey_module::{
 };
 pub mod async_runtime;
 pub mod binary_search;
-pub mod bitwriter;
-mod encoding;
 pub mod rounding;
 pub mod serialization;
 pub mod types;
@@ -14,7 +12,6 @@ pub use utils::*;
 
 // todo: move elsewhere
 pub static METRIC_NAME_LABEL: &str = "__name__";
-pub use encoding::*;
 
 // Safety: RedisModule_GetSelectedDb is safe to call
 pub fn get_current_db(ctx: &Context) -> i32 {

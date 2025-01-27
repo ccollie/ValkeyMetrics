@@ -1,9 +1,5 @@
-use crate::common::bitwriter::BitWrite;
-use crate::common::NomBitInput;
-use nom::{
-    bits::complete::{bool, take},
-    IResult,
-};
+use super::traits::{BitRead, BitWrite};
+use super::utils::{read_bits, read_bool};
 
 /// Writes a f64 as a Prometheus varbit xor encoded number.
 ///
@@ -54,21 +50,23 @@ pub fn write_varbit_xor<W: BitWrite>(
     // Overflow 64 to 0 is fine because if 0 sig_bits, we would have written a "same number"
     // bit a bit earlier.
     // The reason is that only 6 bits are available, and the maximum value is 63.
-    let encoded_sigbits = if sig_bits > 63 { 0 } else { sig_bits };
-    bit_writer.write(6, encoded_sigbits)?;
+    let encoded_sig_bits = if sig_bits > 63 { 0 } else { sig_bits };
+    bit_writer.write(6, encoded_sig_bits)?;
     bit_writer.write(sig_bits as u32, delta >> new_trailing)?;
 
     Ok((new_leading, new_trailing))
 }
 
-fn read_leading_bits_count(input: NomBitInput) -> IResult<NomBitInput, u8> {
+#[inline]
+fn read_leading_bits_count<R: BitRead>(reader: &mut R) -> std::io::Result<u8> {
     // The leading bits count is 5 bits long.
-    take(5usize)(input)
+    Ok(read_bits(reader, 5)? as u8)
 }
 
-fn read_middle_bits_count(input: NomBitInput) -> IResult<NomBitInput, u8> {
+#[inline]
+fn read_middle_bits_count<R: BitRead>(reader: &mut R) -> std::io::Result<u8> {
     // The middle bits count is 6 bits long.
-    let (remaining_input, middle_bits_count): (NomBitInput, u8) = take(6usize)(input)?;
+    let middle_bits_count: u8 = read_bits(reader, 6)? as u8;
 
     // As prometheus uses 64 bits floats, the number of middle bits can be up to 64.
     // However, the max value on 6 bits is 63.
@@ -76,10 +74,10 @@ fn read_middle_bits_count(input: NomBitInput) -> IResult<NomBitInput, u8> {
     // It works because numbers with zero bits are not serialized through this.
     // Every saved bit counts!
     if middle_bits_count == 0 {
-        return Ok((remaining_input, 64));
+        return Ok(64);
     }
 
-    Ok((remaining_input, middle_bits_count))
+    Ok(middle_bits_count)
 }
 
 /// Reads a Prometheus varbit xor encoded number from the input.
@@ -87,60 +85,45 @@ fn read_middle_bits_count(input: NomBitInput) -> IResult<NomBitInput, u8> {
 /// The first time it is called, use 0 for both leading and trailing bits count.
 ///
 /// It returns the new value, and also the new leading and trailing bits count.
-pub fn read_varbit_xor<'a>(
+pub fn read_varbit_xor<'a, R: BitRead>(
+    reader: &mut R,
     previous_value: f64,
     previous_leading_bits_count: u8,
     previous_trailing_bits_count: u8,
-) -> impl Fn(NomBitInput<'a>) -> IResult<NomBitInput<'a>, (f64, u8, u8)> {
-    move |input: NomBitInput<'a>| {
-        // Read the bit saying whether we use the previous value or not
-        let (remaining_input, different_value_bit) = bool(input)?;
-        if !different_value_bit {
-            return Ok((
-                remaining_input,
-                (
-                    previous_value,
-                    previous_leading_bits_count,
-                    previous_trailing_bits_count,
-                ),
-            ));
-        }
-
-        let leading_bits_count: u8;
-        let middle_bits_count: u8;
-        let trailing_bits_count: u8;
-
-        // Read the bit saying whether we reuse the previous leading and trailing bits count or not
-        let (remaining_input, different_leading_and_trailing_bits_count) = bool(remaining_input)?;
-        let mut remaining_input = remaining_input;
-        if different_leading_and_trailing_bits_count {
-            let (tmp_remaining_input, tmp_leading_bits_count) =
-                read_leading_bits_count(remaining_input)?;
-            let (tmp_remaining_input, tmp_middle_bits_count) =
-                read_middle_bits_count(tmp_remaining_input)?;
-            remaining_input = tmp_remaining_input;
-            leading_bits_count = tmp_leading_bits_count;
-            middle_bits_count = tmp_middle_bits_count;
-            trailing_bits_count = 64 - leading_bits_count - middle_bits_count;
-        } else {
-            leading_bits_count = previous_leading_bits_count;
-            trailing_bits_count = previous_trailing_bits_count;
-            middle_bits_count = 64 - leading_bits_count - trailing_bits_count;
-        }
-
-        // Read the right number of bits
-        let (remaining_input, value_bits): (NomBitInput, u64) =
-            take(middle_bits_count)(remaining_input)?;
-
-        // Compute the new value
-        let new_value =
-            f64::from_bits(previous_value.to_bits() ^ (value_bits << trailing_bits_count));
-
-        Ok((
-            remaining_input,
-            (new_value, leading_bits_count, trailing_bits_count),
-        ))
+) -> std::io::Result<(f64, u8, u8)> {
+    // Read the bit saying whether we use the previous value or not
+    let different_value_bit = read_bool(reader)?;
+    if !different_value_bit {
+        return Ok((
+            previous_value,
+            previous_leading_bits_count,
+            previous_trailing_bits_count,
+        ));
     }
+
+    let leading_bits_count: u8;
+    let middle_bits_count: u8;
+    let trailing_bits_count: u8;
+
+    // Read the bit saying whether we reuse the previous leading and trailing bits count or not
+    let different_leading_and_trailing_bits_count = read_bool(reader)?;
+    if different_leading_and_trailing_bits_count {
+        leading_bits_count = read_leading_bits_count(reader)?;
+        middle_bits_count = read_middle_bits_count(reader)?;
+        trailing_bits_count = 64 - leading_bits_count - middle_bits_count;
+    } else {
+        leading_bits_count = previous_leading_bits_count;
+        trailing_bits_count = previous_trailing_bits_count;
+        middle_bits_count = 64 - leading_bits_count - trailing_bits_count;
+    }
+
+    // Read the right number of bits
+    let value_bits: u64 = read_bits(reader, middle_bits_count as u32)?;
+
+    // Compute the new value
+    let new_value = f64::from_bits(previous_value.to_bits() ^ (value_bits << trailing_bits_count));
+
+    Ok((new_value, leading_bits_count, trailing_bits_count))
 }
 
 #[cfg(test)]
@@ -148,8 +131,8 @@ mod tests {
     use core::f64;
 
     use super::*;
-    use crate::common::bitwriter::BitWriter;
-    use bitstream_io::BigEndian;
+    use crate::series::chunks::gorilla::buffered_read::BufferedReader;
+    use crate::series::chunks::gorilla::buffered_writer::BufferedWriter;
     use rand::{Rng, SeedableRng};
 
     fn generate_random_test_data(seed: u64) -> Vec<Vec<f64>> {
@@ -184,19 +167,18 @@ mod tests {
         test_cases.push(vec![f64::MAX, 0.0, f64::MIN, f64::MAX, f64::MIN]);
 
         for test_case in test_cases {
-            let mut buffer: Vec<u8> = Vec::new();
 
             // Writing first
-            let mut bit_writer = BitWriter::endian(&mut buffer, BigEndian);
+            let mut bit_writer = BufferedWriter::new();
 
             let mut value = 0.0;
             let mut leading = 0xff;
             let mut trailing = 0;
 
-            for number in &test_case {
+            for number in test_case.iter().cloned() {
                 let (new_leading, new_trailing) =
-                    write_varbit_xor(*number, value, leading, trailing, &mut bit_writer).unwrap();
-                value = *number;
+                    write_varbit_xor(number, value, leading, trailing, &mut bit_writer).unwrap();
+                value = number;
                 leading = new_leading;
                 trailing = new_trailing;
             }
@@ -208,13 +190,14 @@ mod tests {
             leading = 0;
             trailing = 0;
 
-            let mut cursor: (&[u8], usize) = (&buffer, 0);
+            let buffer = bit_writer.get_ref();
+            let mut reader = BufferedReader::new(&buffer);
 
-            for number in test_case {
-                let (new_cursor, (new_value, new_leading, new_trailing)) =
-                    read_varbit_xor(value, leading, trailing)(cursor).unwrap();
-                cursor = new_cursor;
-                assert_eq!(new_value, number);
+            for (i, number) in test_case.iter().enumerate() {
+                let (new_value, new_leading, new_trailing) =
+                    read_varbit_xor(&mut reader, value, leading, trailing).unwrap();
+
+                assert_eq!(new_value, *number, "Failed at index {}", i);
                 value = new_value;
                 leading = new_leading;
                 trailing = new_trailing;

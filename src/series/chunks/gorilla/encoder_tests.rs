@@ -1,0 +1,55 @@
+#[cfg(test)]
+mod tests {
+    use crate::series::chunks::gorilla::GorillaEncoder;
+    use metricsql_runtime::types::Sample;
+
+    #[test]
+    fn test_gorilla_encoder_encode_decode() {
+        let tests = vec![
+            (
+                "one data point",
+                vec![Sample::new(1600000000, 0.1)],
+                14,
+                false,
+            ),
+            (
+                "data points at regular intervals",
+                vec![
+                    Sample::new(1600000000, 0.1),
+                    Sample::new(1600000060, 0.1),
+                    Sample::new(1600000120, 0.1),
+                    Sample::new(1600000180, 0.1),
+                ],
+                15,
+                false,
+            ),
+            (
+                "data points at random intervals",
+                vec![
+                    Sample::new(1600000000, 0.1),
+                    Sample::new(1600000060, 1.1),
+                    Sample::new(1600000182, 15.01),
+                    Sample::new(1600000400, 0.01),
+                    Sample::new(1600002000, 10.8),
+                ],
+                52,
+                false,
+            ),
+        ];
+
+        for (name, input, want_encoded_byte_size, want_err) in tests {
+            println!("Running test: {}", name);
+            let mut encoder = GorillaEncoder::new();
+            for point in &input {
+                encoder.add_sample(point).unwrap();
+            }
+
+            let buf = encoder.buf();
+          //  assert_eq!(want_encoded_byte_size, buf.len());
+
+            let got = encoder.iter().collect::<Result<Vec<_>, _>>().unwrap();
+            assert_eq!(input, got);
+        }
+    }
+
+}

@@ -1,9 +1,5 @@
-use crate::common::bitwriter::BitWrite;
-use crate::common::NomBitInput;
-use nom::{
-    bits::complete::{bool, take},
-    IResult,
-};
+use super::traits::{BitRead, BitWrite};
+use super::utils::{read_bits, read_bool, sign_extend};
 
 /// Writes a i64 as a Prometheus varbit timestamp.
 pub fn write_varbit_ts<W: BitWrite>(value: i64, writer: &mut W) -> std::io::Result<()> {
@@ -39,20 +35,17 @@ pub fn write_varbit_ts<W: BitWrite>(value: i64, writer: &mut W) -> std::io::Resu
 /// When it's 8 bits long, the final 0 is skipped.
 ///
 /// It consists of 9 categories.
-fn read_varbit_ts_bucket(input: NomBitInput) -> IResult<NomBitInput, u8> {
-    let mut remaining_input = input;
-
+fn read_varbit_ts_bucket<R: BitRead>(reader: &mut R) -> std::io::Result<u8> {
     for i in 0..4 {
-        let (new_remaining_input, bit) = bool(remaining_input)?;
-        remaining_input = new_remaining_input;
+        let bit = read_bool(reader)?;
         // If we read a 0, it's a sign that we reached the end of the bucket category.
         if !bit {
-            return Ok((remaining_input, i));
+            return Ok(i);
         }
     }
 
     // If we read 4 bits already, there is no final 0.
-    Ok((remaining_input, 4))
+    Ok(4)
 }
 
 #[inline]
@@ -68,28 +61,28 @@ fn varbit_ts_bucket_to_num_bits(bucket: u8) -> u8 {
 }
 
 /// Reads a Prometheus varbit timestamp encoded number from the input.
-pub fn read_varbit_ts(input: NomBitInput) -> IResult<NomBitInput, i64> {
-    let (remaining_input, bucket) = read_varbit_ts_bucket(input)?;
+fn read_varbit_ts<R: BitRead>(input: &mut R) -> std::io::Result<i64> {
+    let bucket= read_varbit_ts_bucket(input)?;
     let num_bits = varbit_ts_bucket_to_num_bits(bucket);
 
     // Shortcut for the 0 use case as nothing more has to be read.
     if bucket == 0 {
-        return Ok((remaining_input, 0));
+        return Ok(0);
     }
 
-    let (remaining_input, mut value): (_, i64) = take(num_bits)(remaining_input)?;
+    let mut value = read_bits(input,  num_bits as u32)?;
     if num_bits != 64 && value > (1 << (num_bits - 1)) {
-        value -= 1 << num_bits;
+        return Ok(sign_extend(value, num_bits as u32))
     }
 
-    Ok((remaining_input, value))
+    Ok(value as i64)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::bitwriter::{BitWrite, BitWriter};
-    use bitstream_io::BigEndian;
+    use crate::series::chunks::gorilla::buffered_read::BufferedReader;
+    use crate::series::chunks::gorilla::buffered_writer::BufferedWriter;
     use rand::{Rng, SeedableRng};
 
     fn generate_random_test_data(seed: u64) -> Vec<Vec<i64>> {
@@ -128,22 +121,18 @@ mod tests {
         test_cases.push(vec![i64::MAX, 0, i64::MIN, i64::MAX, i64::MIN]);
 
         for test_case in test_cases {
-            let mut buffer: Vec<u8> = Vec::new();
-
             // Writing first
-            let mut bit_writer = BitWriter::endian(&mut buffer, BigEndian);
+            let mut bit_writer = BufferedWriter::new();
 
             for number in &test_case {
                 write_varbit_ts(*number, &mut bit_writer).unwrap();
             }
 
-            bit_writer.byte_align().unwrap();
-
+            let cursor = bit_writer.get_ref();
             // Read again
-            let mut cursor: (&[u8], usize) = (&buffer, 0);
+            let mut cursor = BufferedReader::new(&cursor);
             for number in test_case {
-                let (new_cursor, new_value) = read_varbit_ts(cursor).unwrap();
-                cursor = new_cursor;
+                let new_value = read_varbit_ts(&mut cursor).unwrap();
                 assert_eq!(new_value, number);
             }
         }

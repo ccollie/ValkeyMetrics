@@ -10,15 +10,15 @@ mod timeseries_index;
 use crate::common::get_current_db;
 use crate::module::VKM_SERIES_TYPE;
 use crate::series::TimeSeries;
+use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
 use ahash::AHashSet;
-pub use metricsql_parser::label::Matchers;
 use papaya::{Guard, HashMap};
-pub use postings::*;
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::sync::LazyLock;
-pub use timeseries_index::*;
-use valkey_module::{Context, ValkeyError, ValkeyResult, ValkeyString};
 
+pub(crate) use postings::*;
+pub(crate) use timeseries_index::*;
+pub use metricsql_parser::label::Matchers;
 /// Map from db to TimeseriesIndex
 pub type TimeSeriesIndexMap = HashMap<i32, TimeSeriesIndex>;
 

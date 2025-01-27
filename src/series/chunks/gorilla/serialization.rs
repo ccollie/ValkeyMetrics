@@ -1,7 +1,7 @@
 use crate::common::serialization::{
     rdb_load_timestamp, rdb_load_usize, rdb_save_timestamp, rdb_save_usize,
 };
-use crate::series::chunks::gorilla::XOREncoder;
+use crate::series::chunks::gorilla::GorillaEncoder;
 use crate::series::GorillaChunk;
 use valkey_module::{raw, ValkeyResult};
 
@@ -17,7 +17,7 @@ pub fn rdb_load_gorilla_chunk(
 ) -> ValkeyResult<GorillaChunk> {
     let max_size = rdb_load_usize(rdb)?;
     let first_timestamp = rdb_load_timestamp(rdb)?;
-    let xor_encoder = XOREncoder::rdb_load(rdb)?;
+    let xor_encoder = GorillaEncoder::rdb_load(rdb)?;
     let chunk = GorillaChunk {
         xor_encoder,
         first_timestamp,
