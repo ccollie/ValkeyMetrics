@@ -6,7 +6,7 @@ use crate::module::{with_timeseries, VKM_SERIES_TYPE};
 use crate::series::time_series::{TimeSeries, TimeseriesId};
 use crate::series::utils::format_prometheus_metric_name;
 use metricsql_common::hash::IntMap;
-use metricsql_parser::prelude::{LabelFilter, LabelFilterOp, Matchers};
+use metricsql_parser::prelude::{Matcher, MatchOp, Matchers};
 use metricsql_runtime::types::METRIC_NAME_LABEL;
 use papaya::HashMap;
 use rand::Rng;
@@ -534,12 +534,12 @@ fn filter_by_label_value_predicate(
 
 fn find_ids_by_label_filter(
     label_index: &ARTBitmap,
-    filter: &LabelFilter,
+    filter: &Matcher,
     dest: &mut IdBitmap,
     op: SetOperation,
     key_buf: &mut String,
 ) {
-    use LabelFilterOp::*;
+    use MatchOp::*;
 
     match filter.op {
         Equal => {
@@ -570,7 +570,7 @@ fn find_ids_by_label_filter(
 
 fn find_ids_by_multiple_filters(
     label_index: &ARTBitmap,
-    filters: &[LabelFilter],
+    filters: &[Matcher],
     dest: &mut IdBitmap,
     operation: SetOperation,
     key_buf: &mut String, // used to minimize allocations

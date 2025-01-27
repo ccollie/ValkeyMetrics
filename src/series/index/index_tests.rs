@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use metricsql_common::label::Label;
     use valkey_module::ValkeyString;
+    use crate::common::types::Label;
     use crate::series::index::TimeSeriesIndex;
     use crate::series::time_series::TimeSeries;
     fn create_valkey_string(s: &str) -> ValkeyString {

@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use crate::common::types::SampleLike;
 
 // Copyright (c) 2020 Ritchie Vink
@@ -24,7 +25,27 @@ mod default;
 
 pub type IdxSize = usize;
 
+#[inline]
+fn ge_allow_eq<T: PartialOrd>(l: &T, r: &T, allow_eq: bool) -> bool {
+    match l.partial_cmp(r) {
+        Some(Ordering::Equal) => allow_eq,
+        Some(Ordering::Greater) => true,
+        _ => false,
+    }
+}
+
+#[inline]
+fn lt_allow_eq<T: PartialOrd>(l: &T, r: &T, allow_eq: bool) -> bool {
+    match l.partial_cmp(r) {
+        Some(Ordering::Equal) => allow_eq,
+        Some(Ordering::Less) => true,
+        _ => false,
+    }
+}
+
 trait AsofJoinState<'a, T: SampleLike + 'a>: Default {
+    fn new(allow_eq: bool) -> Self;
+
     fn next<F: FnMut(IdxSize) -> Option<&'a T>>(
         &mut self,
         left_val: &T,
@@ -36,19 +57,24 @@ trait AsofJoinState<'a, T: SampleLike + 'a>: Default {
 #[derive(Default)]
 struct AsofJoinForwardState {
     scan_offset: IdxSize,
+    allow_eq: bool,
 }
 
 impl<'a, T: PartialOrd + SampleLike + 'a> AsofJoinState<'a, T> for AsofJoinForwardState {
+    fn new(allow_eq: bool) -> Self {
+        AsofJoinForwardState { scan_offset: 0, allow_eq }
+    }
+
     #[inline]
-    fn next<F: FnMut(IdxSize) -> Option<&'a T>>(
+    fn next<F: FnMut(IdxSize) -> Option<T>>(
         &mut self,
         left_val: &T,
         mut right: F,
         n_right: IdxSize,
     ) -> Option<IdxSize> {
-        while self.scan_offset < n_right {
+        while (self.scan_offset) < n_right {
             if let Some(right_val) = right(self.scan_offset) {
-                if right_val.timestamp() >= left_val.timestamp() {
+                if ge_allow_eq(&right_val, left_val, self.allow_eq) {
                     return Some(self.scan_offset);
                 }
             }
@@ -63,9 +89,14 @@ struct AsofJoinBackwardState {
     // best_bound is the greatest right index <= left_val.
     best_bound: Option<IdxSize>,
     scan_offset: IdxSize,
+    allow_eq: bool,
 }
 
 impl<'a, T: PartialOrd + 'a + SampleLike> AsofJoinState<'a, T> for AsofJoinBackwardState {
+    fn new(allow_eq: bool) -> Self {
+        AsofJoinBackwardState { best_bound: None, scan_offset: 0, allow_eq }
+    }
+
     #[inline]
     fn next<F: FnMut(IdxSize) -> Option<&'a T>>(
         &mut self,
@@ -75,7 +106,7 @@ impl<'a, T: PartialOrd + 'a + SampleLike> AsofJoinState<'a, T> for AsofJoinBackw
     ) -> Option<IdxSize> {
         while self.scan_offset < n_right {
             if let Some(right_val) = right(self.scan_offset) {
-                if right_val.timestamp() <= left_val.timestamp() {
+                if lt_allow_eq(&right_val, left_val, self.allow_eq) {
                     self.best_bound = Some(self.scan_offset);
                 } else {
                     break;
@@ -92,11 +123,17 @@ struct AsofJoinNearestState {
     // best_bound is the nearest value to left_val, with ties broken towards the last element.
     best_bound: Option<IdxSize>,
     scan_offset: IdxSize,
+    allow_eq: bool,
 }
 
 impl<'a, T: SampleLike + 'a + PartialEq> AsofJoinState<'a, T> for AsofJoinNearestState {
     #[inline]
-    fn next<F: FnMut(IdxSize) -> Option<&'a T>>(
+    fn new(allow_eq: bool) -> Self {
+        AsofJoinNearestState { best_bound: None, scan_offset: 0, allow_eq }
+    }
+
+    #[inline]
+    fn next<F: FnMut(IdxSize) -> Option<T>>(
         &mut self,
         left_val: &T,
         mut right: F,
@@ -106,18 +143,17 @@ impl<'a, T: SampleLike + 'a + PartialEq> AsofJoinState<'a, T> for AsofJoinNeares
         // cheaper than computing differences.
         while self.scan_offset < n_right {
             if let Some(scan_right_val) = right(self.scan_offset) {
-                if scan_right_val <= left_val {
+                if lt_allow_eq(&scan_right_val, left_val, self.allow_eq) {
                     self.best_bound = Some(self.scan_offset);
                 } else {
                     // Now we must compute a difference to see if scan_right_val
                     // is closer than our current best bound.
                     let scan_is_better = if let Some(best_idx) = self.best_bound {
                         let best_right_val = unsafe { right(best_idx).unwrap_unchecked() };
-                        let left_ts = left_val.timestamp();
-                        let best_diff = left_ts.abs_diff(best_right_val.timestamp());
-                        let scan_diff = left_ts.abs_diff(scan_right_val.timestamp());
+                        let best_diff = left_val.abs_diff(best_right_val);
+                        let scan_diff = left_val.abs_diff(scan_right_val);
 
-                        scan_diff <= best_diff
+                        lt_allow_eq(&scan_diff, &best_diff, self.allow_eq)
                     } else {
                         true
                     };
@@ -130,7 +166,7 @@ impl<'a, T: SampleLike + 'a + PartialEq> AsofJoinState<'a, T> for AsofJoinNeares
                         // scan, so keep going on.
                         while self.scan_offset < n_right {
                             if let Some(next_right_val) = right(self.scan_offset) {
-                                if next_right_val == scan_right_val {
+                                if next_right_val == scan_right_val && self.allow_eq {
                                     self.best_bound = Some(self.scan_offset);
                                 } else {
                                     break;

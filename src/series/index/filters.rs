@@ -3,7 +3,7 @@ use crate::series::index::timeseries_index::SetOperation;
 use super::{ARTBitmap, IdBitmap};
 use blart::AsBytes;
 use metricsql_common::prelude::StringMatchHandler;
-use metricsql_parser::label::{LabelFilterOp, Matchers};
+use metricsql_parser::label::{MatchOp, Matcher, Matchers};
 use metricsql_runtime::{create_label_filter_matchers, LabelFilterVec, TagFilter};
 
 
@@ -22,7 +22,7 @@ fn process_filter(
     op: SetOperation,
     key_buf: &mut String,
 ) {
-    use LabelFilterOp::*;
+    use MatchOp::*;
 
     #[inline]
     fn handle_match_all(label_index: &ARTBitmap, key_buf: &String, dest: &mut IdBitmap, op: SetOperation) {
@@ -36,7 +36,7 @@ fn process_filter(
         }
     }
 
-    fn handle_general_match(label_index: &ARTBitmap, filter: &TagFilter, dest: &mut IdBitmap, op: SetOperation, key_buf: &mut String) {
+    fn handle_general_match(label_index: &ARTBitmap, filter: &Matcher, dest: &mut IdBitmap, op: SetOperation, key_buf: &mut String) {
         format_key_for_label_prefix(key_buf, &filter.key);
         let start_pos = key_buf.len();
         let matcher = &filter.matcher;
@@ -173,7 +173,7 @@ pub fn exec_label_matches(label_index: &ARTBitmap,
 
 // execute ANDed list of filters
 #[inline]
-fn exec_filter_list(label_index: &ARTBitmap, filters: &[TagFilter], dest: &mut IdBitmap, key_buf: &mut String) {
+fn exec_filter_list(label_index: &ARTBitmap, filters: &[Matcher], dest: &mut IdBitmap, key_buf: &mut String) {
     for filter in filters.iter() {
         process_filter(label_index, filter, dest, SetOperation::Intersection, key_buf);
         if dest.is_empty() {
