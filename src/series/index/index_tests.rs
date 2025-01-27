@@ -2,7 +2,7 @@
 mod tests {
     use crate::series::index::TimeSeriesIndex;
     use crate::series::time_series::TimeSeries;
-    use metricsql_common::label::Label;
+    use metricsql_common::types::Label;
     use valkey_module::ValkeyString;
     fn create_valkey_string(s: &str) -> ValkeyString {
         ValkeyString::create(None, s.as_bytes())

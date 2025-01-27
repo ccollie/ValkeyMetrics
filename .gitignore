@@ -15,6 +15,7 @@ Cargo.lock
 
 venv/
 tests/.build
+tests/logs/
 tests/**/venv/
 tests/**/__pycache__/
 tests/.build/**

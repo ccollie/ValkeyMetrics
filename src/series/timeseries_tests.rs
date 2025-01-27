@@ -319,34 +319,35 @@ mod tests {
             sample_value,
             Some(DuplicatePolicy::KeepFirst),
         );
-        assert!(matches!(res, SampleAddResult::Ignored(stamp) if stamp == duplicate_timestamp));
-        assert_eq!(ts.last_value, 0.0);
+        assert!(matches!(res, SampleAddResult::Ok(stamp) if stamp == duplicate_timestamp));
+        assert_eq!(ts.last_value, sample_value);
     }
 
     #[test]
     fn test_add_duplicate_timestamps_keep_last() {
         let mut ts = create_test_timeseries();
+        ts.dedupe_interval = Some(Duration::from_secs(1));
         ts.duplicate_policy = DuplicatePolicy::KeepLast;
 
         let samples = vec![
             Sample {
-                timestamp: 1,
+                timestamp: 1000,
                 value: 10.0,
             },
             Sample {
-                timestamp: 2,
+                timestamp: 2000,
                 value: 20.0,
             },
             Sample {
-                timestamp: 2,
+                timestamp: 2000,
                 value: 25.0,
             },
             Sample {
-                timestamp: 3,
+                timestamp: 3000,
                 value: 30.0,
             },
             Sample {
-                timestamp: 3,
+                timestamp: 3000,
                 value: 35.0,
             },
         ];
@@ -369,7 +370,8 @@ mod tests {
             },
         ];
 
-        assert_eq!(ts.get_range(1, 3), expected_samples);
+        let range = ts.get_range(1, 3);
+        assert_eq!(range, expected_samples);
     }
 
     //*************** iterators

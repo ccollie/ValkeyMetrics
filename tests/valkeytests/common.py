@@ -1,8 +1,13 @@
 import os
 from sys import platform
 
+CWD = os.path.dirname(os.path.realpath(__file__))
+ROOT_PATH = os.path.abspath(os.path.join(CWD, "../.."))
+
 WORK_DIR = 'work'
-RDB_PATH = os.path.join(WORK_DIR, 'dump.rdb')
+RDB_PATH = os.path.join(CWD, 'rdbs')
+LOG_DIR = os.path.abspath(os.path.join(CWD, "../logs"))
+
 PORT = 6379
 
 def get_platform():
@@ -21,6 +26,25 @@ def get_dynamic_lib_extension():
         raise Exception(f"Unsupported platform: {system}")
 
 PLATFORM = get_platform()
-MODULE_PATH = os.path.abspath("../../target/debug/libvalkey_metrics{}".format(get_dynamic_lib_extension()))
-LOG_DIR = "./logs"
-RDB_PATH = os.path.abspath(RDB_PATH)
+MODULE_PATH = os.path.abspath("{}/target/debug/libvalkey_metrics{}".format(ROOT_PATH, get_dynamic_lib_extension()))
+
+def getServerVersion():
+    version = os.getenv('VALKEY_VERSION')
+    if version is None:
+        version = "unstable"
+
+    return version
+
+def getServerPath(version):
+    if version is None:
+        version = getServerVersion()
+    path = os.path.join(CWD, "..", ".build/binaries/{}/valkey-server".format(version))
+    return os.path.abspath(path)
+
+def getModulePath():
+    path = os.environ.get('MODULE_PATH')
+    if path is None:
+        path = os.path.join(ROOT_PATH, "target/debug/libvalkey_metrics{}".format(get_dynamic_lib_extension()))
+        path = os.path.abspath(path)
+
+    return path

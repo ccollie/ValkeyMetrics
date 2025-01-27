@@ -91,7 +91,7 @@ class PortTracker(object):
             return port
         assert False , "Failed to find port after %d tries" % PortTracker.MAX_RETRIES
 
-@pytest.fixture(scope='function', autouse=True)
+@pytest.fixture(scope='session', autouse=True)
 def resource_port_tracker(request):
     '''
     Create port tracker for each pytest worker.

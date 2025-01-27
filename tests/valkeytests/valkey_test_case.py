@@ -6,7 +6,7 @@ from enum import Enum
 import pytest
 from valkey import *
 
-from util.waiters import *
+from valkeytests.waiters import *
 
 MAX_PING_TRIES = 60
 
