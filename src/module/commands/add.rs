@@ -3,7 +3,7 @@ use crate::error_consts;
 use crate::module::commands::create_series;
 use crate::module::{get_timeseries_mut, VKM_SERIES_TYPE};
 use crate::series::{SampleAddResult, TimeSeriesOptions};
-use metricsql_common::label::Label;
+use metricsql_common::types::Label;
 use metricsql_runtime::types::Timestamp;
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{

@@ -4,7 +4,7 @@ use crate::module::VKM_SERIES_TYPE;
 use crate::series::index::with_timeseries_index;
 use crate::series::time_series::TimeSeries;
 use crate::series::TimeSeriesOptions;
-use metricsql_common::label::Label;
+use metricsql_common::types::Label;
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{
     Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK,

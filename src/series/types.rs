@@ -6,7 +6,7 @@ use crate::error_consts;
 use crate::series::timestamp_range::{TimestampRange, TimestampValue};
 use crate::series::{ChunkCompression, SERIES_SETTINGS};
 use get_size::GetSize;
-use metricsql_common::label::Label;
+use metricsql_common::types::Label;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::str::FromStr;

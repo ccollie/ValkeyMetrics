@@ -32,26 +32,10 @@ pub type KeyType = Box<[u8]>;
 // label=value
 pub type ARTBitmap = blart::TreeMap<IndexKey, IdBitmap>;
 
-#[derive(Clone, Copy)]
-pub(crate) enum SetOperation {
-    Union,
-    Intersection,
-}
-
-impl PartialEq for SetOperation {
-    fn eq(&self, other: &Self) -> bool {
-        matches!(
-            (self, other),
-            (SetOperation::Union, SetOperation::Union)
-                | (SetOperation::Intersection, SetOperation::Intersection)
-        )
-    }
-}
-
 #[derive(Clone, Default, Debug)]
 pub(crate) struct Postings {
     /// Map from timeseries id to timeseries key.
-    pub id_to_key: IntMap<SeriesRef, KeyType>,
+    pub(super) id_to_key: IntMap<SeriesRef, KeyType>,
     /// Map from label name and (label name,  label value) to set of timeseries ids.
     pub label_index: ARTBitmap,
     pub label_count: usize,
@@ -180,6 +164,10 @@ impl Postings {
 
     /// Returns a list of all series matching `matchers`
     pub fn series_refs_by_matchers(&self, matchers: &Matchers) -> TsdbResult<Cow<IdBitmap>> {
+        if matchers.is_empty() {
+            // ??
+            return Ok(Cow::Owned(self.all_postings()));
+        }
         if !matchers.matchers.is_empty() {
             return self.postings_for_matchers(&matchers.matchers);
         }
@@ -213,8 +201,8 @@ impl Postings {
         // todo: rayon ??
     }
 
-    // `postings_for_matchers` assembles a single postings iterator against the index
-    // based on the given matchers. The resulting postings are not ordered by series.
+    /// `postings_for_matchers` assembles a single postings iterator against the index
+    /// based on the given matchers. The resulting postings are not ordered by series.
     pub fn postings_for_matchers(&self, ms: &[Matcher]) -> TsdbResult<Cow<IdBitmap>> {
         if ms.len() == 1 {
             let m = &ms[0];
@@ -301,7 +289,7 @@ impl Postings {
             } else if typ == MatchOp::RegexNotEqual && value == ".+" {
                 // .+ regexp matches any non-empty string: get postings for all label values and remove them.
                 not_its |= self.postings_for_all_label_values(name);
-                //its = append(not_its, it)
+                // its = append(not_its, it)
             } else if label_must_be_set.contains(name) {
                 // If this matcher must be non-empty, we can be smarter.
                 let is_not = typ == MatchOp::NotEqual || m.op == MatchOp::RegexNotEqual;
@@ -384,8 +372,6 @@ impl Postings {
 
     /// `postings` returns the postings list iterator for the label pairs.
     /// The postings here contain the ids to the series inside the index.
-    /// Found IDs are not strictly required to point to a valid Series, e.g.
-    /// during background garbage collections.
     pub fn postings(&self, name: &str, values: &[String]) -> IdBitmap {
         let mut result = IdBitmap::new();
         for value in values {
@@ -612,6 +598,7 @@ fn run_or_matchers_parallel<'a>(
     matchers: &[Vec<Matcher>],
 ) -> TsdbResult<Cow<'a, IdBitmap>> {
     let mut scope = chili::Scope::global();
+
     match matchers {
         [] => Ok(Cow::Owned(IdBitmap::new())),
         [matchers] => label_index.postings_for_matchers(matchers),

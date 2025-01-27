@@ -357,13 +357,14 @@ impl Group {
 
         for (i, rule) in self.rules.iter().enumerate() {
             if let Some(vector_selector) = inspect_query(rule) {
-                if vector_selector.name.is_none() && !vector_selector.matchers.is_empty() {
+                let name = vector_selector.metric_name();
+                if name.is_none() && !vector_selector.matchers.is_empty() {
                     // indeterminate
                     is_indeterminate = true;
                     break;
                 }
 
-                let name = vector_selector.name.unwrap_or_default();
+                let name = name.unwrap_or_default();
 
                 if name == "ALERTS" || name == "ALERTS_FOR_STATE" {
                     // indeterminate

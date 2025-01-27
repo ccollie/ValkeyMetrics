@@ -89,7 +89,7 @@ pub(crate) fn get_index_bounds<T: Ord>(values: &[T], start: &T, end: &T) -> Opti
 }
 
 // https://en.wikipedia.org/wiki/Exponential_search
-// Use if you expect matches to be close by. Otherwise use binary search.
+// Use if you expect matches to be close by. Otherwise, use binary search.
 pub trait ExponentialSearch<T> {
     fn exponential_search_by<F>(&self, f: F) -> Result<usize, usize>
     where

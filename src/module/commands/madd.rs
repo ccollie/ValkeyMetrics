@@ -5,7 +5,6 @@ use crate::common::types::Timestamp;
 use crate::error::TsdbResult;
 use crate::module::get_timeseries_mut;
 use crate::series::SampleAddResult;
-use nom::AsBytes;
 use std::collections::HashMap;
 use valkey_module::{Context, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
@@ -51,7 +50,7 @@ pub fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
         inputs.push(ParsedInput {
             key,
-            key_buf: key.as_bytes(),
+            key_buf: &key,
             raw_timestamp,
             raw_value,
             timestamp,

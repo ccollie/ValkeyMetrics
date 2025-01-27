@@ -4,7 +4,7 @@ use crate::series::{
     rdb_load_series_chunk, rdb_save_series_chunk, Chunk, ChunkCompression, DuplicatePolicy,
     TimeSeries, TimeseriesId, TIMESTAMP_TYPE,
 };
-use metricsql_common::label::Label;
+use metricsql_common::types::Label;
 use valkey_module::{raw, ValkeyError, ValkeyResult};
 
 pub const SERIES_ENC_VERSION: u64 = 1;

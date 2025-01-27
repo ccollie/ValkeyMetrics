@@ -2,7 +2,7 @@ use crate::common::async_runtime::block_on;
 use crate::common::types::{MetricName, Sample};
 use crate::query::{InstantQueryResult, RangeQueryResult, QUERY_CONTEXT};
 use crate::series::TimeSeries;
-use metricsql_common::label::Label;
+use metricsql_common::types::Label;
 use metricsql_runtime::execution::query::{query, query_range, QueryParams};
 use metricsql_runtime::prelude::Context as QueryContext;
 use metricsql_runtime::RuntimeError;
