@@ -1,0 +1,1 @@
+VM.ALTER-SERIES key

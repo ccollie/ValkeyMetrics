@@ -9,7 +9,7 @@ VM.QUERY timestamp query [ROUNDING decimals]
 
 - **query**: Prometheus expression query string.
 - **timestamp**: evaluation timestamp. Optional. If not specified, use current server time.
-- **decimals**: Optional number of decimal places to round mut values.
+- **decimals**: Optional number of decimal places to round return values.
 
 #### Return
 
