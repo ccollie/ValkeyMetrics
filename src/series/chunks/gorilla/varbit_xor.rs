@@ -140,17 +140,17 @@ mod tests {
 
         let mut test_cases = Vec::with_capacity(128);
         for _ in 0..128 {
-            let vec_size = rng.gen_range(1..129);
+            let vec_size = rng.random_range(1..129);
             let mut vec = Vec::with_capacity(vec_size);
 
-            let mut value: f64 = rng.gen();
+            let mut value: f64 = rng.random();
             vec.push(value);
 
             for _ in 1..vec_size {
-                if rng.gen_bool(0.33) {
+                if rng.random_bool(0.33) {
                     value += 1.0;
-                } else if rng.gen_bool(0.33) {
-                    value = rng.gen();
+                } else if rng.random_bool(0.33) {
+                    value = rng.random();
                 }
                 vec.push(value);
             }

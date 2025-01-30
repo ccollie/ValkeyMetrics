@@ -7,7 +7,7 @@ use crate::error::{TsdbError, TsdbResult};
 use crate::module::{with_timeseries, VKM_SERIES_TYPE};
 use crate::series::chunks::utils::format_prometheus_metric_name;
 use crate::series::SeriesRef;
-use rand::Rng;
+use rand::{rng, Rng};
 use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 use std::sync::atomic::AtomicU64;
@@ -395,7 +395,7 @@ fn generate_unique_id(
         return Ok(id);
     }
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rng();
     loop {
         id = hash_timeseries(ts, &mut hasher, counter);
         if id_to_key.contains_key(&id) {
@@ -404,7 +404,7 @@ fn generate_unique_id(
                     "Err - failed to generate unique id for time series",
                 ));
             }
-            let ex: usize = rng.gen_range(1..64);
+            let ex: usize = rng.random_range(1..64);
             counter = counter.wrapping_add(ex);
             continue;
         }

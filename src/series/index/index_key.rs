@@ -234,10 +234,6 @@ mod tests {
         assert_eq!(borrowed, b"test_key\0");
     }
 
-    fn sample<'a>(choices: &'a [&str]) -> &'a str {
-        let index = rand::random::<usize>() % choices.len();
-        choices[index]
-    }
 
     #[test]
     fn test_with_collection() {

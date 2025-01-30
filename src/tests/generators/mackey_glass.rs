@@ -49,7 +49,7 @@ pub fn mackey_glass(sample_len: usize, tau: Option<usize>, seed: Option<u64>) ->
 
     let mut history = VecDeque::with_capacity(history_len);
     for _i in 0..history_len {
-        let val = 1.2 + 0.2 * (rng.gen::<f64>() - 0.5);
+        let val: f64 = 1.2 + (0.2 * (rng.random::<f64>() - 0.5));
         history.push_back(val);
     }
 
@@ -58,7 +58,7 @@ pub fn mackey_glass(sample_len: usize, tau: Option<usize>, seed: Option<u64>) ->
 
     for item in inp.iter_mut().take(sample_len) {
         for _ in 0..delta_t {
-            let x_tau = history.pop_front().unwrap();
+            let x_tau: f64 = history.pop_front().unwrap();
             history.push_back(timeseries);
             let last_hist = history[history.len() - 1];
             timeseries = last_hist

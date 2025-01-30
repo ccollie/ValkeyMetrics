@@ -9,7 +9,7 @@ use metricsql_runtime::prelude::query::QueryParams;
 use std::ops::Add;
 use std::time::Duration;
 
-/// SeriesQuerier represents entity with ability to read and write metrics
+/// SeriesQuerier represents an entity with ability to read and write metrics
 /// Query timeseries data using PromQL/MetricsQL
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, GetSize)]
 pub struct SeriesQuerier {

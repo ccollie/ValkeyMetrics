@@ -46,6 +46,7 @@ impl<'a> BufferedReader<'a> {
         let mut result: u64 = 0;
         let mut shift = 0;
 
+        #[allow(unused_assignments)]
         let mut success = false;
         loop {
             let b = self.read_byte()?;

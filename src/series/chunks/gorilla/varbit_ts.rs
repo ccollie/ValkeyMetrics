@@ -70,7 +70,7 @@ fn read_varbit_ts<R: BitRead>(input: &mut R) -> std::io::Result<i64> {
         return Ok(0);
     }
 
-    let mut value = read_bits(input,  num_bits as u32)?;
+    let value = read_bits(input,  num_bits as u32)?;
     if num_bits != 64 && value > (1 << (num_bits - 1)) {
         return Ok(sign_extend(value, num_bits as u32))
     }
@@ -90,21 +90,21 @@ mod tests {
 
         let mut test_cases = Vec::with_capacity(128);
         for _ in 0..128 {
-            let vec_size = rng.gen_range(1..129);
+            let vec_size = rng.random_range(1..129);
             let mut vec = Vec::with_capacity(vec_size);
 
-            let mut value: i64 = if rng.gen_bool(0.5) {
-                rng.gen_range(-100000000..1000000)
+            let mut value: i64 = if rng.random_bool(0.5) {
+                rng.random_range(-100000000..1000000)
             } else {
-                rng.gen_range(-10000..10000)
+                rng.random_range(-10000..10000)
             };
             vec.push(value);
 
             for _ in 1..vec_size {
-                if rng.gen_bool(0.33) {
+                if rng.random_bool(0.33) {
                     value += 1;
-                } else if rng.gen_bool(0.33) {
-                    value = rng.gen();
+                } else if rng.random_bool(0.33) {
+                    value = rng.random();
                 }
                 vec.push(value);
             }

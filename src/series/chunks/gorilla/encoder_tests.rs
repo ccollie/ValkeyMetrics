@@ -9,7 +9,6 @@ mod tests {
             (
                 "one data point",
                 vec![Sample::new(1600000000, 0.1)],
-                14,
                 false,
             ),
             (
@@ -20,7 +19,6 @@ mod tests {
                     Sample::new(1600000120, 0.1),
                     Sample::new(1600000180, 0.1),
                 ],
-                15,
                 false,
             ),
             (
@@ -32,12 +30,11 @@ mod tests {
                     Sample::new(1600000400, 0.01),
                     Sample::new(1600002000, 10.8),
                 ],
-                52,
                 false,
             ),
         ];
 
-        for (name, input, want_encoded_byte_size, want_err) in tests {
+        for (name, input, want_err) in tests {
             println!("Running test: {}", name);
             let mut encoder = GorillaEncoder::new();
             for point in &input {
@@ -45,7 +42,6 @@ mod tests {
             }
 
             let buf = encoder.buf();
-          //  assert_eq!(want_encoded_byte_size, buf.len());
 
             let got = encoder.iter().collect::<Result<Vec<_>, _>>().unwrap();
             assert_eq!(input, got);

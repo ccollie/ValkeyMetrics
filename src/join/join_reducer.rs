@@ -53,7 +53,6 @@ static BINARY_OPS_MAP: phf::Map<&'static str, JoinReducer> = phf_map! {
     ">=" => JoinReducer::Gte,
 
     "abs_diff" => JoinReducer::AbsDiff,
-    "absdiff" => JoinReducer::AbsDiff,
     "add" => JoinReducer::Add,
     "cmp" => JoinReducer::Cmp,
     "eq" => JoinReducer::Eql,
@@ -68,9 +67,7 @@ static BINARY_OPS_MAP: phf::Map<&'static str, JoinReducer> = phf_map! {
     "div" => JoinReducer::Div,
     "pow" => JoinReducer::Pow,
     "sgn_diff" => JoinReducer::SgnDiff,
-    "sgndiff" => JoinReducer::SgnDiff,
     "pct_change" => JoinReducer::PctChange,
-    "pctchange" => JoinReducer::PctChange,
 
     // logic set ops
     "and" => JoinReducer::And,
@@ -90,7 +87,7 @@ impl JoinReducer {
     pub const fn as_str(&self) -> &'static str {
         use JoinReducer::*;
         match self {
-            AbsDiff => "absDiff",
+            AbsDiff => "abs_diff",
             Add => "+",
             And => "and",
             Cmp => "cmp",
@@ -108,8 +105,8 @@ impl JoinReducer {
             NotEq => "!=",
             Or => "or",
             Pow => "^",
-            SgnDiff => "sgnDiff",
-            PctChange => "pctChange",
+            SgnDiff => "sgn_diff",
+            PctChange => "pct_change",
             Sub => "-",
             Unless => "unless",
             Avg => "avg",

@@ -12,7 +12,6 @@ pub mod serialization;
 pub mod time_series;
 mod timestamp_range;
 pub mod types;
-mod utils;
 
 use crate::common::rounding::RoundingStrategy;
 use crate::common::types::Sample;

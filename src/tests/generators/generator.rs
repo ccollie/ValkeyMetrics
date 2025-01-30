@@ -1,11 +1,10 @@
 use crate::tests::generators::create_rng;
 use crate::tests::generators::mackey_glass::mackey_glass;
-use rand::distributions::Uniform;
 use rand::prelude::StdRng;
 use rand::Rng;
-use rand_distr::Distribution;
-use rand_distr::StandardNormal;
+use rand_distr::uniform::{UniformFloat, UniformSampler};
 use std::ops::Range;
+
 
 pub struct RandomGenerator {
     rng: StdRng,
@@ -26,12 +25,12 @@ impl Iterator for RandomGenerator {
     type Item = f64;
 
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.rng.gen_range(self.range.start..self.range.end))
+        Some(self.rng.random_range(self.range.start ..  self.range.end))
     }
 }
 
 fn get_value_in_range(rng: &mut StdRng, r: &Range<f64>) -> f64 {
-    r.start + (r.end - r.start) * rng.gen::<f64>()
+    rng.random_range(r.start .. r.end)
 }
 
 pub struct StdNormalGenerator {
@@ -54,21 +53,20 @@ impl Iterator for StdNormalGenerator {
     type Item = f64;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let m = self.rng.sample::<f64, _>(StandardNormal);
-        let range = self.range.end - self.range.start;
-        self.last_value = self.range.start + (range * m);
+        self.last_value = get_value_in_range(&mut self.rng, &self.range);
         Some(self.last_value)
     }
 }
 
 pub struct UniformGenerator {
     rng: StdRng,
-    uniform: Uniform<f64>,
+    uniform: UniformFloat<f64>,
 }
 impl UniformGenerator {
     pub fn new(seed: Option<u64>, range: &Range<f64>) -> Result<Self, String> {
+        let uniform = UniformFloat::new(range.start, range.end)
+           .unwrap();
         let rng = create_rng(seed)?;
-        let uniform = Uniform::new(range.start, range.end);
         Ok(Self { rng, uniform })
     }
 }
@@ -77,15 +75,14 @@ impl Iterator for UniformGenerator {
     type Item = f64;
 
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.uniform.sample(&mut self.rng))
+        let val = self.uniform.sample(&mut self.rng);
+        Some(val)
     }
 }
 
 pub struct DerivativeGenerator {
     p: f64,
     n: f64,
-    rng: StdRng,
-    range: Range<f64>,
 }
 
 impl DerivativeGenerator {
@@ -97,8 +94,6 @@ impl DerivativeGenerator {
         Ok(Self {
             p,
             n,
-            rng,
-            range: range.clone(),
         })
     }
 }

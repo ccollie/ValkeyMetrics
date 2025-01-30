@@ -3,10 +3,6 @@ mod tests {
     use crate::series::index::TimeSeriesIndex;
     use crate::series::time_series::TimeSeries;
     use metricsql_common::types::Label;
-    use valkey_module::ValkeyString;
-    fn create_valkey_string(s: &str) -> ValkeyString {
-        ValkeyString::create(None, s.as_bytes())
-    }
 
     fn index_time_series(index: &mut TimeSeriesIndex, ts: &mut TimeSeries, name: &str) {
         index.index_time_series(ts, name.as_bytes()).unwrap()

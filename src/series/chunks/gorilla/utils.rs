@@ -52,14 +52,6 @@ pub(super) fn read_bits<R: BitRead>(reader: &mut R, bits: u32) -> Result<u64> {
     }
 }
 
-#[inline]
-fn map_value<T>(value: Option<T>) -> Result<T> {
-    match value {
-        Some(v) => Ok(v),
-        None => Err(unexpected_eof())
-    }
-}
-
 fn unexpected_eof() -> Error {
     Error::new(ErrorKind::UnexpectedEof, "unexpected end of stream")
 }

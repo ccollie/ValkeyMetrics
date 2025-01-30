@@ -6,7 +6,6 @@ use crate::common::types::Sample;
 use crate::error::{TsdbError, TsdbResult};
 
 pub struct GorillaIterator<'a> {
-    buf: &'a [u8],
     reader: BufferedReader<'a>,
     idx: usize,
     num_samples: usize,
@@ -28,7 +27,6 @@ impl GorillaIterator<'_> {
         let reader = BufferedReader::new(buf);
 
         GorillaIterator {
-            buf,
             reader,
             idx: 0,
             num_samples,
@@ -40,12 +38,6 @@ impl GorillaIterator<'_> {
             last_timestamp,
             last_value,
         }
-    }
-
-    fn read_ts_delta(&mut self) -> TsdbResult<u64> {
-        let dod = self.reader.read_uvarint()
-            .map_err(|_| TsdbError::DecodingError("EOF reading delta-of-delta".to_string()))?;
-        Ok(dod)
     }
 
     fn read_first_sample(&mut self) -> TsdbResult<Sample> {

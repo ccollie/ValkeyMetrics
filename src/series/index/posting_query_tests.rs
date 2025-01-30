@@ -17,11 +17,13 @@ mod tests {
     use crate::series::SeriesRef;
     use ahash::AHashSet;
     use metricsql_parser::label::{Label, MatchOp, Matcher};
-    use rand::distributions::{Alphanumeric, DistString};
     use std::collections::{HashMap, HashSet};
+    use rand::distr::{Alphanumeric, SampleString};
+    use rand::rng;
 
     fn random_string(len: usize) -> String {
-        Alphanumeric.sample_string(&mut rand::thread_rng(), len)
+        let mut r = rng();
+        Alphanumeric.sample_string(&mut r, len)
     }
 
     fn hash_labels(labels: &[Label]) -> AHashSet<String> {

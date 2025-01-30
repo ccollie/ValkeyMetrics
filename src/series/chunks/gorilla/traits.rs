@@ -108,35 +108,3 @@ pub trait BitWrite {
     /// Passes along any I/O error from the underlying stream.
     fn byte_align(&mut self) -> std::io::Result<()>;
 }
-
-
-#[inline]
-fn write_byte<W>(mut writer: W, byte: u8) -> std::io::Result<()>
-where
-    W: io::Write,
-{
-    writer.write_all(core::slice::from_ref(&byte))
-}
-
-
-/// A trait for anything that can write aligned values to an output stream
-pub trait ByteWrite {
-    /// Writes whole numeric value to stream
-    ///
-    /// # Errors
-    ///
-    /// Passes along any I/O error from the underlying stream.
-    fn write<V>(&mut self, value: V) -> std::io::Result<()>
-    where
-        V: PrimInt;
-
-    /// Writes the entirety of a byte buffer to the stream.
-    ///
-    /// # Errors
-    ///
-    /// Passes along any I/O error from the underlying stream.
-    fn write_bytes(&mut self, buf: &[u8]) -> std::io::Result<()>;
-
-    /// Returns mutable reference to underlying writer
-    fn writer_ref(&mut self) -> &mut dyn io::Write;
-}
