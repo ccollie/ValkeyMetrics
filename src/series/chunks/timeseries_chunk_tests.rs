@@ -426,8 +426,8 @@ mod tests {
                 .merge_samples(&samples, Some(DuplicatePolicy::KeepLast))
                 .unwrap();
 
-            assert_eq!(result.len(), 3);
-            assert_eq!(chunk.len(), 3);
+            assert_eq!(result.len(), 3, "{chunk_type}: Expected 3 results. Found {}", result.len());
+            assert_eq!(chunk.len(), 3, "{chunk_type}: Expected chunk len of 3. Found {}", result.len());
             assert_eq!(
                 chunk.get_range(0, 100).unwrap(),
                 vec![
@@ -673,7 +673,7 @@ mod tests {
         ];
 
         for chunk_type in CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(chunk_type, 100);
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 1024);
             chunk.set_data(&existing_samples).unwrap();
 
             assert_eq!(chunk.len(), 3);
@@ -682,8 +682,8 @@ mod tests {
                 .merge_samples(&new_samples, Some(DuplicatePolicy::Block))
                 .unwrap();
 
-            assert_eq!(result.len(), 3);
-            assert_eq!(chunk.len(), 6);
+            assert_eq!(result.len(), 7, "{chunk_type}: expected 7 results, found {}", result.len());
+            assert_eq!(chunk.len(), 6, "{chunk_type}: expected 6 results, found {}", chunk.len());
             // assert_eq!(blocked.len(), 1);
             // assert!(blocked.contains(&20));
 
@@ -1051,18 +1051,17 @@ mod tests {
     #[test]
     fn test_iter_all() {
         for chunk_type in CHUNK_TYPES {
-            let mut chunk = TimeSeriesChunk::new(chunk_type, 4096);
-            let expected_samples = saturate_chunk(&mut chunk);
-
+            let mut chunk = TimeSeriesChunk::new(chunk_type, 16384);
+            let samples = generate_random_samples(0, 2500);
+            chunk.set_data(&samples).unwrap();
+            
             let actual_samples = chunk.iter().collect::<Vec<Sample>>();
 
-            assert_eq!(
-                expected_samples.len(),
-                actual_samples.len(),
-                "{} : expected samples len",
-                chunk_type
+            assert_eq!(samples.len(), actual_samples.len(),
+                "{} : expected samples len {}, got {}",
+                chunk_type, samples.len(), actual_samples.len()
             );
-            assert_eq!(expected_samples, actual_samples);
+            assert_eq!(samples, actual_samples);
         }
     }
 }

@@ -50,7 +50,7 @@ pub fn madd(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
         inputs.push(ParsedInput {
             key,
-            key_buf: &key,
+            key_buf: key,
             raw_timestamp,
             raw_value,
             timestamp,

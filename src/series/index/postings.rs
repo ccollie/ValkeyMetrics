@@ -194,7 +194,7 @@ impl Postings {
         if force || self.changes_since_last_optimize > OPTIMIZE_CHANGE_THRESHOLD {
             for (_, bmp) in self.label_index.iter_mut() {
                 bmp.run_optimize();
-                let _ = bmp.shrink_to_fit();
+                //let _ = bmp.shrink_to_fit();
             }
             self.changes_since_last_optimize = 0;
         }
@@ -628,6 +628,27 @@ fn run_or_matchers_parallel<'a>(
             x.or_inplace(&y);
             x.or_inplace(&z);
             Ok(Cow::Owned(x))
+        }
+        [m1, m2, m3, m4] => {
+            let ((w, x), (y, z)) = scope.join(
+                |s1| s1.join(
+                    |_| label_index.postings_for_matchers(m1),
+                    |_| label_index.postings_for_matchers(m2),
+                ),
+                |s2| { s2.join(
+                        |_| label_index.postings_for_matchers(m3),
+                        |_| label_index.postings_for_matchers(m4),
+                    )
+                },
+            );
+            let mut w = w?.into_owned();
+            let x = x?;
+            let y = y?;
+            let z = z?;
+            w.or_inplace(&x);
+            w.or_inplace(&y);
+            w.or_inplace(&z);
+            Ok(Cow::Owned(w))
         }
         _ => {
             let mid = matchers.len() / 2;
