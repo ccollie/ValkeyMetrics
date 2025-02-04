@@ -83,35 +83,7 @@ mod tests {
     use super::*;
     use crate::series::chunks::gorilla::buffered_read::BufferedReader;
     use crate::series::chunks::gorilla::buffered_writer::BufferedWriter;
-    use rand::{Rng, SeedableRng};
-
-    fn generate_random_test_data(seed: u64) -> Vec<Vec<i64>> {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-
-        let mut test_cases = Vec::with_capacity(128);
-        for _ in 0..128 {
-            let vec_size = rng.random_range(1..129);
-            let mut vec = Vec::with_capacity(vec_size);
-
-            let mut value: i64 = if rng.random_bool(0.5) {
-                rng.random_range(-100000000..1000000)
-            } else {
-                rng.random_range(-10000..10000)
-            };
-            vec.push(value);
-
-            for _ in 1..vec_size {
-                if rng.random_bool(0.33) {
-                    value += 1;
-                } else if rng.random_bool(0.33) {
-                    value = rng.random();
-                }
-                vec.push(value);
-            }
-            test_cases.push(vec);
-        }
-        test_cases
-    }
+    use crate::series::chunks::gorilla::utils::generate_random_test_data;
 
     #[test]
     fn test_write_varbit_ts() {

@@ -11,7 +11,7 @@ use get_size::GetSize;
 use std::cmp::Ordering;
 use std::mem::size_of;
 
-/// `GorillaChunk` holds information about location and time range of a block of compressed data.
+/// `GorillaChunk` is a chunk of timeseries data encoded using Gorilla XOR encoding.
 #[derive(Debug, Clone, PartialEq, GetSize)]
 pub struct GorillaChunk {
     pub(crate) xor_encoder: GorillaEncoder,
@@ -215,17 +215,7 @@ impl Chunk for GorillaChunk {
             return Ok(vec![]);
         }
 
-        let mut samples = Vec::new();
-        for sample in self.xor_encoder.iter() {
-            let sample = sample?;
-            if sample.timestamp > end {
-                break;
-            }
-            if sample.timestamp >= start {
-                samples.push(sample);
-            }
-        }
-
+        let samples = self.range_iter(start, end).collect();
         Ok(samples)
     }
 
@@ -455,7 +445,9 @@ impl Iterator for GorillaChunkIterator<'_> {
                 if sample.timestamp < self.start {
                     continue;
                 }
-                return Some(sample);
+                if sample.timestamp <= self.end {
+                    return Some(sample);   
+                }
             }
 
             return None;
@@ -640,5 +632,102 @@ mod tests {
 
         let actual: Vec<_> = chunk.iter().collect();
         assert_eq!(actual, data);
+    }
+
+    #[test]
+    fn test_remove_range() {
+        let mut chunk = GorillaChunk::with_max_size(16384);
+        let samples = generate_random_samples(0, 100);
+
+        for sample in samples.iter() {
+            chunk.add_sample(sample).unwrap();
+        }
+
+        // Remove a range that covers the first half of the samples
+        let start_ts = samples[0].timestamp;
+        let mid_ts = samples[samples.len() / 2].timestamp;
+        let removed_count = chunk.remove_range(start_ts, mid_ts).unwrap();
+        assert_eq!(removed_count, samples.len() / 2);
+
+        // Ensure the remaining samples are correct
+        let remaining_samples: Vec<_> = chunk.iter().collect();
+        let expected_samples = &samples[samples.len() / 2..];
+        assert_eq!(remaining_samples, expected_samples);
+
+        // Remove a range that covers the remaining samples
+        let end_ts = samples[samples.len() - 1].timestamp;
+        let removed_count = chunk.remove_range(mid_ts, end_ts).unwrap();
+        assert_eq!(removed_count, samples.len() / 2);
+
+        // Ensure the chunk is empty
+        assert!(chunk.is_empty());
+    }
+
+    #[test]
+    fn test_remove_range_no_overlap() {
+        let mut chunk = GorillaChunk::with_max_size(16384);
+        let samples = generate_random_samples(0, 100);
+
+        for sample in samples.iter() {
+            chunk.add_sample(sample).unwrap();
+        }
+
+        // Attempt to remove a range that does not overlap with any samples
+        let start_ts = samples[samples.len() - 1].timestamp + 1;
+        let end_ts = start_ts + 1000;
+        let removed_count = chunk.remove_range(start_ts, end_ts).unwrap();
+        assert_eq!(removed_count, 0);
+
+        // Ensure all samples are still present
+        let remaining_samples: Vec<_> = chunk.iter().collect();
+        assert_eq!(remaining_samples, samples);
+    }
+
+    #[test]
+    fn test_samples_by_timestamps() {
+        let mut chunk = GorillaChunk::with_max_size(16384);
+        let samples = generate_random_samples(0, 100);
+
+        for sample in samples.iter() {
+            chunk.add_sample(sample).unwrap();
+        }
+
+        // Test with a subset of timestamps
+        let timestamps: Vec<_> = samples.iter().map(|s| s.timestamp).collect();
+        let selected_timestamps = &timestamps[10..20];
+        let expected_samples: Vec<_> = samples[10..20].to_vec();
+
+        let result_samples = chunk.samples_by_timestamps(selected_timestamps).unwrap();
+        assert_eq!(result_samples, expected_samples);
+
+        // Test with timestamps that are not present
+        let missing_timestamps = vec![2000, 3000, 4000];
+        let result_samples = chunk.samples_by_timestamps(&missing_timestamps).unwrap();
+        assert!(result_samples.is_empty());
+
+        // Test with an empty timestamp list
+        let result_samples = chunk.samples_by_timestamps(&[]).unwrap();
+        assert!(result_samples.is_empty());
+    }
+
+    #[test]
+    fn test_samples_by_timestamps_partial_overlap() {
+        let mut chunk = GorillaChunk::with_max_size(16384);
+        let samples = generate_random_samples(0, 100);
+
+        for sample in samples.iter() {
+            chunk.add_sample(sample).unwrap();
+        }
+
+        // Test with a mix of present and absent timestamps
+        let timestamps = vec![
+            samples[5].timestamp,
+            2000, // not present
+            samples[15].timestamp,
+        ];
+        let expected_samples = vec![samples[5].clone(), samples[15].clone()];
+
+        let result_samples = chunk.samples_by_timestamps(&timestamps).unwrap();
+        assert_eq!(result_samples, expected_samples);
     }
 }

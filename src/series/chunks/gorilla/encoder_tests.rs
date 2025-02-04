@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
     use crate::series::chunks::gorilla::GorillaEncoder;
-    use metricsql_runtime::types::Sample;
+    use metricsql_runtime::types::{Sample, Timestamp, TimestampTrait};
+    use crate::tests::generators::{generate_series_data, GeneratorOptions, RandAlgo};
 
     #[test]
     fn test_gorilla_encoder_encode_decode() {
@@ -46,6 +48,28 @@ mod tests {
             let got = encoder.iter().collect::<Result<Vec<_>, _>>().unwrap();
             assert_eq!(input, got);
         }
+    }
+    
+    const ONE_DAY: Duration = Duration::from_secs(86400);
+    
+    #[test]
+    fn test_gorilla_encoder_encode_decode_many() {
+        let now = Timestamp::now();
+        let start = now.sub(4 * ONE_DAY);
+        let mut options = GeneratorOptions::new(start, now, 1000).unwrap();
+        options.typ = RandAlgo::MackeyGlass;
+        
+        let data = generate_series_data(&options).unwrap();
+
+        let mut encoder = GorillaEncoder::new();
+        for sample in data.iter() {
+            encoder.add_sample(sample).unwrap();
+        }
+
+        let buf = encoder.buf();
+
+        let got = encoder.iter().collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(data, got);
     }
 
 }

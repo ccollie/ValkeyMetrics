@@ -85,7 +85,7 @@ fn read_middle_bits_count<R: BitRead>(reader: &mut R) -> std::io::Result<u8> {
 /// The first time it is called, use 0 for both leading and trailing bits count.
 ///
 /// It returns the new value, and also the new leading and trailing bits count.
-pub fn read_varbit_xor<'a, R: BitRead>(
+pub fn read_varbit_xor<R: BitRead>(
     reader: &mut R,
     previous_value: f64,
     previous_leading_bits_count: u8,

@@ -146,7 +146,7 @@ impl GorillaEncoder {
     }
 
     pub(crate) fn buf(&self) -> &[u8] {
-        &self.writer.get_ref()
+        self.writer.get_ref()
     }
 
     pub fn rdb_save(&self, rdb: *mut raw::RedisModuleIO) {

@@ -6,6 +6,7 @@ use ::rand::prelude::*;
 use ::rand::rng;
 pub use mackey_glass::*;
 pub use rand::*;
+pub use generator::*;
 
 pub fn create_rng(seed: Option<u64>) -> Result<StdRng, String> {
     if let Some(seed) = seed {

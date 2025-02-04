@@ -110,7 +110,7 @@ pub fn read_varbit_int<R: BitRead>(reader: &mut R) -> std::io::Result<i64> {
         return Ok(0);
     }
 
-    let mut value= read_bits(reader, num_bits as u32)?;
+    let value= read_bits(reader, num_bits as u32)?;
     if num_bits != 64 && value > (1 << (num_bits - 1)) {
         //value -= 1 << num_bits;
         return Ok(sign_extend(value, num_bits as u32))
