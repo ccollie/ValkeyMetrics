@@ -6,18 +6,21 @@ use pco::errors::PcoError;
 use pco::standalone::{FileDecompressor, MaybeChunkDecompressor};
 use pco::FULL_BATCH_N;
 use valkey_module::{ValkeyError, ValkeyResult};
+use log::debug;
 
 const EMPTY_SLICE: [u8; 0] = [];
 struct StreamState<'a, T: Number> {
     decompressor: FileDecompressor,
     chunk_decompressor: MaybeChunkDecompressor<T, &'a [u8]>,
+    values: [T; FULL_BATCH_N],
     cursor: &'a [u8],
     count: usize,
+    idx: usize,
     is_finished: bool,
     finished_chunk: bool,
 }
 
-impl<'a, T: Number> StreamState<'a, T> {
+impl<'a, T: Number + Default> StreamState<'a, T> {
     fn new(src: &'a [u8]) -> ValkeyResult<Self> {
         let (decompressor, cursor) = FileDecompressor::new(src)
             .map_err(|_| ValkeyError::Str(error_consts::CHUNK_DECOMPRESSION))?;
@@ -27,21 +30,23 @@ impl<'a, T: Number> StreamState<'a, T> {
             chunk_decompressor: MaybeChunkDecompressor::EndOfData(&EMPTY_SLICE),
             cursor,
             count: 0,
+            idx: 0,
             is_finished: false,
             finished_chunk: false,
+            values: [T::default(); FULL_BATCH_N],
         };
 
         Ok(state)
     }
 
     // https://docs.rs/pco/0.3.1/src/pco/standalone/decompressor.rs.html
-    fn next_chunk(&mut self, data: &mut [T; FULL_BATCH_N]) -> ValkeyResult<bool> {
+    fn next_chunk(&mut self) -> ValkeyResult<bool> {
         if self.is_finished {
             return Ok(false);
         }
         self.count = 0;
         if let MaybeChunkDecompressor::Some(chunk_decompressor) = &mut self.chunk_decompressor {
-            let progress = chunk_decompressor.decompress(data).map_err(convert_error)?;
+            let progress = chunk_decompressor.decompress(&mut self.values).map_err(convert_error)?;
             self.finished_chunk = progress.finished;
             self.count = progress.n_processed;
             if self.finished_chunk {
@@ -59,7 +64,7 @@ impl<'a, T: Number> StreamState<'a, T> {
             return Ok(true);
         }
         if self.next_chunk_decompressor()? {
-            self.next_chunk(data)
+            self.next_chunk()
         } else {
             Ok(false)
         }
@@ -79,15 +84,27 @@ impl<'a, T: Number> StreamState<'a, T> {
             Err(err) => Err(convert_error(err)),
         }
     }
+
+    fn next_value(&mut self) -> ValkeyResult<Option<T>> {
+        if self.idx >= self.count {
+            if self.is_finished {
+                return Ok(None);
+            }
+            if !self.next_chunk()? {
+                return Ok(None);
+            }
+            self.idx = 0;
+        }
+
+        let value = self.values[self.idx];
+        self.idx += 1;
+        Ok(Some(value))
+    }
 }
 
 pub struct PcoSampleIterator<'a> {
     timestamp_state: StreamState<'a, Timestamp>,
     values_state: StreamState<'a, f64>,
-    timestamps: [Timestamp; FULL_BATCH_N],
-    values: [f64; FULL_BATCH_N],
-    count: usize,
-    idx: usize,
     chunks_finished: bool,
     first_ts: Timestamp,
     last_ts: Timestamp,
@@ -102,10 +119,6 @@ impl<'a> PcoSampleIterator<'a> {
         Ok(Self {
             timestamp_state,
             values_state,
-            timestamps: [0; FULL_BATCH_N],
-            values: [f64::NAN; FULL_BATCH_N],
-            count: 0,
-            idx: 0,
             chunks_finished: false,
             first_ts: 0,
             last_ts: 0,
@@ -126,23 +139,15 @@ impl<'a> PcoSampleIterator<'a> {
         Ok(iter)
     }
 
-    fn next_chunk(&mut self) -> bool {
-        self.idx = 0;
-        if self.chunks_finished {
-            return false;
+    fn next_item<T: Number + Default>(state: &mut StreamState<'a, T>) -> Option<T> {
+        match state.next_value() {
+            Ok(Some(v)) => Some(v),
+            Ok(None) => None,
+            Err(err) => {
+                debug!("Error {:?}", err);
+                None
+            },
         }
-        self.chunks_finished = match (
-            self.timestamp_state.next_chunk(&mut self.timestamps),
-            self.values_state.next_chunk(&mut self.values),
-        ) {
-            (Ok(true), Ok(true)) => {
-                self.timestamp_state.is_finished || self.values_state.is_finished
-            }
-            _ => true,
-        };
-        // these counts should be the same
-        self.count = self.timestamp_state.count.min(self.values_state.count);
-        true
     }
 }
 
@@ -151,26 +156,19 @@ impl Iterator for PcoSampleIterator<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if self.idx < self.count {
-                // todo: use get_unchecked to avoid bounds check
-                let ts = self.timestamps[self.idx];
-                let val = self.values[self.idx];
-                self.idx += 1;
-                if self.filtered {
-                    if ts < self.first_ts {
-                        continue;
+            match (Self::next_item(&mut self.timestamp_state), Self::next_item(&mut self.values_state)) {
+                (Some(ts), Some(val)) => {
+                    if self.filtered {
+                        if ts < self.first_ts {
+                            continue;
+                        }
+                        if ts > self.last_ts {
+                            return None;
+                        }
                     }
-                    if ts > self.last_ts {
-                        return None;
-                    }
+                    break Some(Sample { timestamp: ts, value: val })
                 }
-                return Some(Sample {
-                    timestamp: ts,
-                    value: val,
-                });
-            }
-            if !self.next_chunk() {
-                return None;
+                _ => break None,
             }
         }
     }

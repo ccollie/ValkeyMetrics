@@ -22,7 +22,7 @@ impl<'a> SampleMergeIterator<'a> {
         }
     }
 
-    pub fn next_internal(&mut self) -> Option<(Sample, bool)> {
+    pub(crate) fn next_internal(&mut self) -> Option<(Sample, bool)> {
         let mut blocked = false;
 
         let sample = match (self.left.peek(), self.right.peek()) {
@@ -31,9 +31,10 @@ impl<'a> SampleMergeIterator<'a> {
                     let ts = left.timestamp;
                     if let Ok(val) =
                         self.duplicate_policy
-                            .duplicate_value(ts, right.value, left.value)
+                            .duplicate_value(ts, left.value, right.value)
                     {
                         self.left.next();
+                        self.right.next();
                         Some(Sample {
                             timestamp: ts,
                             value: val,
@@ -41,6 +42,7 @@ impl<'a> SampleMergeIterator<'a> {
                     } else {
                         // block duplicate
                         blocked = true;
+                        self.right.next();
                         self.left.next()
                     }
                 } else if left < right {

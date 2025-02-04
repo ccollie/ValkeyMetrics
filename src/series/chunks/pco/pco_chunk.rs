@@ -8,10 +8,13 @@ use crate::series::chunks::pco::pco_utils::{
 use crate::series::chunks::pco::PcoSampleIterator;
 use crate::series::chunks::utils::get_timestamp_index_bounds;
 use crate::series::chunks::Chunk;
+use crate::series::merge::merge_samples;
 use crate::series::{
     DuplicatePolicy, Sample, SampleAddResult, DEFAULT_CHUNK_SIZE_BYTES, VEC_BASE_SIZE,
 };
+use ahash::HashSetExt;
 use get_size::GetSize;
+use metricsql_common::hash::IntSet;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64, PooledVecF64, PooledVecI64};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -309,6 +312,60 @@ impl PcoChunk {
 
         Ok(samples)
     }
+
+    fn merge_internal(&mut self,
+                      current: &[Sample],
+                      samples: &[Sample],
+                      dp_policy: DuplicatePolicy) -> TsdbResult<Vec<SampleAddResult>> {
+        struct MergeState {
+            values: PooledVecF64,
+            timestamps: PooledVecI64,
+            result: Vec<SampleAddResult>,
+        }
+
+        // we don't do streaming compression, so we have to accumulate all the samples
+        // in a new chunk and then swap it with the old one
+        let capacity = current.len() + samples.len();
+
+        let mut merge_state = MergeState {
+            values: get_pooled_vec_f64(capacity),
+            timestamps: get_pooled_vec_i64(capacity),
+            result: Vec::with_capacity(samples.len()),
+        };
+
+        // eliminate results not related to the new samples
+        let mut sample_set: IntSet<Timestamp> = IntSet::with_capacity(samples.len());
+        for sample in samples.iter() {
+            sample_set.insert(sample.timestamp);
+        }
+
+        let left = SampleIter::Slice(current.iter());
+        let right = SampleIter::Slice(samples.iter());
+
+        merge_samples(
+            left,
+            right,
+            Some(dp_policy),
+            &mut merge_state,
+            |state, sample, is_duplicate| {
+                let is_new = sample_set.remove(&sample.timestamp);
+                state.values.push(sample.value);
+                state.timestamps.push(sample.timestamp);
+                if is_new {
+                    if is_duplicate {
+                        state.result.push(SampleAddResult::Duplicate);
+                    } else  {
+                        state.result.push(SampleAddResult::Ok(sample.timestamp));
+                    }
+                }
+                Ok(())
+            },
+        )?;
+
+        self.compress(&merge_state.timestamps, &merge_state.values)?;
+
+        Ok(merge_state.result)
+    }
 }
 
 impl Chunk for PcoChunk {
@@ -432,6 +489,10 @@ impl Chunk for PcoChunk {
             let mut timestamps = get_pooled_vec_i64(self.count);
             let mut values = get_pooled_vec_f64(self.count);
 
+            if self.count > 0 {
+                self.decompress_internal(&mut timestamps, &mut values)?;
+            }
+
             for sample in samples {
                 timestamps.push(sample.timestamp);
                 values.push(sample.value);
@@ -457,26 +518,12 @@ impl Chunk for PcoChunk {
                 return Ok(result);
             }
 
-            let mut start_pos = 0;
-            for sample in samples {
-                let ts = sample.timestamp;
-                let (pos, found) = get_timestamp_index(&timestamps, ts, start_pos);
-                start_pos = pos + 1;
-                if found {
-                    if let Ok(val) = dp_policy.duplicate_value(ts, values[pos], sample.value) {
-                        values[pos] = val;
-                        result.push(SampleAddResult::Ok(sample.timestamp));
-                    } else {
-                        result.push(SampleAddResult::Duplicate);
-                    }
-                } else {
-                    timestamps.insert(pos, sample.timestamp);
-                    values.insert(pos, sample.value);
-                    result.push(SampleAddResult::Ok(sample.timestamp));
-                }
-            }
+            let current: Vec<Sample> = timestamps.iter().cloned().
+                zip(values.iter().cloned())
+                .map(|(ts, value)| Sample::new(ts, value))
+                .collect::<Vec<Sample>>();
 
-            self.compress(&timestamps, &values)?;
+            return self.merge_internal(&current, samples, dp_policy);
         }
 
         Ok(result)
@@ -577,7 +624,7 @@ mod tests {
     use crate::series::chunks::pco::pco_chunk::remove_values_in_range;
     use crate::series::chunks::Chunk;
     use crate::series::chunks::PcoChunk;
-    use crate::series::{DuplicatePolicy, Sample};
+    use crate::series::{DuplicatePolicy, Sample, SampleAddResult};
 
     fn decompress(chunk: &PcoChunk) -> Vec<Sample> {
         chunk.iter().collect()
@@ -954,4 +1001,204 @@ mod tests {
             "Range iterator should return no samples for an empty chunk"
         );
     }
+
+    #[test]
+    fn test_merge_samples_with_greater_timestamps() {
+        let mut chunk = PcoChunk::default();
+        let mut initial_samples = generate_random_samples(0, 5);
+        chunk.set_data(&initial_samples).unwrap();
+
+        let mut timestamp = chunk.last_timestamp() + 5000;
+        let mut new_samples = generate_random_samples(0, 5);
+
+        for sample in new_samples.iter_mut() {
+            sample.timestamp = timestamp;
+            timestamp += 1000;
+        }
+
+        let result = chunk.merge_samples(&new_samples, None).unwrap();
+
+        // Check that all new samples were added successfully
+        for (i, sample) in new_samples.iter().enumerate() {
+            assert_eq!(result[i], SampleAddResult::Ok(sample.timestamp));
+        }
+
+        // Verify the chunk now contains the initial and new samples
+        initial_samples.extend_from_slice(&new_samples);
+        let actual = decompress(&chunk);
+        assert_eq!(initial_samples, actual);
+    }
+
+    #[test]
+    fn test_merge_samples_with_timestamps_less_than_first() {
+        let mut chunk = PcoChunk::default();
+        let existing_samples = generate_random_samples(1000, 1100);
+        chunk.set_data(&existing_samples).unwrap();
+
+        // Create new samples with timestamps less than the current first timestamp
+        let new_samples = generate_random_samples(900, 950);
+
+        // Merge the new samples into the chunk
+        let result = chunk.merge_samples(&new_samples, Some(DuplicatePolicy::Block)).unwrap();
+
+        // Check that all new samples were added successfully
+        for (i, sample) in new_samples.iter().enumerate() {
+            assert_eq!(result[i], SampleAddResult::Ok(sample.timestamp));
+        }
+
+        // Verify that the chunk now contains both the new and existing samples
+        let expected_samples: Vec<Sample> = new_samples
+            .iter()
+            .chain(existing_samples.iter())
+            .cloned()
+            .collect();
+        let actual_samples = decompress(&chunk);
+        assert_eq!(actual_samples, expected_samples);
+    }
+
+    #[test]
+    fn test_merge_samples_with_duplicates() {
+        let mut chunk = PcoChunk::default();
+        let initial_samples = vec![
+            Sample { timestamp: 1, value: 10.0 },
+            Sample { timestamp: 2, value: 20.0 },
+            Sample { timestamp: 3, value: 30.0 },
+        ];
+        chunk.set_data(&initial_samples).unwrap();
+
+        let new_samples = vec![
+            Sample { timestamp: 2, value: 25.0 }, // Duplicate timestamp
+            Sample { timestamp: 4, value: 40.0 }, // New timestamp
+        ];
+
+        let result = chunk.merge_samples(&new_samples, Some(DuplicatePolicy::KeepLast)).unwrap();
+
+        // Check that the merge result indicates successful addition
+        assert_eq!(result, vec![
+            SampleAddResult::Ok(2), // Duplicate, but should be overwritten
+            SampleAddResult::Ok(4), // New sample
+        ]);
+
+        // Decompress and verify the final state of the chunk
+        let expected_samples = vec![
+            Sample { timestamp: 1, value: 10.0 },
+            Sample { timestamp: 2, value: 25.0 }, // Overwritten value
+            Sample { timestamp: 3, value: 30.0 },
+            Sample { timestamp: 4, value: 40.0 },
+        ];
+        let actual_samples = chunk.decompress_samples().unwrap();
+        assert_eq!(actual_samples, expected_samples);
+    }
+
+    #[test]
+    fn test_merge_samples_with_mixed_duplicates() {
+        let mut chunk = PcoChunk::default();
+        let initial_samples = vec![
+            Sample { timestamp: 1, value: 1.0 },
+            Sample { timestamp: 2, value: 2.0 },
+            Sample { timestamp: 3, value: 3.0 },
+        ];
+        chunk.set_data(&initial_samples).unwrap();
+
+        let new_samples = vec![
+            Sample { timestamp: 2, value: 2.5 }, // duplicate
+            Sample { timestamp: 3, value: 3.5 }, // duplicate
+            Sample { timestamp: 4, value: 4.0 }, // non-duplicate
+        ];
+
+        let result = chunk.merge_samples(&new_samples, Some(DuplicatePolicy::Block)).unwrap();
+
+        // Expecting Duplicate for duplicates and Ok for non-duplicates
+        assert_eq!(result, vec![
+            SampleAddResult::Duplicate,
+            SampleAddResult::Duplicate,
+            SampleAddResult::Ok(4),
+        ]);
+
+        // Verify the chunk's data hasn't changed for duplicates
+        let expected_samples = vec![
+            Sample { timestamp: 1, value: 1.0 },
+            Sample { timestamp: 2, value: 2.0 },
+            Sample { timestamp: 3, value: 3.0 },
+            Sample { timestamp: 4, value: 4.0 },
+        ];
+        let actual_samples = chunk.decompress_samples().unwrap();
+        assert_eq!(actual_samples, expected_samples);
+    }
+
+    #[test]
+    fn test_merge_samples_empty_chunk_default_policy() {
+        let mut chunk = PcoChunk::default();
+        let samples = generate_random_samples(0, 10);
+
+        // Merge samples into an empty chunk with DuplicatePolicy set to None
+        let result = chunk.merge_samples(&samples, None).unwrap();
+
+        // Ensure all samples are added successfully
+        for (i, sample) in samples.iter().enumerate() {
+            match result[i] {
+                SampleAddResult::Ok(ts) => assert_eq!(ts, sample.timestamp),
+                _ => panic!("Expected SampleAddResult::Ok, got {:?}", result[i]),
+            }
+        }
+
+        // Verify the chunk now contains the samples
+        let decompressed_samples = chunk.decompress_samples().unwrap();
+        assert_eq!(decompressed_samples, samples);
+    }
+
+    #[test]
+    fn test_merge_samples_on_boundary() {
+        let mut chunk = PcoChunk::default();
+        let initial_samples = generate_random_samples(0, 10);
+
+        // Set initial data to the chunk
+        chunk.set_data(&initial_samples).unwrap();
+
+        // Create samples with timestamps on the boundary of the current min_time and max_time
+        let boundary_samples = vec![
+            Sample {
+                timestamp: chunk.min_time,
+                value: 42.0,
+            },
+            Sample {
+                timestamp: chunk.max_time,
+                value: 84.0,
+            },
+        ];
+
+        // Merge samples with DuplicatePolicy::KeepLast
+        let result = chunk
+            .merge_samples(&boundary_samples, Some(DuplicatePolicy::KeepLast))
+            .unwrap();
+
+        // Check results
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], SampleAddResult::Ok(chunk.min_time));
+        assert_eq!(result[1], SampleAddResult::Ok(chunk.max_time));
+
+        // Decompress and verify the samples
+        let decompressed_samples = chunk.decompress_samples().unwrap();
+        assert_eq!(decompressed_samples.len(), initial_samples.len());
+
+        // Verify that the values at the boundary timestamps have been updated
+        assert_eq!(
+            decompressed_samples.iter().find(|s| s.timestamp == chunk.min_time).unwrap().value,
+            42.0
+        );
+        assert_eq!(
+            decompressed_samples.iter().find(|s| s.timestamp == chunk.max_time).unwrap().value,
+            84.0
+        );
+    }
+
+    #[test]
+    fn test_merge_samples_with_empty_array() {
+        let mut chunk = PcoChunk::default();
+        let result = chunk.merge_samples(&[], None);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Vec::<SampleAddResult>::new());
+    }
+
+
 }

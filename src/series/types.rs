@@ -122,7 +122,8 @@ impl TryFrom<u8> for DuplicatePolicy {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
+#[derive(PartialEq)]
 pub enum SampleAddResult {
     Ok(Timestamp),
     Duplicate,

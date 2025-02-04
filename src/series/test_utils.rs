@@ -1,10 +1,18 @@
+use std::time::Duration;
+use metricsql_runtime::prelude::TimestampTrait;
+use metricsql_runtime::types::Timestamp;
 use crate::common::types::Sample;
 use rand::{Rng, SeedableRng};
 
+const SECS_PER_DAY: u64 = 86400;
+const ONE_DAY: Duration = Duration::from_secs(SECS_PER_DAY);
+
 pub fn generate_random_samples(seed: u64, vec_size: usize) -> Vec<Sample> {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-
-    let mut timestamp: i64 = rng.random_range(1234567890..1357908642);
+    let secs_past = rng.random_range(1 .. 10) * SECS_PER_DAY;
+    let now = Timestamp::now();
+    
+    let mut timestamp = now.sub(Duration::from_secs(secs_past));
     let mut vec = Vec::with_capacity(vec_size);
 
     let mut value: f64 = if rng.random_bool(0.5) {
@@ -15,7 +23,7 @@ pub fn generate_random_samples(seed: u64, vec_size: usize) -> Vec<Sample> {
     vec.push(Sample { timestamp, value });
 
     for _ in 1..vec_size {
-        timestamp += rng.random_range(1..30);
+        timestamp += rng.random_range(1..30) * 1000;
         if rng.random_bool(0.33) {
             value += 1.0;
         } else if rng.random_bool(0.33) {
