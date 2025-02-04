@@ -3,7 +3,7 @@ use crate::alerts::rules::validate_offset_and_interval;
 use crate::error_consts;
 use crate::error_consts::EVAL_OFFSET_EXCEEDS_INTERVAL;
 use crate::module::arg_parse::*;
-use metricsql_parser::parser::is_valid_identifier;
+use metricsql_parser::prelude::is_valid_identifier;
 use std::collections::HashMap;
 use std::time::Duration;
 use valkey_module::{

@@ -9,12 +9,8 @@ use crate::series::types::*;
 use crate::series::{ChunkCompression, DuplicatePolicy, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
 use crate::series::{TimestampRange, TimestampValue};
 use metricsql_parser::common::{Value, ValueType};
-use metricsql_parser::parser::{
-    parse as parse_expr, parse_duration_value, parse_metric_name as parse_metric, parse_number,
-    parse_timestamp as parse_timestamp_internal,
-};
+use metricsql_parser::{parse as parse_expr, parse_duration_value, parse_metric_name as parse_metric, parse_metric_selector, parse_number, parse_timestamp as parse_timestamp_internal};
 use metricsql_parser::prelude::Matchers;
-use metricsql_runtime::parse_metric_selector;
 use std::collections::{BTreeSet, HashMap};
 use std::iter::{Peekable, Skip};
 use std::time::Duration;

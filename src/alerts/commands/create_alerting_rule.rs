@@ -8,7 +8,7 @@ use crate::module::arg_parse::{
     parse_duration, parse_key_value_pairs, CommandArgIterator, CMD_ARG_ANNOTATIONS, CMD_ARG_EXPR,
     CMD_ARG_LABELS,
 };
-use metricsql_parser::parser::is_valid_identifier;
+use metricsql_parser::prelude::is_valid_identifier;
 use valkey_module::{
     Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK,
 };

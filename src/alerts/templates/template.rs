@@ -22,7 +22,7 @@ use enquote::enquote;
 use gtmpl::{Func, FuncError, Template, Value};
 use htmlescape::encode_minimal;
 use metricsql_common::humanize::humanize_bytes;
-use metricsql_parser::parser::parse_duration_value;
+use metricsql_parser::parse_duration_value;
 use regex::Regex;
 use std::cell::RefCell;
 use std::collections::HashMap;

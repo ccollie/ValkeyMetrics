@@ -7,7 +7,7 @@ use crate::common::types::{Label, Timestamp, TimestampTrait};
 use crate::query::{QuerierBuilder, QuerierParams};
 use get_size::GetSize;
 use metricsql_parser::ast::{Expr, MetricExpr};
-use metricsql_parser::parser::parse as parse_expr;
+use metricsql_parser::parse as parse_expr;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;

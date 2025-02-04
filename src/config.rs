@@ -254,8 +254,9 @@ fn load_query_context_config(args: &[ValkeyString]) -> ValkeyResult<()> {
         get_duration_config_value(args, QUERY_MAX_STALENESS_INTERVAL_KEY, None)?;
     config.max_lookback =
         get_duration_config_value(args, QUERY_MAX_LOOKBACK_KEY, Some(DEFAULT_MAX_LOOKBACK))?;
-    config.max_unique_timeseries =
-        get_number_config_value(args, QUERY_MAX_UNIQUE_SERIES_KEY, Some(0.0))? as usize;
+    // TODO !!!
+    // config.max_unique_timeseries =
+    //     get_number_config_value(args, QUERY_MAX_UNIQUE_SERIES_KEY, Some(0.0))? as usize;
     config.max_points_subquery_per_timeseries =
         get_number_config_value(args, QUERY_MAX_POINTS_SUBQUERY_KEY, Some(0.0))? as usize;
     config.max_step_for_points_adjustment = get_duration_config_value(

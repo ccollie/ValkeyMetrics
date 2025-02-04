@@ -820,7 +820,7 @@ pub(crate) fn validate_alert_expr(expr: &str) -> ValkeyResult<()> {
     if expr.is_empty() {
         return Err(ValkeyError::Str("ERR missing expression"));
     }
-    match metricsql_parser::parser::parse(expr) {
+    match metricsql_parser::parse(expr) {
         Ok(expr) => {
             // ensure we have a comparison
             if let Expr::BinaryOperator(binop) = &expr {

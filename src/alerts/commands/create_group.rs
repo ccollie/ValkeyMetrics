@@ -3,7 +3,7 @@ use crate::alerts::rules::{validate_offset_and_interval, Group, GroupConfig};
 use crate::error_consts;
 use crate::module::arg_parse::*;
 use crate::module::group_data_type::VKM_RULE_GROUP;
-use metricsql_parser::parser::is_valid_identifier;
+use metricsql_parser::prelude::is_valid_identifier;
 use std::time::Duration;
 use valkey_module::key::ValkeyKeyWritable;
 use valkey_module::{

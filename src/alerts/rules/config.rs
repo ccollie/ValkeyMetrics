@@ -202,7 +202,7 @@ impl GroupConfig {
 }
 
 fn validate_expr(expr: &str) -> AlertsResult<()> {
-    match metricsql_parser::parser::parse(expr) {
+    match metricsql_parser::parse(expr) {
         Ok(_) => Ok(()),
         Err(err) => Err(AlertsError::InvalidConfiguration(format!(
             "invalid expression: {:?}",
