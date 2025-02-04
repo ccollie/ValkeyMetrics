@@ -1,6 +1,5 @@
 use metricsql_parser::binaryop::get_scalar_binop_handler;
 use metricsql_parser::prelude::{BinopFunc, Operator as BaseOp};
-use phf::phf_map;
 use std::cmp::Ordering;
 use std::fmt;
 use std::str::FromStr;
@@ -36,52 +35,56 @@ pub enum JoinReducer {
     Unless,
 }
 
-static BINARY_OPS_MAP: phf::Map<&'static str, JoinReducer> = phf_map! {
-    "+" => JoinReducer::Add,
-    "-" => JoinReducer::Sub,
-    "*" => JoinReducer::Mul,
-    "/" => JoinReducer::Div,
-    "%" => JoinReducer::Mod,
-    "^" => JoinReducer::Pow,
+fn join_reducer_get(key: &str) -> Option<JoinReducer> {
+    hashify::tiny_map! {
+        key.as_bytes(),
+        "+" => JoinReducer::Add,
+        "-" => JoinReducer::Sub,
+        "*" => JoinReducer::Mul,
+        "/" => JoinReducer::Div,
+        "%" => JoinReducer::Mod,
+        "^" => JoinReducer::Pow,
 
-    // cmp ops
-    "==" => JoinReducer::Eql,
-    "!=" => JoinReducer::NotEq,
-    "<" => JoinReducer::Lt,
-    ">" => JoinReducer::Gt,
-    "<=" => JoinReducer::Lte,
-    ">=" => JoinReducer::Gte,
+        // cmp ops
+        "==" => JoinReducer::Eql,
+        "!=" => JoinReducer::NotEq,
+        "<" => JoinReducer::Lt,
+        ">" => JoinReducer::Gt,
+        "<=" => JoinReducer::Lte,
+        ">=" => JoinReducer::Gte,
 
-    "abs_diff" => JoinReducer::AbsDiff,
-    "add" => JoinReducer::Add,
-    "cmp" => JoinReducer::Cmp,
-    "eq" => JoinReducer::Eql,
-    "gt" => JoinReducer::Gt,
-    "gte" => JoinReducer::Gte,
-    "sub" => JoinReducer::Sub,
-    "mod" => JoinReducer::Mod,
-    "mul" => JoinReducer::Mul,
-    "ne"  => JoinReducer::NotEq,
-    "lt" => JoinReducer::Lt,
-    "lte" => JoinReducer::Lte,
-    "div" => JoinReducer::Div,
-    "pow" => JoinReducer::Pow,
-    "sgn_diff" => JoinReducer::SgnDiff,
-    "pct_change" => JoinReducer::PctChange,
+        "abs_diff" => JoinReducer::AbsDiff,
+        "add" => JoinReducer::Add,
+        "cmp" => JoinReducer::Cmp,
+        "eq" => JoinReducer::Eql,
+        "gt" => JoinReducer::Gt,
+        "gte" => JoinReducer::Gte,
+        "sub" => JoinReducer::Sub,
+        "mod" => JoinReducer::Mod,
+        "mul" => JoinReducer::Mul,
+        "ne"  => JoinReducer::NotEq,
+        "lt" => JoinReducer::Lt,
+        "lte" => JoinReducer::Lte,
+        "div" => JoinReducer::Div,
+        "pow" => JoinReducer::Pow,
+        "sgn_diff" => JoinReducer::SgnDiff,
+        "pct_change" => JoinReducer::PctChange,
 
-    // logic set ops
-    "and" => JoinReducer::And,
-    "or" => JoinReducer::Or,
-    "unless" => JoinReducer::Unless,
+        // logic set ops
+        "and" => JoinReducer::And,
+        "or" => JoinReducer::Or,
+        "unless" => JoinReducer::Unless,
 
-    "if" => JoinReducer::If,
-    "ifnot" => JoinReducer::IfNot,
-    "default" => JoinReducer::Default,
+        "if" => JoinReducer::If,
+        "ifnot" => JoinReducer::IfNot,
+        "default" => JoinReducer::Default,
 
-    "avg" => JoinReducer::Avg,
-    "max" => JoinReducer::Max,
-    "min" => JoinReducer::Min,
-};
+        "avg" => JoinReducer::Avg,
+        "max" => JoinReducer::Max,
+        "min" => JoinReducer::Min
+    }
+}
+
 
 impl JoinReducer {
     pub const fn as_str(&self) -> &'static str {
@@ -167,16 +170,16 @@ impl TryFrom<&str> for JoinReducer {
     fn try_from(op: &str) -> Result<Self, Self::Error> {
         if let Some(ch) = op.chars().next() {
             let value = if !ch.is_alphabetic() {
-                BINARY_OPS_MAP.get(op)
+                join_reducer_get(op)
             } else {
                 // slight optimization - don't lowercase if not needed (save allocation)
-                BINARY_OPS_MAP.get(op).or_else(|| {
+                join_reducer_get(op).or_else(|| {
                     let lower = op.to_ascii_lowercase();
-                    BINARY_OPS_MAP.get(&lower)
+                    join_reducer_get(&lower)
                 })
             };
             if let Some(operator) = value {
-                return Ok(*operator);
+                return Ok(operator);
             }
         }
         Err(ValkeyError::String(format!("Unknown binary op {}", op)))
