@@ -36,7 +36,7 @@ pub enum JoinReducer {
 }
 
 fn join_reducer_get(key: &str) -> Option<JoinReducer> {
-    hashify::tiny_map! {
+    hashify::tiny_map_ignore_case! {
         key.as_bytes(),
         "+" => JoinReducer::Add,
         "-" => JoinReducer::Sub,
@@ -168,21 +168,10 @@ impl TryFrom<&str> for JoinReducer {
     type Error = ValkeyError;
 
     fn try_from(op: &str) -> Result<Self, Self::Error> {
-        if let Some(ch) = op.chars().next() {
-            let value = if !ch.is_alphabetic() {
-                join_reducer_get(op)
-            } else {
-                // slight optimization - don't lowercase if not needed (save allocation)
-                join_reducer_get(op).or_else(|| {
-                    let lower = op.to_ascii_lowercase();
-                    join_reducer_get(&lower)
-                })
-            };
-            if let Some(operator) = value {
-                return Ok(operator);
-            }
+        match join_reducer_get(op) {
+            Some(operator) => Ok(operator),
+            None => Err(ValkeyError::String(format!("Unknown binary op {}", op))),
         }
-        Err(ValkeyError::String(format!("Unknown binary op {}", op)))
     }
 }
 

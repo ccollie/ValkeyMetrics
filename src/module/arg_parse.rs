@@ -9,7 +9,14 @@ use crate::series::types::*;
 use crate::series::{ChunkCompression, DuplicatePolicy, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
 use crate::series::{TimestampRange, TimestampValue};
 use metricsql_parser::common::{Value, ValueType};
-use metricsql_parser::{parse as parse_expr, parse_duration_value, parse_metric_name as parse_metric, parse_metric_selector, parse_number, parse_timestamp as parse_timestamp_internal};
+use metricsql_parser::{
+    parse as parse_expr,
+    parse_duration_value,
+    parse_metric_name as parse_metric,
+    parse_metric_selector,
+    parse_number,
+    parse_timestamp as parse_timestamp_internal
+};
 use metricsql_parser::prelude::Matchers;
 use std::collections::{BTreeSet, HashMap};
 use std::iter::{Peekable, Skip};
@@ -18,32 +25,246 @@ use std::vec::IntoIter;
 use valkey_module::{NextArg, ValkeyError, ValkeyResult, ValkeyString};
 
 const MAX_TS_VALUES_FILTER: usize = 16;
-pub const CMD_ARG_ANNOTATIONS: &str = "ANNOTATIONS";
-pub const CMD_ARG_COUNT: &str = "COUNT";
-pub const CMD_PARAM_REDUCER: &str = "REDUCE";
-pub const CMD_PARAM_ALIGN: &str = "ALIGN";
-pub const CMD_ARG_COMPRESSION: &str = "COMPRESSION";
-pub const CMD_ARG_DISABLED: &str = "DISABLED";
-pub const CMD_ARG_FILTER_BY_VALUE: &str = "FILTER_BY_VALUE";
-pub const CMD_ARG_FILTER_BY_TS: &str = "FILTER_BY_TS";
-pub const CMD_ARG_AGGREGATION: &str = "AGGREGATION";
-pub const CMD_ARG_FILTER: &str = "FILTER";
-pub const CMD_ARG_EMPTY: &str = "EMPTY";
-pub const CMD_ARG_GROUP_BY: &str = "GROUPBY";
-pub const CMD_ARG_BUCKET_TIMESTAMP: &str = "BUCKETTIMESTAMP";
-pub const CMD_ARG_RETENTION: &str = "RETENTION";
-pub const CMD_ARG_DUPLICATE_POLICY: &str = "DUPLICATE_POLICY";
-pub const CMD_ARG_CHUNK_SIZE: &str = "CHUNK_SIZE";
-pub const CMD_ARG_DEDUPE_INTERVAL: &str = "DEDUPE_INTERVAL";
-pub const CMD_ARG_WITH_LABELS: &str = "WITHLABELS";
-pub const CMD_ARG_SELECTED_LABELS: &str = "SELECTED_LABELS";
-pub const CMD_ARG_SIGNIFICANT_DIGITS: &str = "SIGNIFICANT_DIGITS";
-pub const CMD_ARG_DECIMAL_DIGITS: &str = "DECIMAL_DIGITS";
-pub const CMD_ARG_EXPR: &str = "EXPR";
-pub const CMD_ARG_NAME: &str = "NAME";
-pub const CMD_ARG_LABELS: &str = "LABELS";
-pub const CMD_ARG_LIMIT: &str = "LIMIT";
-pub const CMD_ARG_METRIC: &str = "METRIC";
+const CMD_ARG_AGGREGATION: &str = "AGGREGATION";
+const CMD_ARG_ALERT_FOR: &str = "ALERT_FOR";
+const CMD_ARG_ALIGN: &str = "ALIGN";
+const CMD_ARG_ANNOTATIONS: &str = "ANNOTATIONS";
+const CMD_ARG_ASOF: &str = "ASOF";
+const CMD_ARG_BUCKET_TIMESTAMP: &str = "BUCKETTIMESTAMP";
+const CMD_ARG_CHUNK_SIZE: &str = "CHUNK_SIZE";
+const CMD_ARG_COMPRESSION: &str = "COMPRESSION";
+const CMD_ARG_COUNT: &str = "COUNT";
+const CMD_ARG_DECIMAL_DIGITS: &str = "DECIMAL_DIGITS";
+const CMD_ARG_DEDUPE_INTERVAL: &str = "DEDUPE_INTERVAL";
+const CMD_ARG_DISABLED: &str = "DISABLED";
+const CMD_ARG_DUPLICATE_POLICY: &str = "DUPLICATE_POLICY";
+const CMD_ARG_EMPTY: &str = "EMPTY";
+const CMD_ARG_END: &str = "END";
+const CMD_ARG_EXCLUSIVE: &str = "EXCLUSIVE";
+const CMD_ARG_EXPR: &str = "EXPR";
+const CMD_ARG_FILTER: &str = "FILTER";
+const CMD_ARG_FILTER_BY_TS: &str = "FILTER_BY_TS";
+const CMD_ARG_FILTER_BY_VALUE: &str = "FILTER_BY_VALUE";
+const CMD_ARG_FOR: &str = "FOR";
+const CMD_ARG_FULL: &str = "FULL";
+const CMD_ARG_GROUP_BY: &str = "GROUPBY";
+const CMD_ARG_INNER: &str = "INNER";
+const CMD_ARG_INTERVAL: &str = "INTERVAL";
+const CMD_ARG_EVAL_OFFSET: &str = "EVAL_OFFSET";
+const CMD_ARG_EVAL_DELAY: &str = "EVAL_DELAY";
+const CMD_ARG_EVAL_ALIGNMENT: &str = "EVAL_ALIGNMENT";
+const CMD_ARG_EVAL_INTERVAL: &str = "EVAL_INTERVAL";
+const CMD_ARG_EXCLUDE_ALERTS: &str = "EXCLUDE_ALERTS";
+const CMD_ARG_LABELS: &str = "LABELS";
+const CMD_ARG_LEFT: &str = "LEFT";
+const CMD_ARG_KEEP_FIRING_FOR: &str = "KEEP_FIRING_FOR";
+const CMD_ARG_LIMIT: &str = "LIMIT";
+const CMD_ARG_MATCH: &str = "MATCH";
+const CMD_ARG_MAX_ENTRIES: &str = "MAX_ENTRIES";
+const CMD_ARG_METRIC: &str = "METRIC";
+const CMD_ARG_NAME: &str = "NAME";
+const MAX_DATAPOINTS: &str = "MAX_DATAPOINTS";
+const CMD_ARG_NEXT: &str = "NEXT";
+const CMD_ARG_PRIOR: &str = "PRIOR";
+const CMD_ARG_REDUCE: &str = "REDUCE";
+const CMD_ARG_RETENTION: &str = "RETENTION";
+const CMD_ARG_RIGHT: &str = "RIGHT";
+const CMD_ARG_ROUNDING: &str = "ROUNDING";
+const CMD_ARG_RULE_GROUP: &str = "RULE_GROUP";
+const CMD_ARG_RULE_NAME: &str = "RULE_NAME";
+const CMD_ARG_RULE_TYPE: &str = "RULE_TYPE";
+const RULES_DELAY: &str = "RULES_DELAY";
+const RULES_RETRIES: &str = "RULES_RETRIES";
+const CMD_ARG_SELECTED_LABELS: &str = "SELECTED_LABELS";
+const CMD_ARG_STEP: &str = "STEP";
+const CMD_ARG_SIGNIFICANT_DIGITS: &str = "SIGNIFICANT_DIGITS";
+const CMD_ARG_START: &str = "START";
+const CMD_ARG_WITH_LABELS: &str = "WITHLABELS";
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CommandArgToken {
+    AsOf,
+    Aggregation,
+    AlertFor,
+    Align,
+    Annotations,
+    BucketTimestamp,
+    ChunkSize,
+    Compression,
+    Count,
+    DecimalDigits,
+    DedupeInterval,
+    Disabled,
+    DuplicatePolicy,
+    Empty,
+    End,
+    EvalAlignment,
+    EvalDelay,
+    EvalInterval,
+    EvalOffset,
+    Expr,
+    ExcludeAlerts,
+    Exclusive,
+    Filter,
+    FilterByTs,
+    FilterByValue,
+    For,
+    Full,
+    GroupBy,
+    Inner,
+    Interval,
+    KeepFiringFor,
+    Labels,
+    Left,
+    Limit,
+    Match,
+    MaxEntries,
+    MaxDataPoints,
+    Metric,
+    Name,
+    Next,
+    Prior,
+    Reduce,
+    Retention,
+    Right,
+    Rounding,
+    RuleGroup,
+    RuleName,
+    RuleType,
+    RulesDelay,
+    RulesRetries,
+    SelectedLabels,
+    SignificantDigits,
+    Start,
+    Step,
+    WithLabels,
+    #[default]
+    Invalid
+}
+
+impl CommandArgToken {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CommandArgToken::AsOf => CMD_ARG_ASOF,
+            CommandArgToken::Aggregation => CMD_ARG_AGGREGATION,
+            CommandArgToken::AlertFor => CMD_ARG_ALERT_FOR,
+            CommandArgToken::Align => CMD_ARG_ALIGN,
+            CommandArgToken::Annotations => CMD_ARG_ANNOTATIONS,
+            CommandArgToken::BucketTimestamp => CMD_ARG_BUCKET_TIMESTAMP,
+            CommandArgToken::ChunkSize => CMD_ARG_CHUNK_SIZE,
+            CommandArgToken::Compression => CMD_ARG_COMPRESSION,
+            CommandArgToken::Count => CMD_ARG_COUNT,
+            CommandArgToken::DecimalDigits => CMD_ARG_DECIMAL_DIGITS,
+            CommandArgToken::DedupeInterval => CMD_ARG_DEDUPE_INTERVAL,
+            CommandArgToken::Disabled => CMD_ARG_DISABLED,
+            CommandArgToken::DuplicatePolicy => CMD_ARG_DUPLICATE_POLICY,
+            CommandArgToken::Empty => CMD_ARG_EMPTY,
+            CommandArgToken::End => CMD_ARG_END,
+            CommandArgToken::EvalAlignment => CMD_ARG_EVAL_ALIGNMENT,
+            CommandArgToken::EvalDelay => CMD_ARG_EVAL_DELAY,
+            CommandArgToken::EvalInterval => CMD_ARG_EVAL_INTERVAL,
+            CommandArgToken::EvalOffset => CMD_ARG_EVAL_OFFSET,
+            CommandArgToken::Expr => CMD_ARG_EXPR,
+            CommandArgToken::ExcludeAlerts => CMD_ARG_EXCLUDE_ALERTS,
+            CommandArgToken::Exclusive => CMD_ARG_EXCLUSIVE,
+            CommandArgToken::Filter => CMD_ARG_FILTER,
+            CommandArgToken::FilterByTs => CMD_ARG_FILTER_BY_TS,
+            CommandArgToken::FilterByValue => CMD_ARG_FILTER_BY_VALUE,
+            CommandArgToken::For => CMD_ARG_FOR,
+            CommandArgToken::Full => CMD_ARG_FULL,
+            CommandArgToken::GroupBy => CMD_ARG_GROUP_BY,
+            CommandArgToken::Inner => CMD_ARG_INNER,
+            CommandArgToken::Interval => CMD_ARG_INTERVAL,
+            CommandArgToken::KeepFiringFor => CMD_ARG_KEEP_FIRING_FOR,
+            CommandArgToken::Labels => CMD_ARG_LABELS,
+            CommandArgToken::Left => CMD_ARG_LEFT,
+            CommandArgToken::Limit => CMD_ARG_LIMIT,
+            CommandArgToken::Match => CMD_ARG_MATCH,
+            CommandArgToken::MaxDataPoints => MAX_DATAPOINTS,
+            CommandArgToken::MaxEntries => CMD_ARG_MAX_ENTRIES,
+            CommandArgToken::Metric => CMD_ARG_METRIC,
+            CommandArgToken::Name => CMD_ARG_NAME,
+            CommandArgToken::Next => CMD_ARG_NEXT,
+            CommandArgToken::Prior => CMD_ARG_PRIOR,
+            CommandArgToken::Reduce => CMD_ARG_REDUCE,
+            CommandArgToken::Retention => CMD_ARG_RETENTION,
+            CommandArgToken::Right => CMD_ARG_RIGHT,
+            CommandArgToken::Rounding => CMD_ARG_ROUNDING,
+            CommandArgToken::RuleGroup => CMD_ARG_RULE_GROUP,
+            CommandArgToken::RuleName => CMD_ARG_RULE_NAME,
+            CommandArgToken::RuleType => CMD_ARG_RULE_TYPE,
+            CommandArgToken::RulesDelay => RULES_DELAY,
+            CommandArgToken::RulesRetries => RULES_RETRIES,
+            CommandArgToken::SelectedLabels => CMD_ARG_SELECTED_LABELS,
+            CommandArgToken::SignificantDigits => CMD_ARG_SIGNIFICANT_DIGITS,
+            CommandArgToken::Start => CMD_ARG_START,
+            CommandArgToken::Step => CMD_ARG_STEP,
+            CommandArgToken::WithLabels => CMD_ARG_WITH_LABELS,
+            CommandArgToken::Invalid => "INVALID COMMAND ARG",
+        }
+    }
+}
+
+pub(crate) fn parse_command_arg_token(arg: &[u8]) -> Option<CommandArgToken> {
+    hashify::tiny_map_ignore_case! {
+        arg,
+        "ASOF" => CommandArgToken::AsOf,
+        "AGGREGATION" => CommandArgToken::Aggregation,
+        "ALERT_FOR" => CommandArgToken::AlertFor,
+        "ALIGN" => CommandArgToken::Align,
+        "ANNOTATIONS" => CommandArgToken::Annotations,
+        "BUCKET_TIMESTAMP" => CommandArgToken::BucketTimestamp,
+        "CHUNK_SIZE" => CommandArgToken::ChunkSize,
+        "COMPRESSION" => CommandArgToken::Compression,
+        "COUNT" => CommandArgToken::Count,
+        "DECIMAL_DIGITS" => CommandArgToken::DecimalDigits,
+        "DEDUPE_INTERVAL" => CommandArgToken::DedupeInterval,
+        "DISABLED" => CommandArgToken::Disabled,
+        "DUPLICATE_POLICY" => CommandArgToken::DuplicatePolicy,
+        "EMPTY" => CommandArgToken::Empty,
+        "END" => CommandArgToken::End,
+        "EVAL_ALIGNMENT" => CommandArgToken::EvalAlignment,
+        "EVAL_DELAY" => CommandArgToken::EvalDelay,
+        "EVAL_INTERVAL" => CommandArgToken::EvalInterval,
+        "EVAL_OFFSET" => CommandArgToken::EvalOffset,
+        "EXCLUDE_ALERTS" => CommandArgToken::ExcludeAlerts,
+        "EXCLUSIVE" => CommandArgToken::Exclusive,
+        "EXPR" => CommandArgToken::Expr,
+        "FILTER" => CommandArgToken::Filter,
+        "FILTER_BY_TS" => CommandArgToken::FilterByTs,
+        "FILTER_BY_VALUE" => CommandArgToken::FilterByValue,
+        "FOR" => CommandArgToken::For,
+        "FULL" => CommandArgToken::Full,
+        "GROUP_BY" => CommandArgToken::GroupBy,
+        "INNER" => CommandArgToken::Inner,
+        "INTERVAL" => CommandArgToken::Interval,
+        "KEEP_FIRING_FOR" => CommandArgToken::KeepFiringFor,
+        "LABELS" => CommandArgToken::Labels,
+        "LEFT" => CommandArgToken::Left,
+        "LIMIT" => CommandArgToken::Limit,
+        "MATCH" => CommandArgToken::Match,
+        "MAX_DATAPOINTS" => CommandArgToken::MaxDataPoints,
+        "MAX_ENTRIES" => CommandArgToken::MaxEntries,
+        "METRIC" => CommandArgToken::Metric,
+        "NAME" => CommandArgToken::Name,
+        "NEXT" => CommandArgToken::Next,
+        "PRIOR" => CommandArgToken::Prior,
+        "REDUCE" => CommandArgToken::Reduce,
+        "RETENTION" => CommandArgToken::Retention,
+        "RIGHT" => CommandArgToken::Right,
+        "ROUNDING" => CommandArgToken::Rounding,
+        "RULE_GROUP" => CommandArgToken::RuleGroup,
+        "RULE_NAME" => CommandArgToken::RuleName,
+        "RULE_TYPE" => CommandArgToken::RuleType,
+        "RULES_DELAY" => CommandArgToken::RulesDelay,
+        "RULES_RETRIES" => CommandArgToken::RulesRetries,
+        "SELECTED_LABELS" => CommandArgToken::SelectedLabels,
+        "SIGNIFICANT_DIGITS" => CommandArgToken::SignificantDigits,
+        "START" => CommandArgToken::Start,
+        "STEP" => CommandArgToken::Step,
+        "WITHLABELS" => CommandArgToken::WithLabels,
+    }
+}
 
 pub type CommandArgIterator = Peekable<Skip<IntoIter<ValkeyString>>>;
 
@@ -200,7 +421,7 @@ pub fn parse_retention(args: &mut CommandArgIterator) -> ValkeyResult<Duration> 
 
 pub fn parse_timestamp_filter(
     args: &mut CommandArgIterator,
-    is_valid_arg: fn(&str) -> bool,
+    is_valid_arg: fn(CommandArgToken) -> bool,
 ) -> ValkeyResult<Vec<Timestamp>> {
     // FILTER_BY_TS already seen
     let mut values: Vec<Timestamp> = Vec::new();
@@ -244,53 +465,48 @@ pub fn parse_value_filter(args: &mut CommandArgIterator) -> ValkeyResult<ValueFi
 pub fn parse_count(args: &mut CommandArgIterator) -> ValkeyResult<usize> {
     let next = args.next_arg()?;
     let count = parse_integer_arg(&next, CMD_ARG_COUNT, false)
-        .map_err(|_| ValkeyError::Str("ERR COUNT must be a positive integer"))?;
+        .map_err(|_| ValkeyError::Str(error_consts::NEGATIVE_COUNT))?;
     if count > usize::MAX as i64 {
         return Err(ValkeyError::Str("ERR COUNT value is too large"));
     }
     Ok(count as usize)
 }
 
-pub(crate) fn advance_if_next_token(args: &mut CommandArgIterator, token: &str) -> bool {
+pub(crate) fn advance_if_next_token(args: &mut CommandArgIterator, token: CommandArgToken) -> bool {
     if let Some(next) = args.peek() {
-        let str = next.to_string_lossy();
-        if token.eq_ignore_ascii_case(str.as_ref()) {
-            args.next();
-            true
-        } else {
-            false
+        if let Some(tok) = parse_command_arg_token(next.as_slice()) {
+            if tok == token {
+                args.next();
+                return true;
+            }
         }
-    } else {
-        false
     }
+    false
 }
 
-pub(crate) fn advance_if_next_token_one_of<'a>(
+pub(crate) fn advance_if_next_token_one_of(
     args: &mut CommandArgIterator,
-    token: &'a [&str],
-) -> Option<&'a str> {
+    tokens: &[CommandArgToken],
+) -> Option<CommandArgToken> {
     if let Some(next) = args.peek() {
-        let str = next.to_string_lossy();
-        for token in token.iter() {
-            if token.eq_ignore_ascii_case(str.as_ref()) {
+        if let Some(token) = parse_command_arg_token(next.as_slice()) {
+            if tokens.contains(&token) {
                 args.next();
-                return Some(*token);
+                return Some(token)
             }
         }
-        None
-    } else {
-        None
-    }
+    } 
+    None
 }
 
-fn is_token_or_end(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool) -> bool {
+fn is_token_or_end(args: &mut CommandArgIterator, is_cmd_token: fn(CommandArgToken) -> bool) -> bool {
     if let Some(next) = args.peek() {
-        match next.try_as_str() {
-            Ok(s) => {
+        match parse_command_arg_token(next.as_slice()) {
+            Some(token) => {
                 args.next();
-                is_cmd_token(s)
+                is_cmd_token(token)
             }
-            Err(_) => false,
+            None => false,
         }
     } else {
         false
@@ -299,7 +515,7 @@ fn is_token_or_end(args: &mut CommandArgIterator, is_cmd_token: fn(&str) -> bool
 
 pub fn parse_label_list(
     args: &mut CommandArgIterator,
-    is_cmd_token: fn(&str) -> bool,
+    is_cmd_token: fn(CommandArgToken) -> bool,
 ) -> ValkeyResult<Vec<String>> {
     let mut labels: BTreeSet<String> = BTreeSet::new();
 
@@ -321,7 +537,7 @@ pub fn parse_label_list(
 
 pub fn parse_key_value_pairs(
     args: &mut CommandArgIterator,
-    is_cmd_token: fn(&str) -> bool,
+    is_cmd_token: fn(CommandArgToken) -> bool,
 ) -> ValkeyResult<HashMap<String, String>> {
     let mut labels: HashMap<String, String> = HashMap::new();
 
@@ -360,15 +576,20 @@ pub fn parse_dedupe_interval(args: &mut CommandArgIterator) -> ValkeyResult<Dura
 
 pub fn parse_series_selector_list(
     args: &mut CommandArgIterator,
-    is_cmd_token: fn(&str) -> bool,
+    is_cmd_token: fn(CommandArgToken) -> bool,
 ) -> ValkeyResult<Vec<Matchers>> {
     let mut matchers = vec![];
 
     while let Some(next) = args.peek() {
-        let arg = next.try_as_str()?;
-        if is_cmd_token(arg) {
-            break;
+        if let Some(token) = parse_command_arg_token(next.as_slice()) {
+            if is_cmd_token(token) {
+                break;
+            }
+        } else {
+            return Err(ValkeyError::Str("ERR: Invalid series selector"));
         }
+        let arg = next.try_as_str()?;
+
         if let Ok(selector) = parse_series_selector(arg) {
             matchers.push(selector);
         } else {
@@ -401,20 +622,24 @@ pub fn parse_aggregation_options(
 
     let mut arg_count: usize = 0;
 
-    let valid_tokens = [CMD_PARAM_ALIGN, CMD_ARG_EMPTY, CMD_ARG_BUCKET_TIMESTAMP];
+    let valid_tokens = [
+        CommandArgToken::Align,
+        CommandArgToken::Empty,
+        CommandArgToken::BucketTimestamp
+    ];
 
     while let Some(token) = advance_if_next_token_one_of(args, &valid_tokens) {
         match token {
-            CMD_ARG_EMPTY => {
+            CommandArgToken::Empty => {
                 aggr.empty = true;
                 arg_count += 1;
             }
-            CMD_ARG_BUCKET_TIMESTAMP => {
+            CommandArgToken::BucketTimestamp => {
                 let next = args.next_str()?;
                 arg_count += 1;
                 aggr.timestamp_output = BucketTimestamp::try_from(next)?;
             }
-            CMD_PARAM_ALIGN => {
+            CommandArgToken::Align => {
                 let next = args.next_str()?;
                 aggr.alignment = parse_alignment(next)?;
             }
@@ -455,8 +680,8 @@ pub fn parse_grouping_params(args: &mut CommandArgIterator) -> ValkeyResult<Rang
     let token = args
         .next_str()
         .map_err(|_| ValkeyError::Str("ERR: missing REDUCE"))?;
-    if !token.eq_ignore_ascii_case(CMD_PARAM_REDUCER) {
-        let msg = format!("ERR: expected \"{CMD_PARAM_REDUCER}\", found \"{token}\"");
+    if !token.eq_ignore_ascii_case(CMD_ARG_REDUCE) {
+        let msg = format!("ERR: expected \"{CMD_ARG_REDUCE}\", found \"{token}\"");
         return Err(ValkeyError::String(msg));
     }
     let agg_str = args

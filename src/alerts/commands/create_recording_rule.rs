@@ -3,8 +3,11 @@ use crate::alerts::notifications::validate_templates;
 use crate::alerts::rules::{calc_rule_hash, MetricRule, RecordingRule, RuleState};
 use crate::error_consts;
 use crate::module::arg_parse::{
-    parse_key_value_pairs, parse_promql_vector_expr, CommandArgIterator, CMD_ARG_EXPR,
-    CMD_ARG_LABELS,
+    parse_command_arg_token, 
+    parse_key_value_pairs, 
+    parse_promql_vector_expr,
+    CommandArgIterator,
+    CommandArgToken
 };
 use metricsql_parser::prelude::is_valid_identifier;
 use valkey_module::{
@@ -12,7 +15,6 @@ use valkey_module::{
 };
 use valkey_module_macros::command;
 
-const CMD_ARG_MAX_ENTRIES: &str = "MAX_ENTRIES";
 
 /// VM.CREATE-RECORDING-RULE groupKey ruleName
 ///  EXPR expression
@@ -52,9 +54,13 @@ pub fn create_recording_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRe
 }
 
 fn parse_rule_config(mut args: CommandArgIterator) -> ValkeyResult<RecordingRule> {
-    fn is_cmd_token(token: &str) -> bool {
-        const TOKENS: [&str; 3] = [CMD_ARG_EXPR, CMD_ARG_LABELS, CMD_ARG_MAX_ENTRIES];
-        TOKENS.iter().any(|x| x.eq_ignore_ascii_case(token))
+    fn is_cmd_token(token: CommandArgToken) -> bool {
+        const TOKS: [CommandArgToken; 3] = [
+            CommandArgToken::Expr,
+            CommandArgToken::Labels,
+            CommandArgToken::MaxEntries,
+        ];
+        TOKS.contains(&token)
     }
 
     let name = args.next_string()?;
@@ -67,18 +73,19 @@ fn parse_rule_config(mut args: CommandArgIterator) -> ValkeyResult<RecordingRule
         ..Default::default()
     };
 
-    while let Ok(arg) = args.next_str() {
-        match arg {
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_EXPR) => {
+    while let Some(arg) = args.next() {
+        let token = parse_command_arg_token(arg.as_slice()).unwrap_or_default();
+        match token {
+            CommandArgToken::Expr => {
                 rule.expr = parse_promql_vector_expr(&mut args)?;
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_LABELS) => {
+            CommandArgToken::Labels => {
                 let labels = parse_key_value_pairs(&mut args, is_cmd_token)?;
                 validate_templates(&labels)
                     .map_err(|_err| ValkeyError::Str("ERR error parsing label templates"))?;
-                rule.labels = labels;
+                rule.labels = labels;                
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_MAX_ENTRIES) => {
+            CommandArgToken::MaxEntries => {
                 let max_entries = args.next_u64()? as usize;
                 // todo: limit
                 rule.state = RuleState::with_capacity(max_entries);

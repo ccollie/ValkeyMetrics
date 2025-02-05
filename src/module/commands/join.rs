@@ -8,16 +8,6 @@ use joinkit::EitherOrBoth;
 use std::time::Duration;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 
-const CMD_ARG_COUNT: &str = "COUNT";
-const CMD_ARG_LEFT: &str = "LEFT";
-const CMD_ARG_RIGHT: &str = "RIGHT";
-const CMD_ARG_INNER: &str = "INNER";
-const CMD_ARG_FULL: &str = "FULL";
-const CMD_ARG_ASOF: &str = "ASOF";
-const CMD_ARG_PRIOR: &str = "PRIOR";
-const CMD_ARG_NEXT: &str = "NEXT";
-const CMD_ARG_EXCLUSIVE: &str = "EXCLUSIVE";
-const CMD_ARG_REDUCE: &str = "REDUCE";
 
 /// VM.JOIN key1 key2 fromTimestamp toTimestamp
 ///   [[INNER] | [FULL] | [LEFT [EXCLUSIVE]] | [RIGHT [EXCLUSIVE]] | [ASOF [PRIOR | NEXT] tolerance]]
@@ -66,15 +56,17 @@ pub fn join(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 }
 
 fn parse_asof(args: &mut CommandArgIterator) -> ValkeyResult<JoinType> {
+    use CommandArgToken::*;
+    
     // ASOF already seen
     let mut tolerance = Duration::default();
     let mut direction = AsOfJoinStrategy::Prior;
 
     // ASOF [PRIOR | NEXT] [tolerance]
-    if let Some(next) = advance_if_next_token_one_of(args, &[CMD_ARG_PRIOR, CMD_ARG_NEXT]) {
-        if next == CMD_ARG_PRIOR {
+    if let Some(next) = advance_if_next_token_one_of(args, &[Prior, Next]) {
+        if next == Prior {
             direction = AsOfJoinStrategy::Prior;
-        } else if next == CMD_ARG_NEXT {
+        } else if next == Next {
             direction = AsOfJoinStrategy::Next;
         }
     }
@@ -99,7 +91,7 @@ fn parse_asof(args: &mut CommandArgIterator) -> ValkeyResult<JoinType> {
 }
 
 fn possibly_parse_exclusive(args: &mut CommandArgIterator) -> bool {
-    advance_if_next_token(args, CMD_ARG_EXCLUSIVE)
+    advance_if_next_token(args, CommandArgToken::Exclusive)
 }
 
 fn parse_join_args(args: &mut CommandArgIterator, options: &mut JoinOptions) -> ValkeyResult<()> {
@@ -114,60 +106,63 @@ fn parse_join_args(args: &mut CommandArgIterator, options: &mut JoinOptions) -> 
         }
     }
 
-    fn is_arg_valid(arg: &str) -> bool {
-        const VALID_ARGS: &[&str] = &[
-            CMD_ARG_FILTER_BY_VALUE,
-            CMD_ARG_FILTER_BY_TS,
-            CMD_ARG_COUNT,
-            CMD_ARG_LEFT,
-            CMD_ARG_RIGHT,
-            CMD_ARG_INNER,
-            CMD_ARG_FULL,
-            CMD_ARG_ASOF,
-            CMD_ARG_REDUCE,
+    fn is_arg_valid(arg: CommandArgToken) -> bool {
+        use CommandArgToken::*;
+
+        const VALID_TOKEN_ARGS: &[CommandArgToken] = &[
+            AsOf,
+            FilterByValue,
+            FilterByTs,
+            Count,
+            Full,
+            Left,
+            Right,
+            Inner,
+            Reduce
         ];
-        VALID_ARGS.contains(&arg)
+        
+        VALID_TOKEN_ARGS.contains(&arg)
     }
 
-    while let Ok(arg) = args.next_str() {
-        let upper = arg.to_ascii_uppercase();
-        match upper.as_str() {
-            CMD_ARG_FILTER_BY_VALUE => {
-                options.value_filter = Some(parse_value_filter(args)?);
-            }
-            CMD_ARG_FILTER_BY_TS => {
-                options.timestamp_filter = Some(parse_timestamp_filter(args, is_arg_valid)?);
-            }
-            CMD_ARG_COUNT => {
-                options.count = Some(parse_count(args)?);
-            }
-            CMD_ARG_LEFT => {
-                check_join_type_set(&mut join_type_set)?;
-                let exclusive = possibly_parse_exclusive(args);
-                options.join_type = JoinType::Left(exclusive);
-            }
-            CMD_ARG_RIGHT => {
-                check_join_type_set(&mut join_type_set)?;
-                let exclusive = possibly_parse_exclusive(args);
-                options.join_type = JoinType::Left(exclusive);
-            }
-            CMD_ARG_INNER => {
-                check_join_type_set(&mut join_type_set)?;
-                options.join_type = JoinType::Inner;
-            }
-            CMD_ARG_FULL => {
-                check_join_type_set(&mut join_type_set)?;
-                options.join_type = JoinType::Full;
-            }
-            CMD_ARG_ASOF => {
+    while let Some(arg) = args.next() {
+        let token = parse_command_arg_token(arg.as_slice()).unwrap_or_default();
+        match token {
+            CommandArgToken::Aggregation => options.aggregation = Some(parse_aggregation_options(args)?),
+            CommandArgToken::AsOf => {
                 check_join_type_set(&mut join_type_set)?;
                 options.join_type = parse_asof(args)?;
             }
-            CMD_ARG_REDUCE => {
+            CommandArgToken::Count => {
+                options.count = Some(parse_count(args)?);
+            }
+            CommandArgToken::FilterByValue => {
+                options.value_filter = Some(parse_value_filter(args)?);
+            }
+            CommandArgToken::FilterByTs => {
+                options.timestamp_filter = Some(parse_timestamp_filter(args, is_arg_valid)?);
+            }
+            CommandArgToken::Full => {
+                check_join_type_set(&mut join_type_set)?;
+                options.join_type = JoinType::Full;
+            }
+            CommandArgToken::Inner => {
+                check_join_type_set(&mut join_type_set)?;
+                options.join_type = JoinType::Inner;
+            }
+            CommandArgToken::Left => {
+                check_join_type_set(&mut join_type_set)?;
+                let exclusive = possibly_parse_exclusive(args);
+                options.join_type = JoinType::Left(exclusive);
+            }
+            CommandArgToken::Right => {
+                check_join_type_set(&mut join_type_set)?;
+                let exclusive = possibly_parse_exclusive(args);
+                options.join_type = JoinType::Left(exclusive);
+            }
+            CommandArgToken::Reduce => {
                 let arg = args.next_str()?;
                 options.reducer = Some(parse_operator(arg)?);
             }
-            CMD_ARG_AGGREGATION => options.aggregation = Some(parse_aggregation_options(args)?),
             _ => return Err(ValkeyError::Str("ERR: invalid JOIN command argument")),
         }
     }

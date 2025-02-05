@@ -5,7 +5,6 @@ use crate::common::types::Sample;
 use rand::{Rng, SeedableRng};
 
 const SECS_PER_DAY: u64 = 86400;
-const ONE_DAY: Duration = Duration::from_secs(SECS_PER_DAY);
 
 pub fn generate_random_samples(seed: u64, vec_size: usize) -> Vec<Sample> {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);

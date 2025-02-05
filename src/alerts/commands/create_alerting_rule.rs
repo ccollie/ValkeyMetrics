@@ -5,8 +5,11 @@ use crate::alerts::rules::{
 };
 use crate::error_consts;
 use crate::module::arg_parse::{
-    parse_duration, parse_key_value_pairs, CommandArgIterator, CMD_ARG_ANNOTATIONS, CMD_ARG_EXPR,
-    CMD_ARG_LABELS,
+    parse_command_arg_token, 
+    parse_duration, 
+    parse_key_value_pairs,
+    CommandArgIterator,
+    CommandArgToken
 };
 use metricsql_parser::prelude::is_valid_identifier;
 use valkey_module::{
@@ -14,10 +17,6 @@ use valkey_module::{
 };
 use valkey_module_macros::command;
 
-const CMD_ARG_ALERT_FOR: &str = "FOR"; // todo: rename to THRESHOLD
-const CMD_ARG_KEEP_FIRING_FOR: &str = "KEEP_FIRING_FOR";
-const CMD_ARG_EVAL_INTERVAL: &str = "EVAL_INTERVAL";
-const CMD_ARG_MAX_ENTRIES: &str = "MAX_ENTRIES";
 
 /// VM.CREATE-ALERTING-RULE groupKey ruleName
 ///  EXPR expression
@@ -60,17 +59,17 @@ pub fn create_alerting_rule(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyRes
 }
 
 fn parse_alerting_rule_config(mut args: CommandArgIterator) -> ValkeyResult<AlertingRule> {
-    fn is_cmd_token(token: &str) -> bool {
-        const TOKENS: [&str; 7] = [
-            CMD_ARG_EXPR,
-            CMD_ARG_LABELS,
-            CMD_ARG_ALERT_FOR,
-            CMD_ARG_KEEP_FIRING_FOR,
-            CMD_ARG_ANNOTATIONS,
-            CMD_ARG_EVAL_INTERVAL,
-            CMD_ARG_MAX_ENTRIES,
+    fn is_cmd_token(token: CommandArgToken) -> bool {
+        const TOKENS: [CommandArgToken; 7] = [
+            CommandArgToken::Expr,
+            CommandArgToken::Labels,
+            CommandArgToken::AlertFor,
+            CommandArgToken::KeepFiringFor,
+            CommandArgToken::Annotations,
+            CommandArgToken::EvalInterval,
+            CommandArgToken::MaxEntries,
         ];
-        TOKENS.iter().any(|x| x.eq_ignore_ascii_case(token))
+        TOKENS.contains(&token)
     }
 
     let name = args.next_string()?;
@@ -87,35 +86,36 @@ fn parse_alerting_rule_config(mut args: CommandArgIterator) -> ValkeyResult<Aler
         ..Default::default()
     };
 
-    while let Ok(arg) = args.next_str() {
-        match arg {
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_EVAL_INTERVAL) => {
-                rule.eval_interval = parse_duration(args.next_str()?)?;
-            }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_EXPR) => {
-                let expr = args.next_string()?;
-                validate_alert_expr(&expr)?;
-                rule.expr = expr;
-            }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_LABELS) => {
-                let labels = parse_key_value_pairs(&mut args, is_cmd_token)?;
-                validate_templates(&labels)
-                    .map_err(|_err| ValkeyError::Str("ERR error parsing label templates"))?;
-                rule.labels = labels;
-            }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_ALERT_FOR) => {
-                rule.r#for = parse_duration(args.next_str()?)?;
-            }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_ANNOTATIONS) => {
+    while let Some(arg) = args.next() {
+        let token = parse_command_arg_token(arg.as_slice()).unwrap_or_default();
+        match token {
+            CommandArgToken::Annotations => {
                 let annotations = parse_key_value_pairs(&mut args, is_cmd_token)?;
                 validate_templates(&annotations)
                     .map_err(|_err| ValkeyError::Str("ERR error parsing annotation templates"))?;
                 rule.annotations = annotations;
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_KEEP_FIRING_FOR) => {
+            CommandArgToken::EvalInterval => {
+                rule.eval_interval = parse_duration(args.next_str()?)?;
+            }
+            CommandArgToken::Expr => {
+                let expr = args.next_string()?;
+                validate_alert_expr(&expr)?;
+                rule.expr = expr;
+            }
+            CommandArgToken::Labels => {
+                let labels = parse_key_value_pairs(&mut args, is_cmd_token)?;
+                validate_templates(&labels)
+                    .map_err(|_err| ValkeyError::Str("ERR error parsing label templates"))?;
+                rule.labels = labels;
+            }
+            CommandArgToken::AlertFor  => {
+                rule.r#for = parse_duration(args.next_str()?)?;
+            }
+            CommandArgToken::KeepFiringFor => {
                 rule.keep_firing_for = parse_duration(args.next_str()?)?;
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_MAX_ENTRIES) => {
+            CommandArgToken::MaxEntries => {
                 let max_entries = args.next_u64()? as u16;
                 // todo: limit
                 rule.state = RuleState::with_capacity(max_entries as usize);

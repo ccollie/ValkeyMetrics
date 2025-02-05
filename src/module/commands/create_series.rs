@@ -10,6 +10,7 @@ use valkey_module::{
     Context, NextArg, NotifyEvent, ValkeyError, ValkeyResult, ValkeyString, VALKEY_OK,
 };
 
+
 /// Create a new time series
 ///
 /// VM.CREATE-SERIES key
@@ -29,20 +30,20 @@ pub fn create(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     VALKEY_OK
 }
 
-const CREATE_ARGS: [&str; 9] = [
-    CMD_ARG_METRIC,
-    CMD_ARG_LABELS,
-    CMD_ARG_RETENTION,
-    CMD_ARG_COMPRESSION,
-    CMD_ARG_CHUNK_SIZE,
-    CMD_ARG_DEDUPE_INTERVAL,
-    CMD_ARG_DUPLICATE_POLICY,
-    CMD_ARG_SIGNIFICANT_DIGITS,
-    CMD_ARG_DECIMAL_DIGITS,
+const VALID_ARGS: [CommandArgToken; 9] = [
+    CommandArgToken::Metric,
+    CommandArgToken::Labels,
+    CommandArgToken::Retention,
+    CommandArgToken::Compression,
+    CommandArgToken::ChunkSize,
+    CommandArgToken::DedupeInterval,
+    CommandArgToken::DuplicatePolicy,
+    CommandArgToken::SignificantDigits,
+    CommandArgToken::DecimalDigits,
 ];
 
-fn is_valid_command_arg(arg: &str) -> bool {
-    CREATE_ARGS.iter().any(|x| x.eq_ignore_ascii_case(arg))
+fn is_valid_command_arg(arg: CommandArgToken) -> bool {
+   VALID_ARGS.contains(&arg)
 }
 
 pub fn parse_create_options(
@@ -57,10 +58,23 @@ pub fn parse_create_options(
         .next()
         .ok_or(ValkeyError::Str("Err missing key argument"))?;
 
-    while let Ok(arg) = args.next_str() {
-        let arg_upper = arg.to_ascii_uppercase();
-        match arg_upper.as_str() {
-            CMD_ARG_METRIC => {
+    while let Some(arg) = args.next() {
+        let token = parse_command_arg_token(arg.as_slice()).unwrap_or_default();
+        match token {
+            CommandArgToken::ChunkSize => options.chunk_size = Some(parse_chunk_size(&mut args)?),
+            CommandArgToken::Compression => {
+                options.chunk_compression = Some(parse_chunk_compression(&mut args)?);
+            }
+            CommandArgToken::DecimalDigits => {
+                if options.rounding.is_some() {
+                    return Err(ValkeyError::Str(error_consts::ROUNDING_ALREADY_SET));
+                }
+                let rounding = parse_decimal_digit_rounding(&mut args)?;
+                options.rounding = Some(rounding);
+            }
+            CommandArgToken::DedupeInterval => options.dedupe_interval = Some(parse_dedupe_interval(&mut args)?),
+            CommandArgToken::DuplicatePolicy => options.duplicate_policy = Some(parse_duplicate_policy(&mut args)?),
+            CommandArgToken::Metric => {
                 if metric_set {
                     return Err(ValkeyError::Str(error_consts::METRIC_ALREADY_SET));
                 }
@@ -68,38 +82,19 @@ pub fn parse_create_options(
                 options.labels = parse_metric_name(&metric)
                     .map_err(|_e| ValkeyError::Str(error_consts::INVALID_METRIC))?;
             }
-            CMD_ARG_LABELS => {
+            CommandArgToken::Labels => {
                 if metric_set {
                     return Err(ValkeyError::Str(error_consts::METRIC_ALREADY_SET));
                 }
                 options.labels = parse_labels(&mut args)?;
             }
-            CMD_ARG_RETENTION => options.retention(parse_retention(&mut args)?),
-            CMD_ARG_DEDUPE_INTERVAL => {
-                options.dedupe_interval = Some(parse_dedupe_interval(&mut args)?)
-            }
-            CMD_ARG_DUPLICATE_POLICY => {
-                options.duplicate_policy = Some(parse_duplicate_policy(&mut args)?)
-            }
-            CMD_ARG_SIGNIFICANT_DIGITS => {
+            CommandArgToken::Retention => options.retention(parse_retention(&mut args)?),
+            CommandArgToken::SignificantDigits => {
                 if options.rounding.is_some() {
                     return Err(ValkeyError::Str(error_consts::ROUNDING_ALREADY_SET));
                 }
                 let rounding = parse_significant_digit_rounding(&mut args)?;
                 options.rounding = Some(rounding);
-            }
-            CMD_ARG_DECIMAL_DIGITS => {
-                if options.rounding.is_some() {
-                    return Err(ValkeyError::Str(error_consts::ROUNDING_ALREADY_SET));
-                }
-                let rounding = parse_decimal_digit_rounding(&mut args)?;
-                options.rounding = Some(rounding);
-            }
-            CMD_ARG_CHUNK_SIZE => {
-                options.chunk_size(parse_chunk_size(&mut args)?);
-            }
-            CMD_ARG_COMPRESSION => {
-                options.chunk_compression = Some(parse_chunk_compression(&mut args)?);
             }
             _ => {
                 return Err(ValkeyError::Str(error_consts::INVALID_ARGUMENT));

@@ -3,17 +3,18 @@ use crate::series::types::RangeOptions;
 use valkey_module::{NextArg, ValkeyError, ValkeyResult};
 
 pub fn parse_range_options(args: &mut CommandArgIterator) -> ValkeyResult<RangeOptions> {
-    const RANGE_OPTION_TOKENS: [&str; 10] = [
-        CMD_ARG_COUNT,
-        CMD_ARG_AGGREGATION,
-        CMD_ARG_BUCKET_TIMESTAMP,
-        CMD_ARG_FILTER,
-        CMD_ARG_FILTER_BY_TS,
-        CMD_ARG_FILTER_BY_VALUE,
-        CMD_ARG_GROUP_BY,
-        CMD_ARG_WITH_LABELS,
-        CMD_ARG_SELECTED_LABELS,
-        CMD_PARAM_REDUCER,
+
+    const RANGE_OPTION_ARGS: [CommandArgToken; 10] = [
+        CommandArgToken::Aggregation,
+        CommandArgToken::Count,
+        CommandArgToken::BucketTimestamp,
+        CommandArgToken::Filter,
+        CommandArgToken::FilterByTs,
+        CommandArgToken::FilterByValue,
+        CommandArgToken::GroupBy,
+        CommandArgToken::Reduce,
+        CommandArgToken::SelectedLabels,
+        CommandArgToken::WithLabels,
     ];
 
     let date_range = parse_timestamp_range(args)?;
@@ -30,40 +31,38 @@ pub fn parse_range_options(args: &mut CommandArgIterator) -> ValkeyResult<RangeO
         grouping: None,
     };
 
-    fn is_range_command_keyword(arg: &str) -> bool {
-        RANGE_OPTION_TOKENS
-            .iter()
-            .any(|x| x.eq_ignore_ascii_case(arg))
+    fn is_range_command_keyword(arg: CommandArgToken) -> bool {
+        RANGE_OPTION_ARGS.contains(&arg)
     }
 
-    while let Ok(arg) = args.next_str() {
-        let token = arg.to_ascii_uppercase();
-        match token.as_str() {
-            CMD_ARG_FILTER => {
+    while let Some(arg) = args.next() {
+        let token = parse_command_arg_token(arg.as_slice()).unwrap_or_default();
+        match token {
+            CommandArgToken::Aggregation => {
+                options.aggregation = Some(parse_aggregation_options(args)?);                
+            }
+            CommandArgToken::Count => {
+                options.count = Some(parse_count(args)?);                
+            }
+            CommandArgToken::Filter => {
                 let filter = args.next_str()?;
                 options.series_selector = parse_series_selector(filter)?;
             }
-            CMD_ARG_FILTER_BY_VALUE => {
+            CommandArgToken::FilterByValue => {
                 options.value_filter = Some(parse_value_filter(args)?);
             }
-            CMD_ARG_FILTER_BY_TS => {
+            CommandArgToken::FilterByTs => {
                 options.timestamp_filter =
                     Some(parse_timestamp_filter(args, is_range_command_keyword)?);
             }
-            CMD_ARG_GROUP_BY => {
+            CommandArgToken::GroupBy => {
                 options.grouping = Some(parse_grouping_params(args)?);
             }
-            CMD_ARG_AGGREGATION => {
-                options.aggregation = Some(parse_aggregation_options(args)?);
-            }
-            CMD_ARG_COUNT => {
-                options.count = Some(parse_count(args)?);
-            }
-            CMD_ARG_WITH_LABELS => {
-                options.with_labels = true;
-            }
-            CMD_ARG_SELECTED_LABELS => {
+            CommandArgToken::SelectedLabels => {
                 options.selected_labels = parse_label_list(args, is_range_command_keyword)?;
+            }
+            CommandArgToken::WithLabels => {
+                options.with_labels = true;
             }
             _ => {}
         }

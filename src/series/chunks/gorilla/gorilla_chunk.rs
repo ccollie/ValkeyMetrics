@@ -644,20 +644,21 @@ mod tests {
         }
 
         // Remove a range that covers the first half of the samples
+        let mid = samples.len() / 2;
         let start_ts = samples[0].timestamp;
-        let mid_ts = samples[samples.len() / 2].timestamp;
+        let mid_ts = samples[mid].timestamp;
         let removed_count = chunk.remove_range(start_ts, mid_ts).unwrap();
-        assert_eq!(removed_count, samples.len() / 2);
+        assert_eq!(removed_count, mid);
 
         // Ensure the remaining samples are correct
         let remaining_samples: Vec<_> = chunk.iter().collect();
-        let expected_samples = &samples[samples.len() / 2..];
+        let expected_samples = &samples[mid..];
         assert_eq!(remaining_samples, expected_samples);
 
         // Remove a range that covers the remaining samples
         let end_ts = samples[samples.len() - 1].timestamp;
         let removed_count = chunk.remove_range(mid_ts, end_ts).unwrap();
-        assert_eq!(removed_count, samples.len() / 2);
+        assert_eq!(removed_count, mid);
 
         // Ensure the chunk is empty
         assert!(chunk.is_empty());

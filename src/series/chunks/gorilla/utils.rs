@@ -1,7 +1,6 @@
+use super::traits::BitRead;
 use std::io::{Error, ErrorKind, Result};
 use rand::{Rng, SeedableRng};
-use rand::rngs::StdRng;
-use super::traits::BitRead;
 
 const BYTE_WIDTH: usize = size_of::<u64>();
 const BIT_WIDTH: usize = BYTE_WIDTH * 8;
@@ -60,7 +59,7 @@ fn unexpected_eof() -> Error {
 
 #[cfg(test)]
 pub(super) fn generate_random_test_data(seed: u64) -> Vec<Vec<i64>> {
-    let mut rng = StdRng::seed_from_u64(seed);
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
     let mut test_cases = Vec::with_capacity(128);
     for _ in 0..128 {

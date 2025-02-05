@@ -189,14 +189,14 @@ fn get_aggregation_output(
 }
 
 fn parse_collate_options(args: &mut CommandArgIterator) -> ValkeyResult<CollateOptions> {
-    const COMMAND_TOKENS: &[&str] = &[
-        CMD_ARG_COUNT,
-        CMD_ARG_AGGREGATION,
-        CMD_ARG_FILTER,
-        CMD_ARG_WITH_LABELS,
-        CMD_ARG_SELECTED_LABELS,
+    const VALID_ARG: &[CommandArgToken] = &[
+        CommandArgToken::Aggregation,
+        CommandArgToken::Count,
+        CommandArgToken::Filter,
+        CommandArgToken::WithLabels,
+        CommandArgToken::SelectedLabels,
     ];
-
+    
     let date_range = parse_timestamp_range(args)?;
 
     let mut options = CollateOptions {
@@ -208,30 +208,30 @@ fn parse_collate_options(args: &mut CommandArgIterator) -> ValkeyResult<CollateO
         selected_labels: vec![],
     };
 
-    fn is_command_keyword(arg: &str) -> bool {
-        COMMAND_TOKENS.contains(&arg)
+    fn is_command_keyword(arg: CommandArgToken) -> bool {
+        VALID_ARG.contains(&arg)
     }
 
-    while let Ok(arg) = args.next_str() {
-        let token = arg.to_ascii_uppercase();
-        match token.as_str() {
-            CMD_ARG_FILTER => {
-                options.matchers = parse_series_selector_list(args, is_command_keyword)?;
-            }
-            CMD_ARG_AGGREGATION => {
+    while let Some(arg) = args.next() {
+        let token = parse_command_arg_token(arg.as_slice()).unwrap_or_default();
+        match token {
+            CommandArgToken::Aggregation => {
                 let agg_str = args
                     .next_str()
                     .map_err(|_e| ValkeyError::Str("ERR: Error parsing AGGREGATION"))?;
                 let aggregator = Aggregator::try_from(agg_str)?;
                 options.aggregator = Some(aggregator);
             }
-            CMD_ARG_COUNT => {
+            CommandArgToken::Count => {
                 options.count = Some(parse_count(args)?);
             }
-            CMD_ARG_WITH_LABELS => {
+            CommandArgToken::Filter => {
+                options.matchers = parse_series_selector_list(args, is_command_keyword)?;
+            }
+            CommandArgToken::Labels => {
                 options.with_labels = true;
             }
-            CMD_ARG_SELECTED_LABELS => {
+            CommandArgToken::WithLabels => {
                 options.selected_labels = parse_label_list(args, is_command_keyword)?;
             }
             _ => {}

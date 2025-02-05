@@ -2,6 +2,7 @@ pub const CANNOT_ADD_SAMPLE: &str = "ERR could not add sample";
 pub const CHUNK_SPLIT: &str = "ERR could not split chunk";
 pub const CAPACITY_FULL: &str = "ERR chunk at full capacity";
 pub const CHUNK_DECOMPRESSION: &str = "ERR cannot decompress chunk";
+pub const DUPLICATE_LABELS: &str = "ERR duplicate labels";
 pub const DUPLICATE_SAMPLE: &str = "ERR duplicate sample";
 pub const SAMPLE_TOO_CLOSE: &str = "ERR sample too close to previous in value or timestamp";
 pub const DUPLICATE_SERIES: &str = "ERR duplicate series";
@@ -30,6 +31,8 @@ pub const SAMPLE_TOO_OLD: &str = "ERR sample timestamp exceeds retention period"
 pub const SERIES_NOT_FOUND: &str = "ERR series not found";
 pub const GROUP_NOT_FOUND: &str = "ERR group not found";
 pub const LABELS_ALREADY_SET: &str = "ERR labels already set";
+pub const NEGATIVE_COUNT: &str = "ERR COUNT should be a positive number";
+
 pub const ROUNDING_ALREADY_SET: &str = "ERR rounding already set";
 // Alerts
 pub const ALERTS_DUPLICATE_RULE: &str = "ERR a rule with the same name and labels already exists";

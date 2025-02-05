@@ -58,25 +58,6 @@ impl PcoChunk {
         }
     }
 
-    pub fn with_values(max_size: usize, samples: &[Sample]) -> TsdbResult<Self> {
-        debug_assert!(!samples.is_empty());
-        let mut res = Self::with_max_size(max_size);
-
-        let count = samples.len();
-        if count > 0 {
-            let mut timestamps = get_pooled_vec_i64(count);
-            let mut values = get_pooled_vec_f64(count);
-            for sample in samples {
-                timestamps.push(sample.timestamp);
-                values.push(sample.value);
-            }
-
-            res.compress(&timestamps, &values)?;
-        }
-
-        Ok(res)
-    }
-
     pub fn is_full(&self) -> bool {
         self.data_size() >= self.max_size
     }
@@ -883,7 +864,9 @@ mod tests {
                 value: 5.0,
             },
         ];
-        let chunk = PcoChunk::with_values(1000, &samples).unwrap();
+        
+        let mut chunk = PcoChunk::default();
+        chunk.set_data(&samples).unwrap();
 
         let result: Vec<Sample> = chunk.range_iter(150, 450).collect();
 

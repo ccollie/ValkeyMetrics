@@ -15,10 +15,6 @@ use valkey_module::{
 };
 use valkey_module_macros::command;
 
-const RULES_DELAY: &str = "RULES_DELAY";
-const RULES_RETRIES: &str = "RULES_RETRIES";
-const MAX_DATAPOINTS: &str = "MAX_DATAPOINTS";
-const LABELS: &str = "LABELS";
 
 struct ParsedOptions {
     group: Group,
@@ -96,17 +92,27 @@ fn parse_replay_options(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult<
     options.from = start;
     options.to = end;
 
-    const TOKENS: [&str; 4] = [RULES_DELAY, MAX_DATAPOINTS, RULES_RETRIES, LABELS];
-    fn is_cmd_token(token: &str) -> bool {
+    const TOKENS: [CommandArgToken; 4] = [
+        CommandArgToken::Labels,
+        CommandArgToken::MaxDataPoints,
+        CommandArgToken::RulesDelay,
+        CommandArgToken::RulesRetries
+    ];
+    fn is_cmd_token(token: CommandArgToken) -> bool {
         TOKENS.contains(&token)
     }
 
-    while let Ok(arg) = args.next_str() {
-        match arg {
-            arg if arg.eq_ignore_ascii_case(RULES_DELAY) => {
+    while let Some(arg) = args.next() {
+        let token = parse_command_arg_token(arg.as_slice()).unwrap_or_default();
+        match token {
+            CommandArgToken::Labels => {
+                let labels = parse_key_value_pairs(&mut args, is_cmd_token)?;
+                options.extra_labels = labels;
+            }
+            CommandArgToken::RulesDelay => {
                 options.rules_delay = parse_duration(args.next_str()?)?;
             }
-            arg if arg.eq_ignore_ascii_case(MAX_DATAPOINTS) => {
+            CommandArgToken::MaxDataPoints => {
                 options.max_data_points = args.next_u64()? as usize;
                 if options.max_data_points < 1 {
                     return Err(ValkeyError::Str(
@@ -114,12 +120,8 @@ fn parse_replay_options(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult<
                     ));
                 }
             }
-            arg if arg.eq_ignore_ascii_case(RULES_RETRIES) => {
+            CommandArgToken::RulesRetries => {
                 options.rule_retry_attempts = args.next_u64()? as usize;
-            }
-            arg if arg.eq_ignore_ascii_case(LABELS) => {
-                let labels = parse_key_value_pairs(&mut args, is_cmd_token)?;
-                options.extra_labels = labels;
             }
             _ => {
                 return Err(ValkeyError::Str(error_consts::INVALID_ARGUMENT));

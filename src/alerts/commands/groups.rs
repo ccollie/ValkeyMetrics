@@ -2,7 +2,7 @@ use crate::alerts::commands::api::group_to_api;
 use crate::alerts::meta::with_rule_groups;
 use crate::alerts::rules::{RuleType, RulesFilter};
 use crate::error_consts;
-use crate::module::arg_parse::parse_label_list;
+use crate::module::arg_parse::{parse_command_arg_token, parse_label_list, CommandArgToken};
 use std::cmp::Ordering;
 use valkey_module::{Context, NextArg, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue};
 use valkey_module_macros::command;
@@ -56,35 +56,31 @@ pub fn groups(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
     Ok(groups.into())
 }
 
-const CMD_ARG_GROUPNAME: &str = "RULE_GROUP";
-const CMD_ARG_RULENAME: &str = "RULE_NAME";
-const CMD_ARG_RULE_TYPE: &str = "RULE_TYPE";
-const CMD_ARG_EXCLUDE_ALERTS: &str = "EXCLUDE_ALERTS";
 
 pub fn parse_alert_rules_filter(args: Vec<ValkeyString>) -> ValkeyResult<RulesFilter> {
     let mut args = args.into_iter().skip(1).peekable();
-    fn is_cmd_token(token: &str) -> bool {
-        const TOKENS: [&str; 4] = [
-            CMD_ARG_GROUPNAME,
-            CMD_ARG_RULENAME,
-            CMD_ARG_RULE_TYPE,
-            CMD_ARG_EXCLUDE_ALERTS,
+    fn is_cmd_token(token: CommandArgToken) -> bool {
+        const TOKENS: [CommandArgToken; 4] = [
+            CommandArgToken::RuleGroup,
+            CommandArgToken::RuleName,
+            CommandArgToken::RuleType,
+            CommandArgToken::ExcludeAlerts,
         ];
-        TOKENS.iter().any(|x| x.eq_ignore_ascii_case(token))
+        TOKENS.contains(&token)
     }
 
     let mut filter = RulesFilter::default();
 
-    while let Ok(arg) = args.next_str() {
-        let token = arg.to_ascii_uppercase();
-        match token.as_str() {
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_GROUPNAME) => {
+    while let Some(arg) = args.next() {
+        let token = parse_command_arg_token(arg.as_slice()).unwrap_or_default();
+        match token {
+            CommandArgToken::RuleGroup => {
                 filter.group_names = parse_label_list(&mut args, is_cmd_token)?;
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_RULENAME) => {
+            CommandArgToken::RuleName => {
                 filter.rule_names = parse_label_list(&mut args, is_cmd_token)?;
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_RULE_TYPE) => {
+            CommandArgToken::RuleType => {
                 let rule_type = args.next_str()?;
                 match rule_type {
                     arg if arg.eq_ignore_ascii_case("alert") => {
@@ -96,7 +92,7 @@ pub fn parse_alert_rules_filter(args: Vec<ValkeyString>) -> ValkeyResult<RulesFi
                     _ => return Err(ValkeyError::Str("ERR invalid rule type")),
                 }
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_EXCLUDE_ALERTS) => {
+            CommandArgToken::ExcludeAlerts => {
                 filter.exclude_alerts = Some(true);
             }
             _ => return Err(ValkeyError::Str(error_consts::INVALID_ARGUMENT)),

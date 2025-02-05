@@ -1,7 +1,5 @@
 //! Prometheus' varbit encoding.
 //!
-//! The writers are not implemented yet as they are only
-//! used in histograms, that are not implemented yet.
 
 use super::utils::{read_bits, read_bool, sign_extend};
 use super::traits::{BitRead, BitWrite};
@@ -117,18 +115,6 @@ pub fn read_varbit_int<R: BitRead>(reader: &mut R) -> std::io::Result<i64> {
     }
 
     Ok(value as i64)
-}
-
-/// Reads a Prometheus varbit-encoded unsigned integer from the input.
-pub fn read_varbit_uint<R: BitRead>(reader: &mut R) -> std::io::Result<u64> {
-    let bucket = read_varbit_int_bucket(reader)?;
-    let num_bits = varbit_bucket_to_num_bits(bucket);
-
-    // Shortcut for the 0 use case as nothing more has to be read.
-    if bucket == 0 {
-        return Ok(0);
-    }
-    read_bits(reader, num_bits as u32)
 }
 
 #[cfg(test)]

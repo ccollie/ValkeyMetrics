@@ -11,10 +11,6 @@ use valkey_module::{
 };
 use valkey_module_macros::command;
 
-const INTERVAL: &str = "INTERVAL";
-const EVAL_OFFSET: &str = "EVAL_OFFSET";
-const EVAL_DELAY: &str = "EVAL_DELAY";
-const EVAL_ALIGNMENT: &str = "EVAL_ALIGNMENT";
 
 /// Create a new Group
 ///
@@ -70,38 +66,38 @@ pub fn parse_create_options(args: Vec<ValkeyString>) -> ValkeyResult<(ValkeyStri
     }
     options.name = name;
 
-    const CREATE_TOKENS: [&str; 6] = [
-        EVAL_ALIGNMENT,
-        EVAL_DELAY,
-        EVAL_OFFSET,
-        INTERVAL,
-        CMD_ARG_LIMIT,
-        CMD_ARG_LABELS,
+    const VALID_TOKENS: [CommandArgToken; 6] = [
+        CommandArgToken::EvalAlignment,
+        CommandArgToken::EvalDelay,
+        CommandArgToken::EvalOffset,
+        CommandArgToken::Interval,
+        CommandArgToken::Limit,
+        CommandArgToken::Labels,
     ];
-
-    fn is_command_keyword(arg: &str) -> bool {
-        CREATE_TOKENS.iter().any(|x| x.eq_ignore_ascii_case(arg))
+    
+    fn is_command_keyword(arg: CommandArgToken) -> bool {
+        VALID_TOKENS.contains(&arg)
     }
 
-    while let Ok(arg) = args.next_str() {
-        let arg_upper = arg.to_ascii_uppercase();
-        match arg_upper.as_str() {
-            EVAL_OFFSET => {
-                options.eval_offset = Some(parse_duration(args.next_str()?)?);
-            }
-            EVAL_DELAY => {
-                options.eval_delay = Some(parse_duration(args.next_str()?)?);
-            }
-            EVAL_ALIGNMENT => {
+    while let Some(arg) = args.next() {
+        let token = parse_command_arg_token(arg.as_slice()).unwrap_or_default();
+        match token {
+            CommandArgToken::EvalAlignment => {
                 let is_aligned = parse_boolean(args.next_str()?)?;
                 options.eval_alignment = Some(is_aligned);
             }
-            CMD_ARG_LIMIT => {
+            CommandArgToken::EvalDelay => {
+                options.eval_delay = Some(parse_duration(args.next_str()?)?);
+            }
+            CommandArgToken::EvalOffset => {
+                options.eval_offset = Some(parse_duration(args.next_str()?)?);
+            }
+            CommandArgToken::Limit => {
                 let value = args.next_u64()?;
                 // TODO
                 options.limit = value as usize;
             }
-            CMD_ARG_LABELS => {
+            CommandArgToken::Labels => {
                 options.labels = parse_key_value_pairs(&mut args, is_command_keyword)?;
             }
             _ => {

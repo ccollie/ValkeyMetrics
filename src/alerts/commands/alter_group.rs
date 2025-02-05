@@ -11,10 +11,6 @@ use valkey_module::{
 };
 use valkey_module_macros::command;
 
-const INTERVAL: &str = "INTERVAL";
-const EVAL_OFFSET: &str = "EVAL_OFFSET";
-const EVAL_DELAY: &str = "EVAL_DELAY";
-const EVAL_ALIGNMENT: &str = "EVAL_ALIGNMENT";
 
 #[derive(Default)]
 pub struct AlterGroupOptions {
@@ -72,60 +68,29 @@ pub fn parse_alter_options(
     let key = args
         .next()
         .ok_or(ValkeyError::Str("Err missing key argument"))?;
-
-    const CREATE_TOKENS: [&str; 8] = [
-        EVAL_ALIGNMENT,
-        EVAL_DELAY,
-        EVAL_OFFSET,
-        INTERVAL,
-        CMD_ARG_LIMIT,
-        CMD_ARG_LABELS,
-        CMD_ARG_DISABLED,
-        CMD_ARG_NAME,
+    
+    const CREATE_TOKENS: [CommandArgToken; 8] = [
+        CommandArgToken::EvalAlignment,
+        CommandArgToken::EvalDelay,
+        CommandArgToken::EvalOffset,
+        CommandArgToken::Interval,
+        CommandArgToken::Labels,
+        CommandArgToken::Limit,
+        CommandArgToken::Disabled,
+        CommandArgToken::Name,
     ];
 
-    fn is_command_keyword(arg: &str) -> bool {
-        CREATE_TOKENS.iter().any(|x| x.eq_ignore_ascii_case(arg))
+    fn is_command_keyword(arg: CommandArgToken) -> bool {
+        CREATE_TOKENS.contains(&arg)
     }
 
     let mut config = AlterGroupOptions::default();
     let mut changed = false;
 
-    while let Ok(arg) = args.next_str() {
-        let arg_upper = arg.to_ascii_uppercase();
-        match arg_upper.as_str() {
-            CMD_ARG_NAME => {
-                let name = args.next_string()?;
-                if !is_valid_identifier(&name) {
-                    return Err(ValkeyError::Str("Err invalid group name"));
-                }
-                config.name = Some(name);
-                changed = true;
-            }
-            EVAL_OFFSET => {
-                config.eval_offset = Some(parse_duration(args.next_str()?)?);
-                changed = true;
-            }
-            EVAL_DELAY => {
-                config.eval_delay = Some(parse_duration(args.next_str()?)?);
-                changed = true;
-            }
-            EVAL_ALIGNMENT => {
-                let is_aligned = parse_boolean(args.next_str()?)?;
-                config.eval_alignment = Some(is_aligned);
-                changed = true;
-            }
-            CMD_ARG_LIMIT => {
-                let value = args.next_u64()?;
-                // TODO
-                config.limit = Some(value as usize);
-                changed = true;
-            }
-            CMD_ARG_LABELS => {
-                config.labels = Some(parse_key_value_pairs(&mut args, is_command_keyword)?);
-                changed = true;
-            }
-            CMD_ARG_DISABLED => {
+    while let Some(arg) = args.next() {
+        let token = parse_command_arg_token(arg.as_slice()).unwrap_or_default();
+        match token {
+            CommandArgToken::Disabled => {
                 if let Some(value) = args.peek() {
                     let value = value.to_string_lossy();
                     config.disabled = Some(parse_boolean(&value)?);
@@ -133,6 +98,37 @@ pub fn parse_alter_options(
                 } else {
                     config.disabled = Some(true);
                 }
+                changed = true;
+            }
+            CommandArgToken::EvalDelay => {
+                config.eval_delay = Some(parse_duration(args.next_str()?)?);
+                changed = true;
+            }
+            CommandArgToken::EvalOffset => {
+                config.eval_offset = Some(parse_duration(args.next_str()?)?);
+                changed = true;
+            }
+            CommandArgToken::EvalAlignment => {
+                let is_aligned = parse_boolean(args.next_str()?)?;
+                config.eval_alignment = Some(is_aligned);
+                changed = true;
+            }
+            CommandArgToken::Limit => {
+                let value = args.next_u64()?;
+                // TODO
+                config.limit = Some(value as usize);
+                changed = true;
+            }
+            CommandArgToken::Name => {
+                let name = args.next_string()?;
+                if !is_valid_identifier(&name) {
+                    return Err(ValkeyError::Str("Err invalid group name"));
+                }
+                config.name = Some(name);
+                changed = true;
+            }
+            CommandArgToken::Labels => {
+                config.labels = Some(parse_key_value_pairs(&mut args, is_command_keyword)?);
                 changed = true;
             }
             _ => {

@@ -1,6 +1,6 @@
 use crate::config::{QUERY_DEFAULT_STEP, QUERY_ROUND_DIGITS};
 use crate::error_consts;
-use crate::module::arg_parse::{parse_duration_arg, parse_timestamp_range};
+use crate::module::arg_parse::{parse_command_arg_token, parse_duration_arg, parse_timestamp_range, CommandArgToken};
 use crate::module::parse_timestamp_arg;
 use crate::module::result::{to_instant_vector_result, to_matrix_result};
 use crate::query::{run_instant_query, run_range_query, QueryParams};
@@ -9,9 +9,6 @@ use std::time::Duration;
 use valkey_module::{
     Context, NextArg, ThreadSafeContext, ValkeyError, ValkeyResult, ValkeyString, ValkeyValue,
 };
-
-const CMD_ARG_STEP: &str = "STEP";
-const CMD_ARG_ROUNDING: &str = "ROUNDING";
 
 ///
 /// VM.QUERY-RANGE fromTimestamp toTimestamp query
@@ -29,17 +26,18 @@ pub(crate) fn query_range(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResul
 
     let mut round_digits: u8 = QUERY_ROUND_DIGITS.unwrap_or(100);
 
-    while let Ok(arg) = args.next_str() {
-        match arg {
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_STEP) => {
+    while let Some(arg) = args.next() {
+        let token = parse_command_arg_token(arg.as_slice()).unwrap_or_default();
+        match token {
+            CommandArgToken::Step => {
                 let next = args.next_arg()?;
                 step_value = Some(parse_step(&next)?);
             }
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_ROUNDING) => {
+            CommandArgToken::Rounding => {
                 round_digits = args.next_u64()?.max(100) as u8;
             }
             _ => {
-                let msg = format!("ERR invalid argument '{}'", arg);
+                let msg = format!("ERR invalid argument '{:?}'", arg);
                 return Err(ValkeyError::String(msg));
             }
         };
@@ -93,11 +91,13 @@ pub fn query(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 
     let mut round_digits: u8 = QUERY_ROUND_DIGITS.unwrap_or(100);
 
-    while let Ok(arg) = args.next_str() {
-        match arg {
-            arg if arg.eq_ignore_ascii_case(CMD_ARG_ROUNDING) => {
+    while let Some(arg) = args.next() {
+        let token = parse_command_arg_token(arg.as_slice()).unwrap_or_default();
+        match token {
+            CommandArgToken::Rounding => {
                 round_digits = args.next_u64()?.max(100) as u8;
             }
+            // timeout
             _ => {
                 return Err(ValkeyError::Str(error_consts::INVALID_ARGUMENT));
             }

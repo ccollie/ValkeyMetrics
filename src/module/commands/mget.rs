@@ -68,9 +68,9 @@ pub fn mget(ctx: &Context, args: Vec<ValkeyString>) -> ValkeyResult {
 }
 
 fn parse_mget_options(args: &mut CommandArgIterator) -> ValkeyResult<MGetOptions> {
-    const CMD_TOKENS: &[&str] = &[CMD_ARG_WITH_LABELS];
+    const CMD_TOKENS: &[CommandArgToken] = &[CommandArgToken::WithLabels];
 
-    fn is_mget_command_keyword(arg: &str) -> bool {
+    fn is_mget_command_keyword(arg: CommandArgToken) -> bool {
         CMD_TOKENS.contains(&arg)
     }
 
@@ -81,13 +81,13 @@ fn parse_mget_options(args: &mut CommandArgIterator) -> ValkeyResult<MGetOptions
         selected_labels: Default::default(),
     };
 
-    while let Ok(arg) = args.next_str() {
-        let token = arg.to_ascii_uppercase();
-        match token.as_str() {
-            CMD_ARG_WITH_LABELS => {
+    while let Some(arg) = args.next() {
+        let token = parse_command_arg_token(arg.as_slice()).unwrap_or_default();
+        match token {
+            CommandArgToken::WithLabels => {
                 options.with_labels = true;
             }
-            CMD_ARG_SELECTED_LABELS => {
+            CommandArgToken::SelectedLabels => {
                 options.selected_labels = parse_label_list(args, is_mget_command_keyword)?;
             }
             _ => {}

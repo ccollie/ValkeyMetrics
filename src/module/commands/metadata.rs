@@ -1,6 +1,10 @@
 use crate::common::METRIC_NAME_LABEL;
 use crate::error_consts;
-use crate::module::arg_parse::{parse_series_selector_list, CMD_ARG_LIMIT};
+use crate::module::arg_parse::{
+    parse_command_arg_token, 
+    parse_series_selector_list, 
+    CommandArgToken,
+};
 use crate::module::result::{format_array_result, get_ts_metric_selector};
 use crate::module::{parse_timestamp_arg, VKM_SERIES_TYPE};
 use crate::series::index::{series_keys_by_matchers, with_timeseries_index};
@@ -116,16 +120,17 @@ where
     })
 }
 
-const CMD_ARG_START: &str = "START";
-const CMD_ARG_END: &str = "END";
-const CMD_ARG_MATCH: &str = "MATCH";
 
 fn parse_metadata_command_args(
     _ctx: &RedisContext,
     args: Vec<ValkeyString>,
     require_matchers: bool,
 ) -> ValkeyResult<MetadataFunctionArgs> {
-    const ARG_TOKENS: [&str; 3] = [CMD_ARG_END, CMD_ARG_START, CMD_ARG_LIMIT];
+    const ARG_TOKENS: [CommandArgToken; 3] = [
+        CommandArgToken::End,
+        CommandArgToken::Start,
+        CommandArgToken::Limit,
+    ];
 
     let mut args = args.into_iter().skip(1).peekable();
     let mut matchers = Vec::with_capacity(4);
@@ -133,26 +138,26 @@ fn parse_metadata_command_args(
     let mut end_value: Option<TimestampValue> = None;
     let mut limit: Option<usize> = None;
 
-    fn is_cmd_token(s: &str) -> bool {
-        ARG_TOKENS.iter().any(|token| token.eq_ignore_ascii_case(s))
+    fn is_cmd_token(arg: CommandArgToken) -> bool {
+        ARG_TOKENS.contains(&arg)
     }
 
-    while let Ok(arg) = args.next_str() {
-        let arg_upper = arg.to_uppercase();
-        match arg_upper.as_str() {
-            CMD_ARG_START => {
+    while let Some(arg) = args.next() {
+        let token = parse_command_arg_token(arg.as_slice()).unwrap_or_default();
+        match token {
+            CommandArgToken::Start => {
                 let next = args.next_str()?;
-                start_value = Some(parse_timestamp_arg(next, CMD_ARG_START)?);
+                start_value = Some(parse_timestamp_arg(next, "START")?);
             }
-            CMD_ARG_END => {
+            CommandArgToken::End => {
                 let next = args.next_str()?;
-                end_value = Some(parse_timestamp_arg(next, CMD_ARG_END)?);
+                end_value = Some(parse_timestamp_arg(next, "END")?);
             }
-            CMD_ARG_MATCH => {
+            CommandArgToken::Match => {
                 let m = parse_series_selector_list(&mut args, is_cmd_token)?;
                 matchers.extend(m);
             }
-            CMD_ARG_LIMIT => {
+            CommandArgToken::Limit => {
                 let next = args.next_u64()?;
                 if next > usize::MAX as u64 {
                     return Err(ValkeyError::Str("ERR LIMIT too large"));

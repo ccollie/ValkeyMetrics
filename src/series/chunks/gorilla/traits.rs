@@ -90,13 +90,6 @@ pub trait BitWrite {
 
     fn write_byte(&mut self, byte: u8);
 
-    fn write_bytes(&mut self, buf: &[u8]) -> io::Result<()> {
-        for byte in buf.iter().cloned() {
-            self.write_byte(byte);
-        }
-        Ok(())
-    }
-
     /// Returns true if the stream is aligned at a whole byte.
     fn byte_aligned(&self) -> bool;
 
