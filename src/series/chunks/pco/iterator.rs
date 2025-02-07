@@ -105,7 +105,6 @@ impl<'a, T: Number + Default> StreamState<'a, T> {
 pub struct PcoSampleIterator<'a> {
     timestamp_state: StreamState<'a, Timestamp>,
     values_state: StreamState<'a, f64>,
-    chunks_finished: bool,
     first_ts: Timestamp,
     last_ts: Timestamp,
     filtered: bool,
@@ -119,7 +118,6 @@ impl<'a> PcoSampleIterator<'a> {
         Ok(Self {
             timestamp_state,
             values_state,
-            chunks_finished: false,
             first_ts: 0,
             last_ts: 0,
             filtered: false,

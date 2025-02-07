@@ -417,12 +417,9 @@ impl Chunk for PcoChunk {
                 let stamps = &timestamps[start_index..=end_index];
                 let values = &values[start_index..=end_index];
                 return Ok(stamps
-                    .iter()
-                    .zip(values.iter())
-                    .map(|(timestamp, value)| Sample {
-                        timestamp: *timestamp,
-                        value: *value,
-                    })
+                    .iter().cloned()
+                    .zip(values.iter().cloned())
+                    .map(|(timestamp, value)| Sample { timestamp, value })
                     .collect());
             }
         }
@@ -459,6 +456,9 @@ impl Chunk for PcoChunk {
         samples: &[Sample],
         dp_policy: Option<DuplicatePolicy>,
     ) -> TsdbResult<Vec<SampleAddResult>> {
+        if samples.is_empty() {
+            return Ok(Vec::new());
+        }
         let first = samples[0];
         let dp_policy = dp_policy.unwrap_or(DuplicatePolicy::Block);
 
@@ -467,8 +467,8 @@ impl Chunk for PcoChunk {
         if self.is_empty() || first.timestamp > self.last_timestamp() {
             // we don't do streaming compression, so we have to accumulate all the samples
             // in a new chunk and then swap it with the old one
-            let mut timestamps = get_pooled_vec_i64(self.count);
-            let mut values = get_pooled_vec_f64(self.count);
+            let mut timestamps = get_pooled_vec_i64(self.count + samples.len());
+            let mut values = get_pooled_vec_f64(self.count + samples.len());
 
             if self.count > 0 {
                 self.decompress_internal(&mut timestamps, &mut values)?;

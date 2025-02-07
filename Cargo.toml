@@ -15,7 +15,6 @@ ahash = { version = "0.8", features = ["serde"] }
 blart = "0.3"
 cfg-if = "1.0"
 chili = "0.2"
-croaring = { version = "2.2" , features = ["alloc"] }
 enquote = "1.1"
 get-size = { version = "^0.1", features = ["derive"] }
 gtmpl = "0.7.1"

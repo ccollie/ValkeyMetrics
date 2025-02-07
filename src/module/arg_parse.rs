@@ -143,6 +143,7 @@ pub enum CommandArgToken {
 }
 
 impl CommandArgToken {
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &'static str {
         match self {
             CommandArgToken::AsOf => CMD_ARG_ASOF,
@@ -497,6 +498,18 @@ pub(crate) fn advance_if_next_token_one_of(
         }
     } 
     None
+}
+
+pub(crate) fn expect_one_of(args: &mut CommandArgIterator, tokens: &[CommandArgToken]) -> ValkeyResult<CommandArgToken> {
+    if let Some(next) = args.next() {
+        if let Some(token) = parse_command_arg_token(next.as_slice()) {
+            if tokens.contains(&token) {
+                return Ok(token)
+            }
+        }
+    }
+    let msg = format!("ERR: expected one of: {:?}", tokens);
+    Err(ValkeyError::String(msg))
 }
 
 fn is_token_or_end(args: &mut CommandArgIterator, is_cmd_token: fn(CommandArgToken) -> bool) -> bool {

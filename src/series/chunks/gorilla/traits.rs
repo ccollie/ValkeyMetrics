@@ -41,9 +41,6 @@ pub trait BitRead {
 
     /// Read `num` bits from the underlying stream.
     fn read_bits(&mut self, num: u32) -> Result<u64, Error>;
-
-    /// Get the next `num` bits, but do not update place in stream.
-    fn peek_bits(&mut self, num: u32) -> Result<u64, Error>;
 }
 
 /// A trait for anything that can write a variable number of

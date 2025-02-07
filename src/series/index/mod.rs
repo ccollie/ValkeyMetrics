@@ -1,9 +1,3 @@
-mod index_key;
-#[cfg(test)]
-mod index_tests;
-#[cfg(test)]
-mod posting_query_tests;
-mod postings;
 pub mod serialization;
 mod timeseries_index;
 
@@ -16,7 +10,6 @@ use papaya::{Guard, HashMap};
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::sync::LazyLock;
 
-pub(crate) use postings::*;
 pub(crate) use timeseries_index::*;
 pub use metricsql_parser::label::Matchers;
 /// Map from db to TimeseriesIndex

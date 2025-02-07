@@ -7,6 +7,7 @@ use crate::alerts::VKM_RULE_GROUP;
 use crate::module::with_timeseries;
 use crate::series::index::serialization::series_on_async_load_done;
 use crate::series::index::*;
+use crate::series::TimeSeries;
 use std::os::raw::c_void;
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
@@ -22,12 +23,8 @@ pub(crate) fn is_async_loading_in_progress() -> bool {
 fn handle_key_restore(ctx: &Context, key: &[u8]) {
     let _key = ctx.create_string(key);
     let is_ts = with_timeseries(ctx, &_key, |series| {
-        with_timeseries_index(ctx, |index| {
-            index.reindex_timeseries(series, key);
-            Ok(true)
-        })
-    })
-    .is_ok();
+        reindex_series(ctx, series, key)
+    }).is_ok();
 
     if !is_ts {
         if let Ok(Some(group)) = ctx
@@ -37,6 +34,19 @@ fn handle_key_restore(ctx: &Context, key: &[u8]) {
             let _ = with_group_manager(ctx, |manager| manager.add_group(ctx, group, &_key));
         }
     }
+}
+
+fn reindex_series(ctx: &Context, series: &TimeSeries, key: &[u8]) -> ValkeyResult<()> {
+    with_timeseries_index(ctx, |index| {
+        match index.reindex_timeseries(series, key) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let msg = format!("Failed to reindex time series: {:?}", e);
+                ctx.log_warning(&msg);
+                return Err(ValkeyError::String(msg))
+            }
+        }
+    })
 }
 
 fn handle_key_rename(ctx: &Context, old_key: &[u8], new_key: &[u8]) {

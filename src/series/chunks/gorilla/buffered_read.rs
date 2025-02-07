@@ -156,19 +156,6 @@ impl BitRead for BufferedReader<'_> {
 
         Ok(bits)
     }
-
-    fn peek_bits(&mut self, num: u32) -> Result<u64, Error> {
-        // save the current index and pos so we can reset them after calling `read_bits`
-        let index = self.index;
-        let pos = self.pos;
-
-        let bits = self.read_bits(num)?;
-
-        self.index = index;
-        self.pos = pos;
-
-        Ok(bits)
-    }
 }
 
 #[cfg(test)]
@@ -247,27 +234,5 @@ mod tests {
         assert_eq!(b.read_bit().unwrap(), false);
         assert_eq!(b.read_bits(1).unwrap(), 0b1);
         assert_eq!(b.read_bit().err().unwrap(), Error::EOF);
-    }
-
-    #[test]
-    fn peek_bits() {
-        let bytes = vec![0b01010111, 0b00011101, 0b11110101, 0b00010100];
-        let mut b = BufferedReader::new(&bytes);
-
-        assert_eq!(b.peek_bits(1).unwrap(), 0b0);
-        assert_eq!(b.peek_bits(4).unwrap(), 0b0101);
-        assert_eq!(b.peek_bits(8).unwrap(), 0b01010111);
-        assert_eq!(b.peek_bits(20).unwrap(), 0b01010111000111011111);
-
-        // read some individual bits we can test `peek_bits` when the position in the
-        // byte we are currently reading is non-zero
-        assert_eq!(b.read_bits(12).unwrap(), 0b010101110001);
-
-        assert_eq!(b.peek_bits(1).unwrap(), 0b1);
-        assert_eq!(b.peek_bits(4).unwrap(), 0b1101);
-        assert_eq!(b.peek_bits(8).unwrap(), 0b11011111);
-        assert_eq!(b.peek_bits(20).unwrap(), 0b11011111010100010100);
-
-        assert_eq!(b.peek_bits(22).err().unwrap(), Error::EOF);
     }
 }

@@ -1,7 +1,6 @@
 extern crate async_trait;
 extern crate cfg_if;
 extern crate core;
-extern crate croaring;
 extern crate get_size;
 extern crate joinkit;
 extern crate smallvec;

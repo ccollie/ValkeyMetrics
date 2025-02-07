@@ -3,7 +3,7 @@ use super::chunks::utils::{
 };
 use super::{validate_chunk_size, Chunk, ChunkCompression, SampleAddResult, TimeSeriesOptions};
 use crate::common::rounding::RoundingStrategy;
-use crate::common::types::{IntMap, Label, Sample, Timestamp};
+use crate::common::types::{IntMap, Label, Sample, Timestamp, TimestampTrait};
 use crate::common::METRIC_NAME_LABEL;
 use crate::config::{
     DEFAULT_CHUNK_COMPRESSION, DEFAULT_CHUNK_SIZE_BYTES, DEFAULT_DUPLICATE_POLICY,
@@ -26,19 +26,10 @@ use valkey_module::logging;
 
 
 pub(super) const TIMESTAMP_TYPE_U64: &str = "u64";
-pub(super) const TIMESTAMP_TYPE_U32: &str = "u32";
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "id64")] {
-        pub type TimeseriesId = u64;
-        pub type SeriesRef = u64;
-        pub const TIMESTAMP_TYPE: &str = TIMESTAMP_TYPE_U64;
-    } else {
-        pub type TimeseriesId = u32;
-        pub type SeriesRef = u32;
-        pub const TIMESTAMP_TYPE: &str = TIMESTAMP_TYPE_U64;
-    }
-}
+pub type TimeseriesId = u64;
+pub type SeriesRef = u64;
+pub const TIMESTAMP_TYPE: &str = TIMESTAMP_TYPE_U64;
 
 /// Represents a time series. The time series consists of time series blocks, each containing BLOCK_SIZE_FOR_TIME_SERIES
 /// data points.
@@ -578,8 +569,7 @@ impl TimeSeries {
         if self.retention.is_zero() {
             return self.first_timestamp;
         }
-        let retention_millis = self.retention.as_millis() as i64;
-        (self.last_timestamp - retention_millis).min(0)
+        self.last_timestamp.sub(self.retention)
     }
 }
 
@@ -847,10 +837,5 @@ mod tests {
             assert_eq!(data_point.timestamp, i as i64);
             assert_eq!(data_point.value, i as f64);
         }
-    }
-
-    #[test]
-    fn test_last_chunk_overflow() {
-        todo!();
     }
 }

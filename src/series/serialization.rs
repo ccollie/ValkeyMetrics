@@ -1,16 +1,14 @@
 use crate::common::serialization::*;
-use crate::series::time_series::{TIMESTAMP_TYPE_U32, TIMESTAMP_TYPE_U64};
 use crate::series::{
     rdb_load_series_chunk, rdb_save_series_chunk, Chunk, ChunkCompression, DuplicatePolicy,
-    TimeSeries, TimeseriesId, TIMESTAMP_TYPE,
+    TimeSeries, TimeseriesId,
 };
 use metricsql_common::types::Label;
-use valkey_module::{raw, ValkeyError, ValkeyResult};
+use valkey_module::{raw, ValkeyResult};
 
 pub const SERIES_ENC_VERSION: u64 = 1;
 
 pub fn rdb_save_series(series: &TimeSeries, rdb: *mut raw::RedisModuleIO) {
-    raw::save_string(rdb, TIMESTAMP_TYPE);
     raw::save_unsigned(rdb, series.id as u64);
     raw::save_string(rdb, &series.metric_name);
     rdb_save_usize(rdb, series.labels.len());
@@ -36,16 +34,6 @@ pub fn rdb_save_series(series: &TimeSeries, rdb: *mut raw::RedisModuleIO) {
 }
 
 pub fn rdb_load_series(rdb: *mut raw::RedisModuleIO, enc_ver: i32) -> ValkeyResult<TimeSeries> {
-    let id_type: String = rdb_load_string(rdb)?;
-    if id_type != TIMESTAMP_TYPE {
-        let other_type = if id_type == TIMESTAMP_TYPE_U32 {
-            TIMESTAMP_TYPE_U64
-        } else {
-            TIMESTAMP_TYPE_U32
-        };
-        let msg = format!("ERR module compiled with {other_type} timestamp support, found {id_type}. See the \"id64\" feature");
-        return Err(ValkeyError::String(msg));
-    }
     let id = raw::load_unsigned(rdb)? as TimeseriesId;
     let metric_name = rdb_load_string(rdb)?;
     let labels_len = rdb_load_usize(rdb)?;
