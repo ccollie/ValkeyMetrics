@@ -22,7 +22,7 @@ pub(super) fn setup_range_query_test_data(
     num_intervals: usize,
 ) -> ValkeyResult<()> {
     let mut metrics = Vec::new();
-    // Generating test series: a_X and b_X where X can take values of one, ten, or hundred,
+    // Generating test series: a_X and b_X where X can take values of one, ten, or a hundred,
     // representing the number of series each metric name contains.
     // Metric a_X and b_X are simple metrics.
     // These metrics will have data for all test time range

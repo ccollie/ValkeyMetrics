@@ -52,7 +52,7 @@ pub trait BitWrite {
     /// # Errors
     ///
     /// Passes along any I/O error from the underlying stream.
-    fn write_bit(&mut self, bit: bool) -> std::io::Result<()>;
+    fn write_bit(&mut self, bit: bool) -> io::Result<()>;
 
     /// Writes an unsigned value to the stream using the given
     /// number of bits.
@@ -64,7 +64,7 @@ pub trait BitWrite {
     /// to hold the given number of bits.
     /// Returns an error if the value is too large
     /// to fit the given number of bits.
-    fn write<U>(&mut self, bits: u32, value: U) -> std::io::Result<()>
+    fn write<U>(&mut self, bits: u32, value: U) -> io::Result<()>
     where
         U: PrimInt;
 
@@ -96,5 +96,5 @@ pub trait BitWrite {
     /// # Errors
     ///
     /// Passes along any I/O error from the underlying stream.
-    fn byte_align(&mut self) -> std::io::Result<()>;
+    fn byte_align(&mut self) -> io::Result<()>;
 }

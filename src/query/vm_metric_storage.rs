@@ -49,7 +49,7 @@ impl VMMetricStorage {
             Ok(None) => Ok(None),
             Err(e) => {
                 ctx.log_warning(&format!("ERR: {:?}", e));
-                // TODO return a proper error message. For nowm, return an empty data set
+                // TODO return a proper error message. For now, return an empty data set
                 Ok(Some(QueryResult::new(
                     MetricName::default(),
                     vec![],
