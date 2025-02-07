@@ -56,7 +56,7 @@ mod tests {
     fn test_gorilla_encoder_encode_decode_many() {
         let now = Timestamp::now();
         let start = now.sub(4 * ONE_DAY);
-        let mut options = GeneratorOptions::new(start, now, 1000).unwrap();
+        let mut options = GeneratorOptions::new(start, now, 5000).unwrap();
         options.typ = RandAlgo::MackeyGlass;
         
         let data = generate_series_data(&options).unwrap();

@@ -14,8 +14,8 @@ use std::mem::size_of;
 /// `GorillaChunk` is a chunk of timeseries data encoded using Gorilla XOR encoding.
 #[derive(Debug, Clone, PartialEq, GetSize)]
 pub struct GorillaChunk {
-    pub(crate) xor_encoder: GorillaEncoder,
-    pub(crate) first_timestamp: Timestamp,
+    pub(crate) encoder: GorillaEncoder,
+    pub(crate) first_ts: Timestamp,
     pub max_size: usize,
 }
 
@@ -29,20 +29,20 @@ impl GorillaChunk {
     pub fn with_max_size(max_size: usize) -> Self {
         let now = current_time_millis();
         Self {
-            xor_encoder: GorillaEncoder::new(),
-            first_timestamp: now,
+            encoder: GorillaEncoder::new(),
+            first_ts: now,
             max_size,
         }
     }
 
     pub fn is_full(&self) -> bool {
-        let usage = self.xor_encoder.get_size();
+        let usage = self.encoder.get_size();
         usage >= self.max_size
     }
 
     pub fn clear(&mut self) {
-        self.xor_encoder.clear();
-        self.first_timestamp = 0;
+        self.encoder.clear();
+        self.first_ts = 0;
     }
 
     pub fn set_data(&mut self, samples: &[Sample]) -> TsdbResult<()> {
@@ -56,7 +56,7 @@ impl GorillaChunk {
         for sample in samples {
             push_sample(&mut encoder, sample)?;
         }
-        self.xor_encoder = encoder;
+        self.encoder = encoder;
         Ok(())
     }
 
@@ -64,13 +64,13 @@ impl GorillaChunk {
         if self.is_empty() {
             return 0.0;
         }
-        let compressed_size = self.xor_encoder.buf().len();
+        let compressed_size = self.encoder.buf().len();
         let uncompressed_size = self.len() * (size_of::<i64>() + size_of::<f64>());
         (uncompressed_size / compressed_size) as f64
     }
 
     pub fn data_size(&self) -> usize {
-        self.xor_encoder.get_size()
+        self.encoder.get_size()
     }
 
     pub fn bytes_per_sample(&self) -> usize {
@@ -101,7 +101,7 @@ impl GorillaChunk {
     }
 
     fn buf(&self) -> &[u8] {
-        self.xor_encoder.buf()
+        self.encoder.buf()
     }
 
     pub fn iter(&self) -> SampleIter {
@@ -121,7 +121,7 @@ impl GorillaChunk {
 
         let mut first_ts = timestamps[0];
 
-        let first_timestamp = first_ts.max(self.first_timestamp);
+        let first_timestamp = first_ts.max(self.first_ts);
         let last_timestamp = timestamps[timestamps.len() - 1].min(self.last_timestamp());
 
         for sample in self.range_iter(first_timestamp, last_timestamp) {
@@ -155,16 +155,16 @@ impl GorillaChunk {
 
 impl Chunk for GorillaChunk {
     fn first_timestamp(&self) -> Timestamp {
-        self.first_timestamp
+        self.first_ts
     }
     fn last_timestamp(&self) -> Timestamp {
-        self.xor_encoder.timestamp
+        self.encoder.timestamp
     }
     fn len(&self) -> usize {
-        self.xor_encoder.num_samples
+        self.encoder.num_samples
     }
     fn last_value(&self) -> f64 {
-        self.xor_encoder.value
+        self.encoder.value
     }
     fn size(&self) -> usize {
         self.data_size()
@@ -177,25 +177,27 @@ impl Chunk for GorillaChunk {
             return Ok(0);
         }
 
-        if self.is_range_covering_full_period(start_ts, end_ts) {
+        if start_ts > self.last_timestamp() || end_ts < self.first_timestamp() {
             self.clear();
             return Ok(0);
         }
 
-        let old_sample_count = self.xor_encoder.num_samples;
         let mut new_encoder = GorillaEncoder::new();
 
-        for value in self.xor_encoder.iter() {
+        let mut deleted_count: usize = 0;
+
+        for value in self.encoder.iter() {
             let sample = value?;
-            if sample.timestamp < start_ts || sample.timestamp > end_ts {
-                push_sample(&mut new_encoder, &sample)?;
+            if sample.timestamp >= start_ts && sample.timestamp <= end_ts {
+                deleted_count += 1;
+                continue;
             }
+            push_sample(&mut new_encoder, &sample)?;
         }
 
-        self.xor_encoder = new_encoder;
-        let new_count = self.len();
+        self.encoder = new_encoder;
 
-        Ok(old_sample_count - new_count)
+        Ok(deleted_count)
     }
 
     fn add_sample(&mut self, sample: &Sample) -> TsdbResult<()> {
@@ -203,9 +205,9 @@ impl Chunk for GorillaChunk {
             return Err(TsdbError::CapacityFull(self.max_size));
         }
 
-        push_sample(&mut self.xor_encoder, sample)?;
+        push_sample(&mut self.encoder, sample)?;
 
-        self.first_timestamp = self.first_timestamp.min(sample.timestamp);
+        self.first_ts = self.first_ts.min(sample.timestamp);
 
         Ok(())
     }
@@ -231,7 +233,7 @@ impl Chunk for GorillaChunk {
         let count = self.len();
         let mut xor_encoder = GorillaEncoder::new();
 
-        let mut iter = self.xor_encoder.iter();
+        let mut iter = self.encoder.iter();
 
         let mut current = Sample::default();
 
@@ -259,7 +261,7 @@ impl Chunk for GorillaChunk {
         }
 
         // todo: do a self.encoder.buf.take()
-        self.xor_encoder = xor_encoder;
+        self.encoder = xor_encoder;
         let size = if duplicate_found { count } else { count + 1 };
         Ok(size)
     }
@@ -333,7 +335,7 @@ impl Chunk for GorillaChunk {
             },
         )?;
 
-        self.xor_encoder = merge_state.xor_encoder;
+        self.encoder = merge_state.xor_encoder;
         Ok(merge_state.result)
     }
 
@@ -349,16 +351,16 @@ impl Chunk for GorillaChunk {
         }
 
         let mid = self.len() / 2;
-        for (i, value) in self.xor_encoder.iter().enumerate() {
+        for (i, value) in self.encoder.iter().enumerate() {
             let sample = value?;
             if i < mid {
                 // todo: handle min and max timestamps
                 push_sample(&mut left_chunk, &sample)?;
             } else {
-                push_sample(&mut right_chunk.xor_encoder, &sample)?;
+                push_sample(&mut right_chunk.encoder, &sample)?;
             }
         }
-        self.xor_encoder = left_chunk;
+        self.encoder = left_chunk;
 
         Ok(right_chunk)
     }
@@ -377,7 +379,7 @@ pub(crate) struct ChunkIter<'a> {
 
 impl<'a> ChunkIter<'a> {
     pub fn new(chunk: &'a GorillaChunk) -> Self {
-        let inner = GorillaIterator::new(&chunk.xor_encoder);
+        let inner = GorillaIterator::new(&chunk.encoder);
         Self { inner }
     }
 }
@@ -407,7 +409,7 @@ pub struct GorillaChunkIterator<'a> {
 
 impl<'a> GorillaChunkIterator<'a> {
     pub fn new(chunk: &'a GorillaChunk, start: Timestamp, end: Timestamp) -> Self {
-        let inner = GorillaIterator::new(&chunk.xor_encoder);
+        let inner = GorillaIterator::new(&chunk.encoder);
         Self {
             inner,
             start,
@@ -472,7 +474,7 @@ mod tests {
 
     fn compare_chunks(chunk1: &GorillaChunk, chunk2: &GorillaChunk) {
         assert_eq!(
-            chunk1.xor_encoder, chunk2.xor_encoder,
+            chunk1.encoder, chunk2.encoder,
             "xor chunks do not match"
         );
         assert_eq!(chunk1.max_size, chunk2.max_size);
@@ -648,17 +650,18 @@ mod tests {
         let start_ts = samples[0].timestamp;
         let mid_ts = samples[mid].timestamp;
         let removed_count = chunk.remove_range(start_ts, mid_ts).unwrap();
-        assert_eq!(removed_count, mid);
+        // range is inclusive, so we would have deleted mid + 1
+        assert_eq!(removed_count, mid + 1);
 
         // Ensure the remaining samples are correct
         let remaining_samples: Vec<_> = chunk.iter().collect();
-        let expected_samples = &samples[mid..];
+        let expected_samples = &samples[mid+1..];
         assert_eq!(remaining_samples, expected_samples);
 
         // Remove a range that covers the remaining samples
         let end_ts = samples[samples.len() - 1].timestamp;
         let removed_count = chunk.remove_range(mid_ts, end_ts).unwrap();
-        assert_eq!(removed_count, mid);
+        assert_eq!(removed_count, mid - 1);
 
         // Ensure the chunk is empty
         assert!(chunk.is_empty());
