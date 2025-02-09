@@ -28,10 +28,13 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, UNIX_EPOCH};
+use num_traits::Zero;
 use titlecase::titlecase;
 use url::Url;
 
 pub type FuncMap = HashMap<String, Func>;
+pub type FuncResult = Result<Value, FuncError>;
+
 
 // go template execution fails when it's tree is empty
 const DEFAULT_TEMPLATE: &str = r##"{{- define "default.template" -}}{{- end -}}"##;
@@ -442,7 +445,17 @@ fn humanize(args: &[Value]) -> Result<Value, FuncError> {
 fn humanize1024(args: &[Value]) -> Result<Value, FuncError> {
     match ensure_single_f64(args, "humanize1024") {
         Ok(v) => {
-            if v.abs() <= 1.0 || v.is_nan() || v.is_infinite() {
+            if v.is_zero() {
+                return Ok("0".into());
+            } else if v.is_nan() {
+                return Ok("NaN".into());
+            } else if v.is_infinite() {
+                if v.is_sign_positive() {
+                    return Ok("+Inf".into())
+                } else {
+                    return Ok("-Inf".into())
+                }
+            } else if v.abs() <= 1.0 {
                 return Ok(format!("{:.4}", v).into());
             }
             Ok(humanize_bytes(v).into())

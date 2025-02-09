@@ -62,31 +62,31 @@ mod tests {
     #[test]
     fn test_template_funcs_formatting() {
         let test_cases = vec![
-            ("humanize_1024", 0.0, "0"),
-            ("humanize_1024", f64::INFINITY, "+Inf"),
-            ("humanize_1024", f64::NAN, "NaN"),
-            ("humanize_1024", 127087.0, "124.1ki"),
-            ("humanize_1024", 130137088.0, "124.1Mi"),
-            ("humanize_1024", 133260378112.0, "124.1Gi"),
-            ("humanize_1024", 136458627186688.0, "124.1Ti"),
-            ("humanize_1024", 139733634239168512.0, "124.1Pi"),
-            ("humanize_1024", 143087241460908556288.0, "124.1Ei"),
-            ("humanize_1024", 146521335255970361638912.0, "124.1Zi"),
-            ("humanize_1024", 150037847302113650318245888.0, "124.1Yi"),
+            ("humanize1024", 0.0, "0"),
+            ("humanize1024", f64::INFINITY, "+Inf"),
+            ("humanize1024", f64::NAN, "NaN"),
+            ("humanize1024", 127087.0, "124.1ki"),
+            ("humanize1024", 130137088.0, "124.1Mi"),
+            ("humanize1024", 133260378112.0, "124.1Gi"),
+            ("humanize1024", 136458627186688.0, "124.1Ti"),
+            ("humanize1024", 139733634239168512.0, "124.1Pi"),
+            ("humanize1024", 143087241460908556288.0, "124.1Ei"),
+            ("humanize1024", 146521335255970361638912.0, "124.1Zi"),
+            ("humanize1024", 150037847302113650318245888.0, "124.1Yi"),
             (
-                "humanize_1024",
+                "humanize1024",
                 153638755637364377925883789312.0,
                 "1.271e+05Yi",
             ),
             ("humanize", 127087.0, "127.1k"),
             ("humanize", 136458627186688.0, "136.5T"),
-            ("humanize_duration", 1.0, "0d 0h 0m 1s"),
-            ("humanize_duration", 0.2, "0d 0h 0m 0s"),
-            ("humanize_duration", 42000.0, "0d 11h 40m 0s"),
-            ("humanize_duration", 16790555.0, "194d 8h 2m 35s"),
-            ("humanize_percentage", 1.0, "100.0%"),
-            ("humanize_percentage", 0.8, "80.0%"),
-            ("humanize_percentage", 0.015, "1.5%"),
+            ("humanizeDuration", 1.0, "0d 0h 0m 1s"),
+            ("humanizeDuration", 0.2, "0d 0h 0m 0s"),
+            ("humanizeDuration", 42000.0, "0d 11h 40m 0s"),
+            ("humanizeDuration", 16790555.0, "194d 8h 2m 35s"),
+            ("humanizePercentage", 1.0, "100.0%"),
+            ("humanizePercentage", 0.8, "80.0%"),
+            ("humanizePercentage", 0.015, "1.5%"),
             (
                 "humanize_timestamp",
                 1679055557.0,
@@ -96,7 +96,11 @@ mod tests {
 
         let func_map = template_funcs();
         for (func_name, input, expected) in test_cases {
-            let func = func_map.get(func_name).unwrap();
+            let func = func_map.get(func_name);
+            if func.is_none() {
+                panic!("function '{}' not found", func_name);
+            }
+            let func = func.unwrap();
             let value: Value = input.into();
             let actual = func(&[value]).unwrap().to_string();
 

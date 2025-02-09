@@ -5,8 +5,10 @@ use crate::series::chunks::utils::get_sample_index_bounds;
 use crate::series::chunks::Chunk;
 use crate::series::merge::merge_samples;
 use crate::series::{DuplicatePolicy, SampleAddResult, SAMPLE_SIZE};
+use ahash::HashSetExt;
 use core::mem::size_of;
 use get_size::GetSize;
+use metricsql_common::hash::IntSet;
 
 // todo: move to constants
 pub const MAX_UNCOMPRESSED_SAMPLES: usize = 256;
@@ -131,6 +133,7 @@ impl UncompressedChunk {
             vec![]
         }
     }
+    
 }
 
 fn get_sample_index(samples: &[Sample], ts: Timestamp) -> (usize, bool) {
@@ -204,7 +207,7 @@ impl Chunk for UncompressedChunk {
             let last_sample = self.samples[count - 1];
             let last_ts = last_sample.timestamp;
             if ts > last_ts {
-                self.samples.push(sample);
+                self.add_sample(&sample)?;
             } else {
                 self.handle_insert(sample, dp_policy)?;
             }
@@ -248,20 +251,34 @@ impl Chunk for UncompressedChunk {
             res: Vec::with_capacity(samples.len()),
         };
 
+        // eliminate results not related to the new samples
+        let mut sample_set: IntSet<Timestamp> = IntSet::with_capacity(samples.len());
+        for sample in samples.iter() {
+            sample_set.insert(sample.timestamp);
+        }
+        
         let left_iter = SampleIter::Slice(samples.iter());
         let right_iter = SampleIter::Slice(self.samples.iter());
 
+        let max_len = self.max_elements;
+        
         merge_samples(
             left_iter,
             right_iter,
             dp_policy,
             &mut state,
             |state, sample, duplicate| {
-                if !duplicate {
-                    state.dest.push(sample);
-                    state.res.push(SampleAddResult::Ok(sample.timestamp));
-                } else {
-                    state.res.push(SampleAddResult::Duplicate);
+                let is_new = sample_set.remove(&sample.timestamp);
+                if state.dest.len() > max_len {
+                    return Err(TsdbError::CapacityFull(max_len));
+                }
+                state.dest.push(sample);
+                if is_new {
+                    if duplicate {
+                        state.res.push(SampleAddResult::Duplicate);
+                    } else  {
+                        state.res.push(SampleAddResult::Ok(sample.timestamp));
+                    }
                 }
                 Ok(())
             },
@@ -275,6 +292,16 @@ impl Chunk for UncompressedChunk {
     where
         Self: Sized,
     {
+        if self.samples.is_empty() {
+            return Ok(self.clone());
+        }
+
+        if self.samples.len() == 1 {
+            let mut result = self.clone();
+            result.samples.clear();
+            return Ok(result);
+        }
+
         let half = self.samples.len() / 2;
         let samples = std::mem::take(&mut self.samples);
         let (left, right) = samples.split_at(half);
@@ -289,4 +316,347 @@ impl Chunk for UncompressedChunk {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use crate::series::{Chunk, DuplicatePolicy, SampleAddResult, UncompressedChunk, SAMPLE_SIZE};
+    use metricsql_runtime::types::Sample;
+
+    #[test]
+    fn test_remove_range() {
+        let samples = vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 20, value: 2.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 40, value: 4.0 },
+            Sample { timestamp: 50, value: 5.0 },
+        ];
+        let mut chunk = UncompressedChunk::new(1000, &samples);
+
+        // Test 1: Remove middle range
+        let removed = chunk.remove_range(25, 45).unwrap();
+        assert_eq!(removed, 2);
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 20, value: 2.0 },
+            Sample { timestamp: 50, value: 5.0 },
+        ]);
+
+        // Test 2: Remove range at the beginning
+        let mut chunk = UncompressedChunk::new(1000, &samples);
+        let removed = chunk.remove_range(0, 15).unwrap();
+        assert_eq!(removed, 1);
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 20, value: 2.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 40, value: 4.0 },
+            Sample { timestamp: 50, value: 5.0 },
+        ]);
+
+        // Test 3: Remove range at the end
+        let mut chunk = UncompressedChunk::new(1000, &samples);
+        let removed = chunk.remove_range(45, 60).unwrap();
+        assert_eq!(removed, 1);
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 20, value: 2.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 40, value: 4.0 },
+        ]);
+
+        // Test 4: Remove entire range
+        let mut chunk = UncompressedChunk::new(1000, &samples);
+        let removed = chunk.remove_range(0, 60).unwrap();
+        assert_eq!(removed, 5);
+        assert!(chunk.samples.is_empty());
+
+        // Test 5: Remove range outside of samples
+        let mut chunk = UncompressedChunk::new(1000, &samples);
+        let removed = chunk.remove_range(60, 70).unwrap();
+        assert_eq!(removed, 0);
+        assert_eq!(chunk.samples, samples);
+
+        // Test 6: Remove range with no overlap
+        let mut chunk = UncompressedChunk::new(1000, &samples);
+        let removed = chunk.remove_range(31, 39).unwrap();
+        assert_eq!(removed, 0);
+        assert_eq!(chunk.samples, samples);
+
+        // Test 7: Remove range from empty chunk
+        let mut empty_chunk = UncompressedChunk::default();
+        let removed = empty_chunk.remove_range(10, 20).unwrap();
+        assert_eq!(removed, 0);
+        assert!(empty_chunk.samples.is_empty());
+    }
+
+    #[test]
+    fn test_upsert_sample() {
+        let samples = vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 50, value: 5.0 },
+        ];
+        let mut chunk = UncompressedChunk::new(1000, &samples);
+
+        // Test 1: Upsert a new sample at the end
+        let result = chunk.upsert_sample(Sample { timestamp: 60, value: 6.0 }, DuplicatePolicy::KeepLast).unwrap();
+        assert_eq!(result, 1);
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 50, value: 5.0 },
+            Sample { timestamp: 60, value: 6.0 },
+        ]);
+
+        // Test 2: Upsert a new sample in the middle
+        let result = chunk.upsert_sample(Sample { timestamp: 40, value: 4.0 }, DuplicatePolicy::KeepLast).unwrap();
+        assert_eq!(result, 1);
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 40, value: 4.0 },
+            Sample { timestamp: 50, value: 5.0 },
+            Sample { timestamp: 60, value: 6.0 },
+        ]);
+
+        // Test 3: Upsert an existing sample with KeepLast policy
+        let result = chunk.upsert_sample(Sample { timestamp: 30, value: 3.5 }, DuplicatePolicy::KeepLast).unwrap();
+        assert_eq!(result, 0);
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 30, value: 3.5 },
+            Sample { timestamp: 40, value: 4.0 },
+            Sample { timestamp: 50, value: 5.0 },
+            Sample { timestamp: 60, value: 6.0 },
+        ]);
+
+        // Test 4: Upsert an existing sample with KeepFirst policy
+        let result = chunk.upsert_sample(Sample { timestamp: 40, value: 4.5 }, DuplicatePolicy::KeepFirst).unwrap();
+        assert_eq!(result, 0);
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 30, value: 3.5 },
+            Sample { timestamp: 40, value: 4.0 },
+            Sample { timestamp: 50, value: 5.0 },
+            Sample { timestamp: 60, value: 6.0 },
+        ]);
+
+        // Test 5: Upsert a sample at the beginning
+        let result = chunk.upsert_sample(Sample { timestamp: 5, value: 0.5 }, DuplicatePolicy::KeepLast).unwrap();
+        assert_eq!(result, 1);
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 5, value: 0.5 },
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 30, value: 3.5 },
+            Sample { timestamp: 40, value: 4.0 },
+            Sample { timestamp: 50, value: 5.0 },
+            Sample { timestamp: 60, value: 6.0 },
+        ]);
+
+        // Test 6: Upsert a sample into an empty chunk
+        let mut empty_chunk = UncompressedChunk::default();
+        let result = empty_chunk.upsert_sample(Sample { timestamp: 10, value: 1.0 }, DuplicatePolicy::KeepLast).unwrap();
+        assert_eq!(result, 1);
+        assert_eq!(empty_chunk.samples, vec![
+            Sample { timestamp: 10, value: 1.0 },
+        ]);
+
+        // Test 7: Attempt to upsert when the chunk is full
+        let mut full_chunk = UncompressedChunk::new(SAMPLE_SIZE * 2, &samples);
+        let result = full_chunk.upsert_sample(Sample { timestamp: 70, value: 7.0 }, DuplicatePolicy::KeepLast);
+        assert!(result.is_err());
+        assert_eq!(full_chunk.samples, samples);
+    }
+
+    #[test]
+    fn test_samples_by_timestamps() {
+        let samples = vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 20, value: 2.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 40, value: 4.0 },
+            Sample { timestamp: 50, value: 5.0 },
+        ];
+        let chunk = UncompressedChunk::new(1000, &samples);
+
+        // Test 1: Get existing timestamps
+        let timestamps = vec![10, 30, 50];
+        let result = chunk.samples_by_timestamps(&timestamps).unwrap();
+        assert_eq!(result, vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 50, value: 5.0 },
+        ]);
+
+        // Test 2: Get non-existing timestamps
+        let timestamps = vec![15, 25, 35];
+        let result = chunk.samples_by_timestamps(&timestamps).unwrap();
+        assert_eq!(result, vec![]);
+
+        // Test 3: Mix of existing and non-existing timestamps
+        let timestamps = vec![10, 15, 30, 35, 50];
+        let result = chunk.samples_by_timestamps(&timestamps).unwrap();
+        assert_eq!(result, vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 50, value: 5.0 },
+        ]);
+
+        // Test 4: Empty timestamps
+        let timestamps = vec![];
+        let result = chunk.samples_by_timestamps(&timestamps).unwrap();
+        assert_eq!(result, vec![]);
+
+        // Test 5: All timestamps after the last sample
+        let timestamps = vec![60, 70, 80];
+        let result = chunk.samples_by_timestamps(&timestamps).unwrap();
+        assert_eq!(result, vec![]);
+
+        // Test 6: All timestamps before the first sample
+        let timestamps = vec![1, 5, 9];
+        let result = chunk.samples_by_timestamps(&timestamps).unwrap();
+        assert_eq!(result, vec![]);
+
+        // Test 7: Empty chunk
+        let empty_chunk = UncompressedChunk::default();
+        let timestamps = vec![10, 20, 30];
+        let result = empty_chunk.samples_by_timestamps(&timestamps).unwrap();
+        assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn test_merge_samples() {
+        let samples = vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 50, value: 5.0 },
+        ];
+        let mut chunk = UncompressedChunk::new(1000, &samples);
+
+        // Test 1: Merge non-overlapping samples
+        let new_samples = vec![
+            Sample { timestamp: 20, value: 2.0 },
+            Sample { timestamp: 40, value: 4.0 },
+        ];
+        let result = chunk.merge_samples(&new_samples, None).unwrap();
+        assert_eq!(result, vec![SampleAddResult::Ok(20), SampleAddResult::Ok(40)]);
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 20, value: 2.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 40, value: 4.0 },
+            Sample { timestamp: 50, value: 5.0 },
+        ]);
+
+        // Test 2: Merge overlapping samples with KeepLast policy
+        let new_samples = vec![
+            Sample { timestamp: 30, value: 3.5 },
+            Sample { timestamp: 60, value: 6.0 },
+        ];
+        let result = chunk.merge_samples(&new_samples, Some(DuplicatePolicy::KeepLast)).unwrap();
+        assert_eq!(result, vec![SampleAddResult::Ok(30), SampleAddResult::Ok(60)]);
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 20, value: 2.0 },
+            Sample { timestamp: 30, value: 3.5 },
+            Sample { timestamp: 40, value: 4.0 },
+            Sample { timestamp: 50, value: 5.0 },
+            Sample { timestamp: 60, value: 6.0 },
+        ]);
+
+        // Test 3: Merge samples into an empty chunk
+        let mut empty_chunk = UncompressedChunk::default();
+        let new_samples = vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 20, value: 2.0 },
+        ];
+        let result = empty_chunk.merge_samples(&new_samples, None).unwrap();
+        assert_eq!(result, vec![SampleAddResult::Ok(10), SampleAddResult::Ok(20)]);
+        assert_eq!(empty_chunk.samples, new_samples);
+
+        // Test 4: Merge samples with all timestamps greater than the last timestamp in the chunk
+        let mut chunk = UncompressedChunk::new(1000, &samples);
+        let new_samples = vec![
+            Sample { timestamp: 60, value: 6.0 },
+            Sample { timestamp: 70, value: 7.0 },
+        ];
+        let result = chunk.merge_samples(&new_samples, None).unwrap();
+        assert_eq!(result, vec![SampleAddResult::Ok(60), SampleAddResult::Ok(70)]);
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 50, value: 5.0 },
+            Sample { timestamp: 60, value: 6.0 },
+            Sample { timestamp: 70, value: 7.0 },
+        ]);
+
+        // Test 5: Merge a single sample
+        let mut chunk = UncompressedChunk::new(1000, &samples);
+        let new_samples = vec![Sample { timestamp: 40, value: 4.0 }];
+        let result = chunk.merge_samples(&new_samples, None).unwrap();
+        assert_eq!(result, vec![SampleAddResult::Ok(40)]);
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 40, value: 4.0 },
+            Sample { timestamp: 50, value: 5.0 },
+        ]);
+    }
+
+    #[test]
+    fn test_split() {
+        let samples = vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 20, value: 2.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 40, value: 4.0 },
+            Sample { timestamp: 50, value: 5.0 },
+        ];
+        let mut chunk = UncompressedChunk::new(1000, &samples);
+
+        // Test 1: Split a chunk with an odd number of samples
+        let new_chunk = chunk.split().unwrap();
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 20, value: 2.0 },
+        ]);
+        assert_eq!(new_chunk.samples, vec![
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 40, value: 4.0 },
+            Sample { timestamp: 50, value: 5.0 },
+        ]);
+
+        // Test 2: Split a chunk with an even number of samples
+        let samples = vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 20, value: 2.0 },
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 40, value: 4.0 },
+        ];
+        let mut chunk = UncompressedChunk::new(1000, &samples);
+        let new_chunk = chunk.split().unwrap();
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 10, value: 1.0 },
+            Sample { timestamp: 20, value: 2.0 },
+        ]);
+        assert_eq!(new_chunk.samples, vec![
+            Sample { timestamp: 30, value: 3.0 },
+            Sample { timestamp: 40, value: 4.0 },
+        ]);
+
+        // Test 3: Split a chunk with a single sample
+        let samples = vec![
+            Sample { timestamp: 10, value: 1.0 },
+        ];
+        let mut chunk = UncompressedChunk::new(1000, &samples);
+        let new_chunk = chunk.split().unwrap();
+        assert_eq!(chunk.samples, vec![
+            Sample { timestamp: 10, value: 1.0 },
+        ]);
+        assert!(new_chunk.samples.is_empty());
+
+        // Test 4: Split an empty chunk
+        let mut empty_chunk = UncompressedChunk::default();
+        let new_chunk = empty_chunk.split().unwrap();
+        assert!(empty_chunk.samples.is_empty());
+        assert!(new_chunk.samples.is_empty());
+    }
+}

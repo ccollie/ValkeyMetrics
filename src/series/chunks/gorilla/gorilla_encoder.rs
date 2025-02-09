@@ -10,6 +10,7 @@ use get_size::GetSize;
 use std::mem::size_of_val;
 use valkey_module::error::Error as ValkeyError;
 use valkey_module::raw;
+use super::serialization::{load_bitwriter_from_rdb, save_bitwriter_to_rdb};
 
 #[derive(Debug, Clone)]
 pub struct GorillaEncoder {
@@ -119,7 +120,6 @@ impl GorillaEncoder {
         }
         let delta_of_delta = timestamp_delta - self.timestamp_delta;
 
-        // write_varbit_ts(timestamp_delta_of_delta, &mut self.writer)?;
         write_varbit(delta_of_delta, &mut self.writer)?;
 
         let (leading_bits, trailing_bits) = write_varbit_xor(
@@ -205,25 +205,6 @@ impl PartialEq<Self> for GorillaEncoder {
 }
 
 impl Eq for GorillaEncoder {}
-
-fn save_bitwriter_to_rdb(rdb: *mut raw::RedisModuleIO, writer: &BufferedWriter) {
-    let bytes = writer.get_ref();
-    raw::save_slice(rdb, bytes);
-
-    raw::save_unsigned(rdb, writer.position() as u64);
-}
-
-fn load_bitwriter_from_rdb(
-    rdb: *mut raw::RedisModuleIO,
-) -> Result<BufferedWriter, ValkeyError> {
-    // the load_string_buffer does not return an Err, so we can unwrap
-    let bytes = raw::load_string_buffer(rdb)?.as_ref().to_vec();
-    let pos = raw::load_unsigned(rdb)? as u32;
-
-    let writer = BufferedWriter::hydrate(bytes, pos);
-
-    Ok(writer)
-}
 
 #[cfg(test)]
 mod tests {}

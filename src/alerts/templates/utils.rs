@@ -26,7 +26,16 @@ pub(super) fn ensure_single_string_arg<'a>(
 
 pub(super) fn expect_number_value(val: &Value, name: &str) -> Result<f64, FuncError> {
     match val {
-        Value::Number(n) => Ok(n.as_f64().unwrap_or(0.0)),
+        Value::Number(n) => {
+            let mut val = n.as_f64();
+            if val.is_none() {
+                val = n.as_u64().map(|n| n as f64);
+            }
+            if val.is_none() {
+                val = n.as_i64().map(|n| n as f64);
+            }
+            Ok(val.unwrap_or_default())
+        }
         Value::String(s) => {
             let n: f64 = s
                 .parse()

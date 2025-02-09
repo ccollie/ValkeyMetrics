@@ -313,7 +313,6 @@ impl TimeSeriesIndex {
 }
 
 fn hash_timeseries(ts: &TimeSeries, state: &mut Xxh3, counter: usize) -> SeriesRef {
-    #[cfg(feature = "id64")]
     state.reset();
 
     state.update(ts.metric_name.as_bytes());

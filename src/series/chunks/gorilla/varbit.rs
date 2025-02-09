@@ -16,7 +16,7 @@ use super::traits::{BitRead, BitWrite};
 /// the size by around 1%. A more detailed study would be needed for precise
 /// values, but it's appears quite certain that we would end up far below 10%,
 /// which would maybe convince us to invest the increased coding/decoding cost.
-pub fn write_varbit<W: BitWrite>(value: i64, writer: &mut W) -> std::io::Result<()> {
+pub(super) fn write_varbit<W: BitWrite>(value: i64, writer: &mut W) -> std::io::Result<()> {
     match value {
         0 => writer.write_bit(false)?, // Precisely 0, needs 1 bit.
         // -3 <= val <= 4, needs 5 bits.
@@ -99,7 +99,7 @@ fn varbit_bucket_to_num_bits(bucket: u8) -> u8 {
 }
 
 /// Reads a Prometheus varbit-encoded integer from the input.
-pub fn read_varbit_int<R: BitRead>(reader: &mut R) -> std::io::Result<i64> {
+pub(super) fn read_varbit_int<R: BitRead>(reader: &mut R) -> std::io::Result<i64> {
     let bucket = read_varbit_int_bucket(reader)?;
     let num_bits = varbit_bucket_to_num_bits(bucket);
 
